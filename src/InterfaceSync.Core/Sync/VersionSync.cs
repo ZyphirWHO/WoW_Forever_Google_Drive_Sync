@@ -422,9 +422,8 @@ public sealed class VersionSync
         var backup = _backups.Create(Name, LocalAccount, reason);
         if (backup != null) _log.Info($"{Name}: backed up this PC's settings to {backup.Path}.");
 
-        var staging = LocalAccount + StagingSuffix;
-        var old = LocalAccount + OldSuffix;
-        if (_fs.DirectoryExists(staging)) _fs.DeleteDirectory(staging);
+        var staging = FreeAside(LocalAccount + StagingSuffix);
+        var old = FreeAside(LocalAccount + OldSuffix);
         _fs.CreateDirectory(staging);
 
         foreach (var entry in files.Entries)
@@ -438,7 +437,7 @@ public sealed class VersionSync
             var copiedSize = _fs.GetFileInfo(target).Size;
             if (copiedSize != entry.Size)
             {
-                _fs.DeleteDirectory(staging);
+                RemoveLeftover(staging);
                 SetStatus(SyncStatus.WaitingForCloud, $"A file was still downloading from {Cloud.ProviderName}");
                 _log.Warn($"{Name}: '{entry.RelativePath}' was {copiedSize} bytes, expected {entry.Size}. Pull postponed.");
                 return SyncOutcome.Waiting;
@@ -447,14 +446,13 @@ public sealed class VersionSync
 
         if (_isGameRunning())
         {
-            _fs.DeleteDirectory(staging);
+            RemoveLeftover(staging);
             _log.Warn($"{Name}: the game started during the download, so the pull was cancelled. Nothing on this PC changed.");
             SetStatus(SyncStatus.GameRunning, "Game running");
             _wasRunning = true;
             return SyncOutcome.Cancelled;
         }
 
-        if (_fs.DirectoryExists(old)) _fs.DeleteDirectory(old);
         bool hadLocal = _fs.DirectoryExists(LocalAccount);
         try
         {
@@ -464,12 +462,12 @@ public sealed class VersionSync
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             if (!_fs.DirectoryExists(LocalAccount) && _fs.DirectoryExists(old)) _fs.MoveDirectory(old, LocalAccount);
-            if (_fs.DirectoryExists(staging)) _fs.DeleteDirectory(staging);
+            RemoveLeftover(staging);
             _log.Warn($"{Name}: settings files were in use (did the game start?), so the pull was undone. Nothing on this PC changed.");
             SetStatus(SyncStatus.Idle, "Pull undone: files were in use");
             return SyncOutcome.Cancelled;
         }
-        if (hadLocal) _fs.DeleteDirectory(old); // already in the backup store
+        if (hadLocal) RemoveLeftover(old); // already in the backup store; failing to delete it is not a failed sync
 
         if (cloud.Commit == null)
         {
@@ -556,15 +554,13 @@ public sealed class VersionSync
                 if (files.Count == 0) return Refuse("That backup is empty.");
                 var before = _backups.Create(Name, LocalAccount, "before-restore");
 
-                var staging = LocalAccount + StagingSuffix;
-                var old = LocalAccount + OldSuffix;
-                if (_fs.DirectoryExists(staging)) _fs.DeleteDirectory(staging);
+                var staging = FreeAside(LocalAccount + StagingSuffix);
+                var old = FreeAside(LocalAccount + OldSuffix);
                 TreeCopy.CopyFiles(_fs, backup.Path, staging, files);
-                if (_fs.DirectoryExists(old)) _fs.DeleteDirectory(old);
                 bool hadLocal = _fs.DirectoryExists(LocalAccount);
                 if (hadLocal) _fs.MoveDirectory(LocalAccount, old);
                 _fs.MoveDirectory(staging, LocalAccount);
-                if (hadLocal) _fs.DeleteDirectory(old);
+                if (hadLocal) RemoveLeftover(old);
 
                 State.PendingPush = true;
                 Save();
@@ -671,6 +667,46 @@ public sealed class VersionSync
     private static string NewCommitId() => Guid.NewGuid().ToString("N");
 
     // ------------------------------------------------------------------ helpers
+
+    /// <summary>
+    /// A free name for a staging or set-aside folder next to WTF\Account. A leftover from an earlier
+    /// attempt is removed if possible; if Windows won't let go of it, a numbered name is used instead,
+    /// so a stuck leftover can never block syncing.
+    /// </summary>
+    private string FreeAside(string preferred)
+    {
+        // Sweep every leftover of this kind ("...-old", "...-old-2", ...) from earlier attempts.
+        var parent = PathUtil.Parent(preferred);
+        var baseName = PathUtil.Name(preferred);
+        if (parent != null && _fs.DirectoryExists(parent))
+            foreach (var dir in _fs.EnumerateDirectories(parent).ToList())
+            {
+                var name = PathUtil.Name(dir);
+                if (name.Equals(baseName, StringComparison.OrdinalIgnoreCase) ||
+                    (name.StartsWith(baseName + "-", StringComparison.OrdinalIgnoreCase) && int.TryParse(name[(baseName.Length + 1)..], out _)))
+                    RemoveLeftover(dir);
+            }
+        if (!_fs.DirectoryExists(preferred)) return preferred;
+        for (int i = 2; ; i++)
+        {
+            var candidate = $"{preferred}-{i}";
+            if (!_fs.DirectoryExists(candidate)) return candidate;
+        }
+    }
+
+    /// <summary>Deletes a leftover folder; on failure logs it and carries on (its contents are in the backup store).</summary>
+    private void RemoveLeftover(string folder)
+    {
+        try
+        {
+            _fs.DeleteDirectory(folder);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _log.Warn($"{Name}: couldn't remove the leftover folder {folder} ({e.Message}). It isn't used by the game; " +
+                      "it will be tried again next time, or you can delete it yourself.");
+        }
+    }
 
     private SyncOutcome Guard(Func<SyncOutcome> action)
     {

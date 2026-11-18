@@ -159,7 +159,9 @@ public sealed class InMemoryFileSystem : IFileSystem
     public void MoveFile(string source, string destination) { Bytes(destination, Get(source)); _files.Remove(N(source)); }
     public void DeleteDirectory(string path) => RemoveTree(path);
     public void RemoveLink(string path) { _links.Remove(N(path)); _dirs.Remove(N(path)); }
-    public void MoveDirectory(string source, string destination) => throw new NotSupportedException();
+    /// <summary>Folder moves fail as if a file inside were open (the in-memory store has no rename).</summary>
+    public void MoveDirectory(string source, string destination) =>
+        throw new UnauthorizedAccessException($"Access to the path '{source}' is denied.");
     public string ReadAllText(string path) => System.Text.Encoding.UTF8.GetString(Get(path));
     public byte[] ReadAllBytes(string path) => Get(path).ToArray();
     public void WriteAllText(string path, string contents) => File(path, contents);

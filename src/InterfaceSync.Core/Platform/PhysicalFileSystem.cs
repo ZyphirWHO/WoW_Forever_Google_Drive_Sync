@@ -56,7 +56,7 @@ public sealed class PhysicalFileSystem : IFileSystem
     {
         if (!File.Exists(path)) return;
         ClearReadOnly(path);
-        File.Delete(path);
+        WithRetry(() => File.Delete(path));
     }
 
     public void MoveFile(string source, string destination)
@@ -70,11 +70,27 @@ public sealed class PhysicalFileSystem : IFileSystem
         if (!Directory.Exists(path)) return;
         if (IsReparsePoint(path)) { RemoveLink(path); return; }
 
+        // Windows refuses to remove a folder marked read-only (seen on a real WoW install:
+        // WTF\Account\SavedVariables), so clear the mark first, as for files.
+        ClearReadOnly(path);
         foreach (var sub in Directory.EnumerateDirectories(path))
             DeleteDirectory(sub); // links inside are removed, never followed
         foreach (var file in Directory.EnumerateFiles(path))
             DeleteFile(file);
-        Directory.Delete(path, recursive: false);
+        WithRetry(() => Directory.Delete(path, recursive: false));
+    }
+
+    /// <summary>Antivirus or the search indexer can hold a handle for a moment; try a few times before failing.</summary>
+    private static void WithRetry(Action action)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try { action(); return; }
+            catch (Exception e) when (attempt < 4 && e is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(150 * attempt);
+            }
+        }
     }
 
     public void RemoveLink(string path)

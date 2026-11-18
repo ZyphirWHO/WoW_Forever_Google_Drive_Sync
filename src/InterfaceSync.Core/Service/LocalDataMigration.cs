@@ -23,7 +23,20 @@ public static class LocalDataMigration
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return $"Could not move {legacy} to {target} ({e.Message}). Settings start fresh in {target}; the old folder is untouched.";
+            // Something has a file open in the old folder (the old app still running, an Explorer window,
+            // antivirus). Copy instead; the old folder stays as it is.
+            try
+            {
+                var files = Sync.FolderScanner.AllFiles(fs, legacy);
+                Backup.TreeCopy.CopyFiles(fs, legacy, target, files);
+                return $"Copied this PC's {ProductInfo.Name} data ({files.Count} files: settings, sync state, backups, logs) from {legacy} " +
+                       $"to {target}; it couldn't be moved ({e.Message}). The old folder can be deleted once you're happy.";
+            }
+            catch (Exception copyError) when (copyError is IOException or UnauthorizedAccessException)
+            {
+                try { if (fs.DirectoryExists(target)) fs.DeleteDirectory(target); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                return $"Could not move or copy {legacy} to {target} ({copyError.Message}). Settings start fresh in {target}; the old folder is untouched.";
+            }
         }
     }
 }

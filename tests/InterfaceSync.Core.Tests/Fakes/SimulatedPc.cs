@@ -163,7 +163,14 @@ public sealed class ScriptedFileSystem : IFileSystem
 
     public void DeleteFile(string path) => _inner.DeleteFile(path);
     public void MoveFile(string source, string destination) => _inner.MoveFile(source, destination);
-    public void DeleteDirectory(string path) => _inner.DeleteDirectory(path);
+    public Func<string, bool>? FailDeleteDirectory { get; set; }
+
+    public void DeleteDirectory(string path)
+    {
+        if (FailDeleteDirectory?.Invoke(path) == true)
+            throw new UnauthorizedAccessException($"Access to the path '{path}' is denied.");
+        _inner.DeleteDirectory(path);
+    }
     public void RemoveLink(string path) => _inner.RemoveLink(path);
     public void MoveDirectory(string source, string destination) => _inner.MoveDirectory(source, destination);
     public string ReadAllText(string path) => _inner.ReadAllText(path);
