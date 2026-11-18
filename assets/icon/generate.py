@@ -2,8 +2,13 @@
 """
 Builds the Interface Sync icons from assets/icon/app.svg.
 
-  app.ico            sizes 16, 20, 24, 32, 40, 48, 64, 256 (exe icon, Start menu, taskbar)
-  tray-<state>.ico   sizes 16, 20, 24, 32, 40, 48 (notification area, 100-300% scaling)
+  Windows (src/InterfaceSync.App/Icons):
+    app.ico            sizes 16, 20, 24, 32, 40, 48, 64, 256 (exe icon, Start menu, taskbar)
+    tray-<state>.ico   sizes 16, 20, 24, 32, 40, 48 (notification area, 100-300% scaling)
+  macOS (src/InterfaceSync.Mac/Icons, packaging/macos):
+    tray-<state>.png   44 px (menu bar, drawn at 22 pt on Retina screens)
+    app.png            256 px (window icon)
+    InterfaceSync.icns 16-1024 px (Finder and Dock icon of the .app bundle)
 
 Tray states differ by badge shape, not colour alone: check (in sync), three dots (syncing),
 clock (waiting: game running), pause bars (paused), warning triangle (needs attention).
@@ -19,7 +24,10 @@ import cairosvg
 from PIL import Image
 
 HERE = pathlib.Path(__file__).resolve().parent
-OUT = HERE.parent.parent / "src" / "InterfaceSync.App" / "Icons"
+REPO = HERE.parent.parent
+OUT = REPO / "src" / "InterfaceSync.App" / "Icons"
+MAC_OUT = REPO / "src" / "InterfaceSync.Mac" / "Icons"
+MAC_PACKAGE = REPO / "packaging" / "macos"
 MASTER = (HERE / "app.svg").read_text(encoding="utf-8")
 
 APP_SIZES = [16, 20, 24, 32, 40, 48, 64, 256]
@@ -66,7 +74,7 @@ def write_ico(path: pathlib.Path, svg: str, sizes: list[int]) -> None:
         entries += struct.pack("<BBBBHHII", dim, dim, 0, 0, 1, 32, len(png), offset + len(data))
         data += png
     path.write_bytes(header + entries + data)
-    print(f"{path.relative_to(HERE.parent.parent)}: {', '.join(map(str, sizes))}")
+    print(f"{path.relative_to(REPO)}: {', '.join(map(str, sizes))}")
 
 
 def main() -> None:
@@ -74,6 +82,17 @@ def main() -> None:
     write_ico(OUT / "app.ico", MASTER, APP_SIZES)
     for state, badge in BADGES.items():
         write_ico(OUT / f"tray-{state}.ico", MASTER.replace("<!-- BADGE -->", badge), TRAY_SIZES)
+    # macOS
+    MAC_OUT.mkdir(parents=True, exist_ok=True)
+    MAC_PACKAGE.mkdir(parents=True, exist_ok=True)
+    (MAC_OUT / "app.png").write_bytes(render(MASTER, 256))
+    for state, badge in BADGES.items():
+        (MAC_OUT / f"tray-{state}.png").write_bytes(render(MASTER.replace("<!-- BADGE -->", badge), 44))
+    icns_sizes = [16, 32, 64, 128, 256, 512, 1024]
+    images = [Image.open(io.BytesIO(render(MASTER, s))) for s in icns_sizes]
+    images[-1].save(MAC_PACKAGE / "InterfaceSync.icns", format="ICNS", append_images=images[:-1])
+    print(f"src/InterfaceSync.Mac/Icons: app.png, tray-*.png; packaging/macos/InterfaceSync.icns: {', '.join(map(str, icns_sizes))}")
+
     # Previews for review (not used by the build).
     preview = HERE / "preview"
     preview.mkdir(exist_ok=True)

@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The macOS app: a menu-bar app built with Avalonia (MIT licence), running the same InterfaceSync.Core
+    engine as the Windows app. Packaged as InterfaceSync.app by .github/workflows (packaging/macos).
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>$(ProductId)</AssemblyName>
+    <RootNamespace>InterfaceSync.Mac</RootNamespace>
+    <AssemblyTitle>$(ProductDisplayName)</AssemblyTitle>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AvaloniaVersion>11.3.23</AvaloniaVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Generated from assets/icon/app.svg by assets/icon/generate.py -->
+    <EmbeddedResource Include="Icons\*.png" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="InterfaceSync.Mac.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InterfaceSync.Core\InterfaceSync.Core.csproj" />
+  </ItemGroup>
+
+</Project>
