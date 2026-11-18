@@ -86,6 +86,20 @@ public class DriveDatabaseDetectionTests
     }
 
     [Fact]
+    public void Paths_without_a_drive_letter_are_ignored_as_on_the_real_laptop()
+    {
+        // The laptop's database listed "Users\mpasquariello\My Drive" next to the full path.
+        var fs = new InMemoryFileSystem().Bytes(Db, Fixture("drivefs-roots-relative.db"))
+            .Dir(@"C:\Users\Player\My Drive").Dir(@"Users\Player\My Drive");
+
+        var result = new DriveDetector(fs, new FakeRegistry(), new FakeEnvironment()).Detect(null);
+
+        Assert.Equal(@"C:\Users\Player\My Drive", result.MyDrivePath);
+        Assert.Contains(result.Attempts, a => a == @"Drive database: ignored paths without a drive letter: Users\Player\My Drive");
+        Assert.Contains(result.Attempts, a => a.EndsWith(@"folder paths C:\Users\Player\My Drive"));
+    }
+
+    [Fact]
     public void Missing_database_is_reported_and_probing_still_finds_the_folder()
     {
         var fs = new InMemoryFileSystem().Dir(@"C:\Users\Player\My Drive");

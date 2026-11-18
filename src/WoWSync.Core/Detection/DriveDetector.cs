@@ -214,6 +214,12 @@ public sealed class DriveDetector
 
         var described = string.Join("; ", tables.Select(t => $"{t.Name}({string.Join(", ", t.Columns)}) {t.Rows.Count} row(s)"));
         paths = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // Only full paths count: a relative value (seen on a real PC: "Users\name\My Drive") would be
+        // resolved against whatever folder WoWSync happened to start in.
+        var relative = paths.Where(p => !IsFullPath(p)).ToList();
+        if (relative.Count > 0)
+            attempts.Add($"Drive database: ignored paths without a drive letter: {string.Join(", ", relative)}");
+        paths = paths.Where(IsFullPath).ToList();
         attempts.Add(paths.Count == 0
             ? $"Drive database {source}: no folder paths recorded. Tables: {described}"
             : $"Drive database {source}: folder paths {string.Join(", ", paths)}");
@@ -221,6 +227,12 @@ public sealed class DriveDetector
             attempts.Add($"Drive database: none of those is, or contains, an existing '{MyDriveFolderName}' folder");
         return paths.Select(p => PathUtil.ExpandUserVars(p, _env.UserProfile, _env.LocalAppData));
     }
+
+    /// <summary>"C:\..." or "\\server\share\...", plus "/..." so tests on Linux can use real temp folders.</summary>
+    internal static bool IsFullPath(string p) =>
+        (p.Length >= 3 && char.IsAsciiLetter(p[0]) && p[1] == ':' && (p[2] == '\\' || p[2] == '/'))
+        || p.StartsWith(@"\\", StringComparison.Ordinal)
+        || (!OperatingSystem.IsWindows() && p.StartsWith('/'));
 
     private static string CleanPath(string s)
     {
