@@ -81,7 +81,7 @@ public class DriveDatabaseDetectionTests
         Assert.Equal(DetectionSource.DriveFsSettings, result.Source);
         Assert.Contains(result.Attempts, a => a.Contains("registry: none"));
         Assert.Contains(result.Attempts, a => a.Contains("root_preference_sqlite.db: folder paths") && a.Contains(@"C:\Users\Player\Desktop"));
-        Assert.Contains(result.Attempts, a => a == @"Drive database: found C:\Users\Player\My Drive");
+        Assert.Contains(result.Attempts, a => a == @"Drive database: My Drive is C:\Users\Player\My Drive");
         Assert.False(fs.FileExists(@"C:\Users\Player\AppData\Local\InterfaceSync\Temp\root_preference.db.copy"));
     }
 
@@ -121,6 +121,33 @@ public class DriveDatabaseDetectionTests
             .Dir(@"D:\Old Account\My Drive").Dir(@"C:\Users\Player\My Drive");
         var result = new DriveDetector(fs, reg, new FakeEnvironment()).Detect(null);
         Assert.Equal(@"D:\Old Account\My Drive", result.MyDrivePath);
+    }
+
+    [Fact]
+    public void My_drive_named_with_the_account_is_used_not_an_old_my_drive_folder_left_behind()
+    {
+        // Home PC, 2026-11-18 17:32: Drive was set up again and mirrors to "My Drive (account)"; the old
+        // "My Drive" folder is still on disk but no longer synced. The old one must never be picked.
+        var fs = new InMemoryFileSystem().Bytes(Db, Fixture("drivefs-roots-renamed-mydrive.db"))
+            .Dir(@"C:\Users\Player\My Drive (someone@example.com)")
+            .Dir(@"C:\Users\Player\My Drive\InterfaceSync");
+
+        var result = new DriveDetector(fs, new FakeRegistry(), new FakeEnvironment()).Detect(null);
+
+        Assert.Equal((@"C:\Users\Player\My Drive (someone@example.com)", DetectionSource.DriveFsSettings), (result.MyDrivePath, result.Source));
+    }
+
+    [Fact]
+    public void When_drives_own_my_drive_folder_is_missing_no_other_folder_is_guessed()
+    {
+        var fs = new InMemoryFileSystem().Bytes(Db, Fixture("drivefs-roots-renamed-mydrive.db"))
+            .Dir(@"C:\Users\Player\My Drive\InterfaceSync");                        // only the stale leftover exists
+
+        var result = new DriveDetector(fs, new FakeRegistry(), new FakeEnvironment()).Detect(null);
+
+        Assert.False(result.Found);
+        Assert.Contains(result.Attempts, a => a.Contains("Not guessing another folder"));
+        Assert.DoesNotContain(result.Attempts, a => a.StartsWith("Mirrored folder: found"));
     }
 
     [Fact]

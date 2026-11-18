@@ -101,7 +101,26 @@ public sealed class DriveDetector
             attempts.Add($"Drive settings point at '{mount}', which has no '{MyDriveFolderName}' folder");
         }
 
-        foreach (var root in RootsFromDriveDatabase(attempts))
+        var databaseRoots = RootsFromDriveDatabase(attempts).ToList();
+
+        // A folder Drive itself flags as My Drive (roots.is_my_drive) is used as it is, whatever its name: Drive
+        // names it "My Drive (account)" when an older "My Drive" folder is still there (home PC, 2026-11-18 17:32).
+        foreach (var root in _myDriveRoots)
+            if (_fs.DirectoryExists(root))
+            {
+                attempts.Add($"Drive database: My Drive is {root}");
+                return new(PathUtil.TrimEnd(root), GuessMode(root), DetectionSource.DriveFsSettings, attempts);
+            }
+        // Drive names its My Drive folder but it isn't there: don't guess another folder. A leftover "My Drive"
+        // folder from an earlier Drive set-up is exactly the out-of-date copy that must never be synced with.
+        if (_myDriveRoots.Count > 0)
+        {
+            attempts.Add($"Google Drive's own settings put My Drive at {string.Join(" or ", _myDriveRoots)}, which isn't on this computer. " +
+                         "Not guessing another folder (an old one left behind would be out of date). Check that Google Drive is running and signed in.");
+            return new(null, DriveMode.Unknown, DetectionSource.NotFound, attempts);
+        }
+
+        foreach (var root in databaseRoots)
         {
             var myDrive = MyDriveUnder(root);
             if (myDrive != null)
@@ -140,7 +159,26 @@ public sealed class DriveDetector
     /// </summary>
     private DriveDetectionResult DetectMac(List<string> attempts)
     {
-        foreach (var root in RootsFromDriveDatabase(attempts))
+        var databaseRoots = RootsFromDriveDatabase(attempts).ToList();
+
+        // A folder Drive itself flags as My Drive (roots.is_my_drive) is used as it is, whatever its name: Drive
+        // names it "My Drive (account)" when an older "My Drive" folder is still there (home PC, 2026-11-18 17:32).
+        foreach (var root in _myDriveRoots)
+            if (_fs.DirectoryExists(root))
+            {
+                attempts.Add($"Drive database: My Drive is {root}");
+                return new(PathUtil.TrimEnd(root), DriveMode.Unknown, DetectionSource.DriveFsSettings, attempts);
+            }
+        // Drive names its My Drive folder but it isn't there: don't guess another folder. A leftover "My Drive"
+        // folder from an earlier Drive set-up is exactly the out-of-date copy that must never be synced with.
+        if (_myDriveRoots.Count > 0)
+        {
+            attempts.Add($"Google Drive's own settings put My Drive at {string.Join(" or ", _myDriveRoots)}, which isn't on this computer. " +
+                         "Not guessing another folder (an old one left behind would be out of date). Check that Google Drive is running and signed in.");
+            return new(null, DriveMode.Unknown, DetectionSource.NotFound, attempts);
+        }
+
+        foreach (var root in databaseRoots)
         {
             var myDrive = MyDriveUnder(root);
             if (myDrive != null)
@@ -221,6 +259,7 @@ public sealed class DriveDetector
     /// </summary>
     private IEnumerable<string> RootsFromDriveDatabase(List<string> attempts)
     {
+        _myDriveRoots = [];
         var source = DriveFsDbPath;
         if (!_fs.FileExists(source))
         {
@@ -253,6 +292,9 @@ public sealed class DriveDetector
 
         // Preferred: the roots table's "My Drive" rows (is_my_drive = 1), the current Drive account's first.
         var paths = MyDriveRoots(tables, attempts);
+        _myDriveRoots = paths.Where(p => IsFullPath(p, _env.Os))
+            .Select(p => PathUtil.ExpandUserVars(p, _env.UserProfile, _env.LocalAppData))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         foreach (var t in tables)
         {
             var pathColumns = t.Columns.Select((c, i) => (c, i))
@@ -403,6 +445,9 @@ public sealed class DriveDetector
     }
 
     /// <summary>The mount may itself be "My Drive", or contain it.</summary>
+    /// <summary>Folders Drive's database flags as My Drive (is_my_drive = 1), full paths only; filled by RootsFromDriveDatabase.</summary>
+    private List<string> _myDriveRoots = [];
+
     private string? MyDriveUnder(string root)
     {
         if (PathUtil.Name(root).Equals(MyDriveFolderName, StringComparison.OrdinalIgnoreCase) && _fs.DirectoryExists(root))

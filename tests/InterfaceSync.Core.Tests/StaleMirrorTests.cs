@@ -156,6 +156,33 @@ public sealed class StaleMirrorTests : IDisposable
         Assert.Equal("newer on this PC", File.ReadAllText(Path.Combine(_world.CloudAccount(), "PLAYER#1", "macros-cache.txt")));
     }
 
+    [Fact]
+    public void A_pc_that_synced_with_a_dead_folder_asks_when_it_finds_the_real_one()
+    {
+        // The laptop's copy is in the real Drive folder.
+        var laptop = _world.Pc("TLIT-LT-001", "_forever_");
+        laptop.WriteSetting(@"PLAYER#1\macros-cache.txt", "laptop 14:57");
+        Assert.Equal(SyncOutcome.Pushed, laptop.Sync.Tick());
+
+        // The home PC synced into an old "My Drive" folder Drive no longer syncs, with newer settings.
+        _world.Clock.Advance(TimeSpan.FromHours(2));
+        var dead = Path.Combine(_world.Root, "old", "My Drive");
+        Directory.CreateDirectory(dead);
+        var fs = new PhysicalFileSystem();
+        var home = _world.Pc("MIKE-M3", "_forever_");
+        home.WriteSetting(@"PLAYER#1\macros-cache.txt", "home 16:36");
+        var deadSync = new VersionSync(new InterfaceSync.Core.Detection.GameVersion("_forever_", home.VersionPath, ["Wow.exe"], true),
+            new CloudLayout(dead, "_forever_"), fs, _world.Clock, home.Backups, new StateStore(fs, home.DataFolder), home.Log, "MIKE-M3", () => false);
+        Assert.Equal(SyncOutcome.Pushed, deadSync.SyncNow());
+
+        // Next start finds the real folder (the laptop's commit): first sync there, and this PC is newer: ask.
+        home.Restart();
+        Assert.Equal(SyncOutcome.Conflict, home.Sync.Tick());
+        Assert.Equal("home 16:36", home.ReadSetting(@"PLAYER#1\macros-cache.txt"));
+        Assert.Equal("laptop 14:57", File.ReadAllText(Path.Combine(_world.CloudAccount("_forever_"), "PLAYER#1", "macros-cache.txt")));
+        Assert.Equal("TLIT-LT-001", home.Sync.State.Conflict!.CloudPushedBy);
+    }
+
     // ---------------------------------------------------------------- 3. write only inside <AppRoot>\<version>\
 
     [Theory]
