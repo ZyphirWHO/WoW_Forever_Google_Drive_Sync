@@ -40,6 +40,11 @@ Every push to `main` builds `InterfaceSync.exe` on Windows. Open the latest gree
 **Actions → build**, download the `InterfaceSync-dev-...` artifact, unzip it outside your cloud folders
 and run `InterfaceSync.exe`. Development builds don't install themselves or start at login yet.
 
+## Docs
+
+- [docs/ANTIVIRUS.md](docs/ANTIVIRUS.md): what to do if your browser, Windows or antivirus warns about the download
+- [docs/DISTRIBUTION-PLAN.md](docs/DISTRIBUTION-PLAN.md): plan for a Microsoft Store (MSIX) package and winget
+
 ## Building
 
 ```
