@@ -112,6 +112,32 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
+    public void First_run_offers_all_three_cloud_apps_and_switching_updates_the_folder()
+    {
+        var service = Service(setupComplete: false, ("_forever_", true));
+        Directory.CreateDirectory(Path.Combine(_root, "Users", "Player", "Dropbox"));
+        OnSta(() =>
+        {
+            using var form = new FirstRun(service, new FakeRegistry());
+            form.Show();
+            Application.DoEvents();
+            Assert.Equal(["Google Drive", "OneDrive (not found on this PC)", "Dropbox"], form.ProviderChoices);
+
+            form.ChooseProvider(WoWSync.Core.Detection.CloudProvider.Dropbox);
+            Application.DoEvents();
+            Assert.EndsWith("Dropbox", form.CloudFolderText);
+            Assert.True(form.CanStart);
+
+            form.ChooseProvider(WoWSync.Core.Detection.CloudProvider.OneDrive);
+            Application.DoEvents();
+            Assert.StartsWith("Not found", form.CloudFolderText);
+            Assert.False(form.CanStart);
+            form.Close();
+        });
+        Assert.Equal(WoWSync.Core.Detection.CloudProvider.OneDrive, service.Settings.CloudProvider);
+    }
+
+    [Fact]
     public void First_run_window_opens_when_nothing_is_found()
     {
         var service = Service(setupComplete: false);

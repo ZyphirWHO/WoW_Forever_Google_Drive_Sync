@@ -46,6 +46,12 @@ public interface IUserEnvironment
 
     /// <summary>C:\ProgramData (machine-wide app data, readable by every user).</summary>
     string ProgramData { get; }
+
+    /// <summary>%APPDATA% (roaming app data).</summary>
+    string RoamingAppData { get; }
+
+    /// <summary>An environment variable of this process, or null.</summary>
+    string? Variable(string name);
     string UserName { get; }
     bool IsElevated { get; }
 }

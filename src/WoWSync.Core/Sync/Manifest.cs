@@ -71,10 +71,41 @@ public static class FolderScanner
 
     private static readonly HashSet<string> IgnoredNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "desktop.ini", "Thumbs.db", ".DS_Store",
+        "desktop.ini", "Thumbs.db", ".DS_Store", ".dropbox", ".dropbox.attr",
     };
 
-    public static bool IsConflictCopyName(string name) => ConflictCopyPattern.IsMatch(name);
+    // Dropbox: "Name (PC's conflicted copy 2026-11-18).ext", "Name (Case Conflict).ext", "(Selective Sync Conflict)".
+    private static readonly Regex DropboxConflictPattern =
+        new(@"\((?:[^()]*'s )?conflicted copy[^()]*\)|\((?:Case|Selective Sync) Conflict[^()]*\)",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>Google Drive or Dropbox conflict-copy name (needs no context).</summary>
+    public static bool IsConflictCopyName(string name) =>
+        ConflictCopyPattern.IsMatch(name) || DropboxConflictPattern.IsMatch(name);
+
+    /// <summary>
+    /// Conflict copy from any supported cloud app. OneDrive's "Name-PCNAME.ext" only counts when the
+    /// original "Name.ext" is beside it and the suffix looks like a computer name (capitals, digits, dashes),
+    /// so ordinary addon files such as "Details-Forever.lua" are never mistaken for one.
+    /// </summary>
+    public static bool IsConflictCopyName(string name, ISet<string> siblings)
+    {
+        if (IsConflictCopyName(name)) return true;
+        int dot = name.LastIndexOf('.');
+        var stem = dot > 0 ? name[..dot] : name;
+        var ext = dot > 0 ? name[dot..] : "";
+        // Try every dash: computer names can contain dashes ("TLIT-LT-001").
+        for (int i = stem.IndexOf('-'); i > 0; i = stem.IndexOf('-', i + 1))
+        {
+            var suffix = stem[(i + 1)..];
+            if (LooksLikeComputerName(suffix) && siblings.Contains(stem[..i] + ext)) return true;
+        }
+        return false;
+    }
+
+    private static bool LooksLikeComputerName(string s) =>
+        s.Length is >= 1 and <= 24 && char.IsAsciiLetterUpper(s[0]) | char.IsAsciiDigit(s[0])
+        && s.All(c => char.IsAsciiLetterUpper(c) || char.IsAsciiDigit(c) || c == '-');
 
     private static bool IsDriveTempName(string name) =>
         name.StartsWith(".tmp.drive", StringComparison.OrdinalIgnoreCase) ||
@@ -124,7 +155,12 @@ public static class FolderScanner
 
     private static void Walk(IFileSystem fs, string root, string dir, FolderScan scan, List<ManifestEntry> entries)
     {
-        foreach (var file in fs.EnumerateFiles(dir))
+        var files = fs.EnumerateFiles(dir).ToList();
+        var dirs = fs.EnumerateDirectories(dir).ToList();
+        var fileNames = new HashSet<string>(files.Select(PathUtil.Name), StringComparer.OrdinalIgnoreCase);
+        var dirNames = new HashSet<string>(dirs.Select(PathUtil.Name), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var file in files)
         {
             var name = PathUtil.Name(file);
             var rel = PathUtil.Relative(root, file);
@@ -136,18 +172,18 @@ public static class FolderScanner
             }
             var info = fs.GetFileInfo(file);
             if (info.IsReparsePoint) { scan.Links.Add(rel); continue; }
-            if (IsConflictCopyName(name)) { scan.ConflictCopies.Add(rel); continue; }
+            if (IsConflictCopyName(name, fileNames)) { scan.ConflictCopies.Add(rel); continue; }
             if (info.IsOnlineOnly) scan.OnlineOnly.Add(rel);
             entries.Add(new ManifestEntry(rel, info.Size, info.LastWriteUtc));
         }
 
-        foreach (var sub in fs.EnumerateDirectories(dir))
+        foreach (var sub in dirs)
         {
             var name = PathUtil.Name(sub);
             var rel = PathUtil.Relative(root, sub);
             if (fs.IsReparsePoint(sub)) { scan.Links.Add(rel); continue; }
             if (IsDriveTempName(name)) { scan.TempFiles.Add(rel); continue; }
-            if (IsConflictCopyName(name)) { scan.ConflictCopies.Add(rel); continue; }
+            if (IsConflictCopyName(name, dirNames)) { scan.ConflictCopies.Add(rel); continue; }
             Walk(fs, root, sub, scan, entries);
         }
     }

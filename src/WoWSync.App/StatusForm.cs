@@ -98,7 +98,7 @@ internal sealed class StatusForm : Form
         _overall.ForeColor = Service.State == OverallState.NeedsAttention ? Color.FromArgb(180, 30, 30) : SystemColors.ControlText;
         var wow = Service.Wow?.Found == true ? string.Join("; ", Service.Wow.Installs.Select(i => i.Root)) : "not found";
         var drive = Service.Drive?.MyDrivePath ?? "not found";
-        _paths.Text = $"World of Warcraft: {wow}{Environment.NewLine}Google Drive: {drive}{Environment.NewLine}Log: {Service.Paths.Logs}";
+        _paths.Text = $"World of Warcraft: {wow}{Environment.NewLine}{Service.ProviderName}: {drive}{Environment.NewLine}Log: {Service.Paths.Logs}";
 
         var selected = _list.SelectedItems.Count > 0 ? (_list.SelectedItems[0].Tag as VersionSync)?.Version.FolderName : null;
         _list.BeginUpdate();

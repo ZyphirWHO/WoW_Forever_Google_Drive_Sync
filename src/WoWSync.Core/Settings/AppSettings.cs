@@ -14,7 +14,10 @@ public sealed class AppSettings
     /// <summary>User-chosen WoW install folder; null = auto-detect.</summary>
     public string? WowInstallOverride { get; set; }
 
-    /// <summary>User-chosen "My Drive" folder; null = auto-detect.</summary>
+    /// <summary>Which cloud app's folder WoWSync uses. Null = not chosen yet (Google Drive for settings from earlier builds).</summary>
+    public Detection.CloudProvider? CloudProvider { get; set; }
+
+    /// <summary>User-chosen folder for the selected cloud app ("My Drive", OneDrive or Dropbox folder); null = auto-detect.</summary>
     public string? DriveOverride { get; set; }
 
     /// <summary>Game version folder name (e.g. "_retail_") → sync on/off.</summary>

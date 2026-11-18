@@ -174,6 +174,7 @@ public sealed class VersionSync
 
     private SyncOutcome Evaluate(bool manual)
     {
+        CheckCloudFolderChange();
         if (!State.Joined) return FirstJoin();
 
         var local = FolderScanner.Scan(_fs, LocalAccount);
@@ -208,13 +209,45 @@ public sealed class VersionSync
         if (cloud.Readiness is CloudReadiness.Writing or CloudReadiness.Incomplete or CloudReadiness.OnlineOnly
             && cloud.CommitId != State.LastCommitId)
         {
-            SetStatus(SyncStatus.WaitingForCloud, cloud.Problem ?? "Waiting for Google Drive");
+            SetStatus(SyncStatus.WaitingForCloud, cloud.Problem ?? $"Waiting for {Cloud.ProviderName}");
             return SyncOutcome.Waiting;
         }
 
         SetIdle();
         if (manual) _log.Info($"{Name}: already in sync.");
         return SyncOutcome.NothingToDo;
+    }
+
+    /// <summary>
+    /// The player switched cloud app or folder. If the new folder holds the same commit (the folder simply
+    /// moved), carry on. Otherwise treat it as this PC's first sync there, so the safe first-sync rule applies
+    /// instead of assuming the new folder is in step.
+    /// </summary>
+    private void CheckCloudFolderChange()
+    {
+        if (!State.Joined) return;
+        if (State.CloudFolder == null)
+        {
+            State.CloudFolder = Cloud.VersionRoot; // state from before this was tracked
+            Save();
+            return;
+        }
+        if (PathUtil.SamePath(State.CloudFolder, Cloud.VersionRoot)) return;
+
+        var cloud = ReadCloud();
+        if (cloud.CommitId != null && cloud.CommitId == State.LastCommitId)
+        {
+            _log.Info($"{Name}: the cloud folder moved from {State.CloudFolder} to {Cloud.VersionRoot}; it holds the same settings, so syncing carries on.");
+        }
+        else
+        {
+            _log.Info($"{Name}: now using {Cloud.VersionRoot} ({Cloud.ProviderName}) instead of {State.CloudFolder}. Treating this as this PC's first sync there.");
+            State.Joined = false;
+            State.PendingPush = false;
+            State.LastCommitId = null;
+        }
+        State.CloudFolder = Cloud.VersionRoot;
+        Save();
     }
 
     /// <summary>First sync on this PC: if the cloud already has data, the cloud wins and local is backed up.</summary>
@@ -230,7 +263,7 @@ public sealed class VersionSync
             case CloudReadiness.Writing:
             case CloudReadiness.Incomplete:
             case CloudReadiness.OnlineOnly:
-                SetStatus(SyncStatus.WaitingForCloud, cloud.Problem ?? "Waiting for Google Drive");
+                SetStatus(SyncStatus.WaitingForCloud, cloud.Problem ?? $"Waiting for {Cloud.ProviderName}");
                 return SyncOutcome.Waiting;
 
             default: // Missing or Empty
@@ -243,7 +276,7 @@ public sealed class VersionSync
                 var why = cloud.Readiness == CloudReadiness.Missing
                     ? $"the folder {Cloud.Account} does not exist"
                     : $"the folder {Cloud.Account} has no files";
-                _log.Info($"{Name}: first sync on this PC. Google Drive has no settings for this version yet ({why}), so this PC's settings are uploaded.{OtherCloudFolders()}");
+                _log.Info($"{Name}: first sync on this PC. {Cloud.ProviderName} has no settings for this version yet ({why}), so this PC's settings are uploaded.{OtherCloudFolders()}");
                 return Push(local, cloud, force: true);
         }
     }
@@ -354,6 +387,7 @@ public sealed class VersionSync
         State.PendingPush = false;
         State.LastPushUtc = pushedAt;
         State.LastCommitId = commitId;
+        State.CloudFolder = Cloud.VersionRoot;
         State.LocalManifest = local.Manifest;
         State.Conflict = null;
         ClearError();
@@ -372,7 +406,7 @@ public sealed class VersionSync
         {
             if (cloud.Readiness is CloudReadiness.Missing or CloudReadiness.Empty)
                 return Refuse("The cloud copy is empty, so it was not downloaded over this PC's settings.");
-            SetStatus(SyncStatus.WaitingForCloud, cloud.Problem ?? "Waiting for Google Drive");
+            SetStatus(SyncStatus.WaitingForCloud, cloud.Problem ?? $"Waiting for {Cloud.ProviderName}");
             return SyncOutcome.Waiting;
         }
         if (!force && State.PendingPush)
@@ -403,7 +437,7 @@ public sealed class VersionSync
             if (copiedSize != entry.Size)
             {
                 _fs.DeleteDirectory(staging);
-                SetStatus(SyncStatus.WaitingForCloud, "A file was still downloading from Google Drive");
+                SetStatus(SyncStatus.WaitingForCloud, $"A file was still downloading from {Cloud.ProviderName}");
                 _log.Warn($"{Name}: '{entry.RelativePath}' was {copiedSize} bytes, expected {entry.Size}. Pull postponed.");
                 return SyncOutcome.Waiting;
             }
@@ -454,6 +488,7 @@ public sealed class VersionSync
         State.PendingPush = false;
         State.LastPullUtc = _clock.UtcNow;
         State.LastCommitId = cloud.CommitId;
+        State.CloudFolder = Cloud.VersionRoot;
         State.LocalManifest = FolderScanner.Scan(_fs, LocalAccount).Manifest;
         State.Conflict = null;
         ClearError();
@@ -569,11 +604,11 @@ public sealed class VersionSync
                     : new CloudSnapshot
                     {
                         Readiness = CloudReadiness.Incomplete,
-                        Problem = $"{Cloud.Account} holds only Google Drive conflict copies or temporary files ({anyFiles}); check that folder",
+                        Problem = $"{Cloud.Account} holds only {Cloud.ProviderName} conflict copies or temporary files ({anyFiles}); check that folder",
                     };
             }
             if (scan.TempFiles.Count > 0)
-                return new CloudSnapshot { Readiness = CloudReadiness.Incomplete, Problem = "Google Drive is still transferring files" };
+                return new CloudSnapshot { Readiness = CloudReadiness.Incomplete, Problem = $"{Cloud.ProviderName} is still transferring files" };
             if (scan.OnlineOnly.Count > 0)
                 return OnlineOnly(scan.OnlineOnly.Count);
             return new CloudSnapshot
@@ -602,7 +637,7 @@ public sealed class VersionSync
             return new CloudSnapshot
             {
                 Readiness = CloudReadiness.Incomplete, Commit = commit, CommitId = commit.CommitId, Files = files,
-                Problem = $"Google Drive is still downloading {missing} file(s) from {commit.PushedBy}",
+                Problem = $"{Cloud.ProviderName} is still downloading {missing} file(s) from {commit.PushedBy}",
             };
 
         var wanted = new HashSet<string>(files.Entries.Select(e => e.RelativePath), StringComparer.OrdinalIgnoreCase);
@@ -619,7 +654,7 @@ public sealed class VersionSync
     private CloudSnapshot OnlineOnly(int count) => new()
     {
         Readiness = CloudReadiness.OnlineOnly,
-        Problem = $"{count} file(s) are online-only. In Google Drive, right-click the WoWSync folder and choose Offline access → Available offline.",
+        Problem = $"{count} file(s) are online-only. {Cloud.Provider.KeepOfflineHint()}",
     };
 
     private static string LegacyId(Manifest m)
@@ -673,7 +708,7 @@ public sealed class VersionSync
     {
         var fresh = scan.ConflictCopies.Where(_reportedConflictCopies.Add).ToList();
         if (fresh.Count > 0)
-            _log.Warn($"{Name}: found {fresh.Count} Google Drive conflict copies in {where} (not synced): {string.Join(", ", fresh.Take(5))}{(fresh.Count > 5 ? ", ..." : "")}");
+            _log.Warn($"{Name}: found {fresh.Count} cloud conflict copies in {where} (not synced): {string.Join(", ", fresh.Take(5))}{(fresh.Count > 5 ? ", ..." : "")}");
     }
 
     private void ClearError()

@@ -18,6 +18,8 @@ internal sealed class FirstRun : Form
     private readonly Label _wowPath = PathLabel();
     private readonly Label _drivePath = PathLabel();
     private readonly Label _cloudPath = PathLabel();
+    private readonly ComboBox _provider = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, Margin = new Padding(0, 4, 8, 4) };
+    private bool _filling;
     private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
     private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0), ForeColor = Color.FromArgb(140, 70, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
@@ -57,7 +59,11 @@ internal sealed class FirstRun : Form
         AddRow(grid, 1, "World of Warcraft:", _wowPath, ChangeButton(ChooseWow));
         grid.Controls.Add(new Label { Text = "Sync these game versions:", AutoSize = true, Margin = new Padding(0, 8, 8, 0) }, 0, 2);
         grid.Controls.Add(_versions, 1, 2);
-        AddRow(grid, 3, "Google Drive:", _drivePath, ChangeButton(ChooseDrive));
+        var cloudCell = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        cloudCell.Controls.Add(_provider);
+        cloudCell.Controls.Add(_drivePath);
+        AddRow(grid, 3, "Cloud folder:", cloudCell, ChangeButton(ChooseDrive));
+        _provider.SelectedIndexChanged += (_, _) => { if (!_filling) ProviderChanged(); };
         AddRow(grid, 4, "Settings are kept in:", _cloudPath, null);
         grid.Controls.Add(_notes, 0, 5);
         grid.SetColumnSpan(_notes, 3);
@@ -102,7 +108,19 @@ internal sealed class FirstRun : Form
         var wow = _service.Wow;
         var drive = _service.Drive;
         _wowPath.Text = wow is { Found: true } ? string.Join(Environment.NewLine, wow.Installs.Select(i => i.Root)) : "Not found: choose its folder";
-        _drivePath.Text = drive is { Found: true } ? $"{drive.MyDrivePath}  ({(drive.Mode == DriveMode.Streaming ? "streaming" : "mirrored")})" : "Not found: choose your \"My Drive\" folder";
+        var provider = drive?.Provider ?? _service.EffectiveProvider();
+        var all = _service.DetectAllProviders();
+        _filling = true;
+        _provider.Items.Clear();
+        foreach (var p in CloudProviders.All)
+            _provider.Items.Add(new ProviderItem(p, all[p].Found));
+        _provider.SelectedIndex = Array.IndexOf(CloudProviders.All, provider);
+        _filling = false;
+        _drivePath.Text = drive is { Found: true }
+            ? drive.Provider == CloudProvider.GoogleDrive && drive.Mode != DriveMode.Unknown
+                ? $"{drive.MyDrivePath}  ({(drive.Mode == DriveMode.Streaming ? "streaming" : "mirrored")})"
+                : drive.MyDrivePath!
+            : $"Not found: choose your {provider.DisplayName()} folder";
         _cloudPath.Text = drive is { Found: true } ? PathUtil.Join(drive.MyDrivePath!, CloudLayout.AppFolderName) : "-";
 
         _versions.Items.Clear();
@@ -118,10 +136,12 @@ internal sealed class FirstRun : Form
         if (notLaunched.Count > 0)
             notes.Add($"Not shown because they haven't been played on this PC yet: {string.Join(", ", notLaunched)}.");
         if (drive is { Mode: DriveMode.Streaming })
-            notes.Add("Google Drive is streaming files. In File Explorer, right-click My Drive\\WoWSync and choose Offline access → Available offline.");
+            notes.Add($"Google Drive is streaming files. {drive.Provider.KeepOfflineHint()}");
+        else if (drive is { Found: true } && drive.Provider != CloudProvider.GoogleDrive)
+            notes.Add($"{drive.Provider.DisplayName()} can keep files online-only. {drive.Provider.KeepOfflineHint()}");
         if (LegacyV11.FindRunEntries(_registry) is { Count: > 0 } legacy)
             notes.Add($"WoWSync 1.1 is still set to start at login ({string.Join(", ", legacy)}). Stop the 1.1 agent before syncing with 2.0.");
-        notes.Add("On this PC's first sync, if Google Drive already has settings for a game version, they replace this PC's. A backup of this PC's settings is kept and can be restored.");
+        notes.Add($"On this PC's first sync, if {provider.DisplayName()} already has settings for a game version, they replace this PC's. A backup of this PC's settings is kept and can be restored.");
         _notes.Text = string.Join(Environment.NewLine + Environment.NewLine, notes);
         UpdateStartButton();
     }
@@ -150,12 +170,35 @@ internal sealed class FirstRun : Form
 
     private void ChooseDrive()
     {
-        var path = PickFolder("Choose your Google Drive \"My Drive\" folder.");
+        var provider = _service.EffectiveProvider();
+        if (_service.Settings.CloudProvider == null) _service.Settings.CloudProvider = provider;
+        var path = PickFolder(provider == CloudProvider.GoogleDrive
+            ? "Choose your Google Drive \"My Drive\" folder."
+            : $"Choose your {provider.DisplayName()} folder.");
         if (path == null) return;
         _service.Settings.DriveOverride = path;
         _service.SaveSettings(_service.Settings);
         Fill();
     }
+
+    private sealed record ProviderItem(CloudProvider Provider, bool Found)
+    {
+        public override string ToString() => Found ? Provider.DisplayName() : $"{Provider.DisplayName()} (not found on this PC)";
+    }
+
+    private void ProviderChanged()
+    {
+        if (_provider.SelectedItem is not ProviderItem item) return;
+        _service.Settings.CloudProvider = item.Provider;
+        _service.Settings.DriveOverride = null; // a chosen folder belongs to the previous app
+        _service.SaveSettings(_service.Settings);
+        Fill();
+    }
+
+    // For the UI smoke tests.
+    internal IReadOnlyList<string> ProviderChoices => _provider.Items.Cast<object>().Select(o => o.ToString()!).ToList();
+    internal void ChooseProvider(CloudProvider p) => _provider.SelectedIndex = Array.IndexOf(CloudProviders.All, p);
+    internal string CloudFolderText => _drivePath.Text;
 
     private string? PickFolder(string description)
     {
@@ -172,6 +215,7 @@ internal sealed class FirstRun : Form
             settings.EnabledVersions[item.Version.FolderName] = _versions.GetItemChecked(i);
         }
         settings.SetupComplete = true;
+        settings.CloudProvider ??= _service.EffectiveProvider();
         _service.SaveSettings(settings);
         ShowProgressAndSync();
     }
@@ -253,10 +297,10 @@ internal sealed class FirstRun : Form
     /// <summary>Plain-words result for one version's first sync, and whether it needs the player.</summary>
     internal static (string text, bool problem) Describe(VersionSync w, SyncOutcome outcome, bool firstSync) => outcome switch
     {
-        SyncOutcome.Pushed when firstSync => ("Done. Google Drive had no settings for this version yet, so this PC's were uploaded.", false),
-        SyncOutcome.Pushed => ("Done. This PC's settings were uploaded to Google Drive.", false),
-        SyncOutcome.Pulled when firstSync => ("Done. The settings already in Google Drive were copied to this PC (this PC's previous settings are backed up).", false),
-        SyncOutcome.Pulled => ("Done. Newer settings from Google Drive were copied to this PC.", false),
+        SyncOutcome.Pushed when firstSync => ($"Done. {w.Cloud.ProviderName} had no settings for this version yet, so this PC's were uploaded.", false),
+        SyncOutcome.Pushed => ($"Done. This PC's settings were uploaded to {w.Cloud.ProviderName}.", false),
+        SyncOutcome.Pulled when firstSync => ($"Done. The settings already in {w.Cloud.ProviderName} were copied to this PC (this PC's previous settings are backed up).", false),
+        SyncOutcome.Pulled => ($"Done. Newer settings from {w.Cloud.ProviderName} were copied to this PC.", false),
         SyncOutcome.NothingToDo => (w.Status == SyncStatus.Idle && w.StatusText.StartsWith("Nothing", StringComparison.Ordinal)
             ? w.StatusText : "Done. Already in sync.", false),
         SyncOutcome.Waiting when w.Status == SyncStatus.GameRunning =>

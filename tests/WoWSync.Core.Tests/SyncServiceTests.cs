@@ -232,9 +232,39 @@ public sealed class SyncServiceTests : IDisposable
         var s = new SyncService(_fs, new FakeRegistry(), _processes, _env, _clock, log, paths, "HomePC");
         s.Start();
 
-        Assert.Contains(log.Lines, l => l.Message.StartsWith("Drive detection: ") && l.Message.Contains("registry"));
-        Assert.Contains(log.Lines, l => l.Message.StartsWith("Drive detection: ") && l.Message.Contains("root_preference_sqlite.db"));
-        Assert.Contains(log.Lines, l => l.Message.StartsWith("Drive detection: Mirrored folder: found"));
+        Assert.Contains(log.Lines, l => l.Message.StartsWith("Cloud folder detection (Google Drive): ") && l.Message.Contains("registry"));
+        Assert.Contains(log.Lines, l => l.Message.StartsWith("Cloud folder detection (Google Drive): ") && l.Message.Contains("root_preference_sqlite.db"));
+        Assert.Contains(log.Lines, l => l.Message.StartsWith("Cloud folder detection (Google Drive): Mirrored folder: found"));
+    }
+
+    [Fact]
+    public void New_pc_suggests_the_first_cloud_app_found_and_settings_from_earlier_builds_keep_google_drive()
+    {
+        Directory.CreateDirectory(Path.Combine(_env.UserProfile, "Dropbox"));
+        var paths = new AppPaths(_env.LocalAppData);
+        new SettingsStore(_fs, paths.Data).Save(new AppSettings { WowInstallOverride = _wow });
+        var fresh = new SyncService(_fs, new FakeRegistry(), _processes, _env, _clock, new MemoryLog(), paths, "HomePC");
+        fresh.Start();
+        Assert.Equal(WoWSync.Core.Detection.CloudProvider.Dropbox, fresh.Drive!.Provider);
+        Assert.Equal("Dropbox", fresh.ProviderName);
+
+        Directory.CreateDirectory(MirrorDrive);
+        var upgraded = Service();                     // SetupComplete, no provider recorded (earlier build)
+        upgraded.Start();
+        Assert.Equal(WoWSync.Core.Detection.CloudProvider.GoogleDrive, upgraded.Drive!.Provider);
+        Assert.Equal(MirrorDrive, upgraded.Drive.MyDrivePath);
+    }
+
+    [Fact]
+    public void Choosing_onedrive_syncs_into_the_onedrive_folder()
+    {
+        var oneDrive = Path.Combine(_env.UserProfile, "OneDrive");
+        Directory.CreateDirectory(oneDrive);
+        var s = Service(c => { c.CloudProvider = WoWSync.Core.Detection.CloudProvider.OneDrive; c.EnabledVersions["_retail_"] = false; });
+        s.Start();
+        s.Poll();
+        Assert.True(File.Exists(Path.Combine(oneDrive, "WoWSync", "_forever_", "WTF-Account", "PLAYER#1", "macros-cache.txt")));
+        Assert.Equal("OneDrive", s.Workers.Single().Cloud.ProviderName);
     }
 
     [Fact]

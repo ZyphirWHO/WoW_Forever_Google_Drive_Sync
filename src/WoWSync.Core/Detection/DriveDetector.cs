@@ -5,7 +5,35 @@ namespace WoWSync.Core.Detection;
 
 public enum DriveMode { Unknown, Streaming, Mirror }
 
-public sealed record DriveDetectionResult(string? MyDrivePath, DriveMode Mode, DetectionSource Source, IReadOnlyList<string> Attempts)
+/// <summary>The cloud folder WoWSync keeps its data in (the app on this PC does the uploading).</summary>
+public enum CloudProvider { GoogleDrive, OneDrive, Dropbox }
+
+public static class CloudProviders
+{
+    public static readonly CloudProvider[] All = [CloudProvider.GoogleDrive, CloudProvider.OneDrive, CloudProvider.Dropbox];
+
+    public static string DisplayName(this CloudProvider p) => p switch
+    {
+        CloudProvider.OneDrive => "OneDrive",
+        CloudProvider.Dropbox => "Dropbox",
+        _ => "Google Drive",
+    };
+
+    /// <summary>How to make sure the WoWSync folder's files are really on this PC.</summary>
+    public static string KeepOfflineHint(this CloudProvider p) => p switch
+    {
+        CloudProvider.OneDrive => "In File Explorer, right-click the WoWSync folder in OneDrive and choose Always keep on this device.",
+        CloudProvider.Dropbox => "In File Explorer, right-click the WoWSync folder in Dropbox and choose Make available offline.",
+        _ => "In File Explorer, right-click My Drive\\WoWSync and choose Offline access → Available offline.",
+    };
+}
+
+/// <summary>
+/// Where the chosen cloud app keeps its synced folder on this PC. <see cref="MyDrivePath"/> is the
+/// folder WoWSync puts its "WoWSync" folder in: Google Drive's "My Drive", the OneDrive folder, or the Dropbox folder.
+/// </summary>
+public sealed record DriveDetectionResult(string? MyDrivePath, DriveMode Mode, DetectionSource Source, IReadOnlyList<string> Attempts,
+    CloudProvider Provider = CloudProvider.GoogleDrive)
 {
     public bool Found => MyDrivePath != null;
 }
@@ -47,7 +75,7 @@ public sealed class DriveDetector
         {
             if (_fs.DirectoryExists(userOverride))
                 return new(PathUtil.TrimEnd(userOverride), GuessMode(userOverride), DetectionSource.UserOverride, attempts);
-            attempts.Add($"Your chosen Drive folder '{userOverride}' no longer exists.");
+            attempts.Add($"Your chosen Google Drive folder '{userOverride}' no longer exists.");
         }
 
         foreach (var mount in MountPointsFromSettings(attempts))

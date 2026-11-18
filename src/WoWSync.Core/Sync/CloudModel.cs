@@ -1,5 +1,6 @@
 using System.Text.Json;
 using WoWSync.Core.Abstractions;
+using WoWSync.Core.Detection;
 using WoWSync.Core.Settings;
 
 namespace WoWSync.Core.Sync;
@@ -14,15 +15,19 @@ public sealed class CloudLayout
     public const string AccountFolderName = "WTF-Account";
     public const string CommitFileName = "WTF-Account.wowsync.json";
 
-    public CloudLayout(string myDrivePath, string cloudVersionFolderName)
+    public CloudLayout(string myDrivePath, string cloudVersionFolderName, CloudProvider provider = CloudProvider.GoogleDrive)
     {
         MyDrive = myDrivePath;
+        Provider = provider;
         VersionRoot = PathUtil.Join(myDrivePath, AppFolderName, cloudVersionFolderName);
         Account = PathUtil.Join(VersionRoot, AccountFolderName);
         CommitFile = PathUtil.Join(VersionRoot, CommitFileName);
     }
 
+    /// <summary>The cloud folder root on this PC (Google Drive's "My Drive", the OneDrive or the Dropbox folder).</summary>
     public string MyDrive { get; }
+    public CloudProvider Provider { get; }
+    public string ProviderName => Provider.DisplayName();
     public string VersionRoot { get; }
     public string Account { get; }
     public string CommitFile { get; }
@@ -133,6 +138,10 @@ public sealed class VersionState
     public Manifest? LocalManifest { get; set; }
 
     public ConflictInfo? Conflict { get; set; }
+
+    /// <summary>The cloud folder this PC last synced with, so a switch to another folder or provider is noticed.</summary>
+    public string? CloudFolder { get; set; }
+
     public string? LastError { get; set; }
     public DateTime? LastErrorUtc { get; set; }
 }

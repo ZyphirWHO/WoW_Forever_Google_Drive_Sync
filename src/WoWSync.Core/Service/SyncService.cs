@@ -40,7 +40,7 @@ public sealed class SyncService
 {
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(15);
 
-    /// <summary>At login Google Drive may mount after WoWSync starts; don't alarm the player before this.</summary>
+    /// <summary>At login the cloud app may start after WoWSync; don't alarm the player before this.</summary>
     public static readonly TimeSpan DriveMissingGrace = TimeSpan.FromMinutes(3);
 
     private readonly IFileSystem _fs;
@@ -212,8 +212,8 @@ public sealed class SyncService
     private bool PathsMissing(out string what)
     {
         what = "";
-        if (Drive?.MyDrivePath is { } d && !_fs.DirectoryExists(d)) { what = $"Google Drive folder {d} is gone"; return true; }
-        if (Drive is { Found: false }) { what = "Google Drive not found yet"; return true; }
+        if (Drive?.MyDrivePath is { } d && !_fs.DirectoryExists(d)) { what = $"{ProviderName} folder {d} is gone"; return true; }
+        if (Drive is { Found: false }) { what = $"{ProviderName} not found yet"; return true; }
         if (Wow is { Found: true } && Wow.Installs.Any(i => !_fs.DirectoryExists(i.Root))) { what = "a WoW folder is gone"; return true; }
         if (Wow is { Found: false }) { what = "WoW not found yet"; return true; }
         return false;
@@ -226,24 +226,24 @@ public sealed class SyncService
 
         var wowDetector = new WowDetector(_fs, _registry, _env, Paths.Temp);
         Wow = wowDetector.DetectInstalls(Settings.WowInstallOverride);
-        Drive = new DriveDetector(_fs, _registry, _env, Paths.Temp).Detect(Settings.DriveOverride);
+        Drive = CloudDetector.Detect(EffectiveProvider(), _fs, _registry, _env, Paths.Temp, Settings.DriveOverride);
         Versions = Wow.Found ? wowDetector.ScanVersions(Wow) : [];
 
         bool quiet = reason != null && Drive.MyDrivePath == oldDrive && Wow.PrimaryRoot == oldWow;
         if (!quiet)
         {
             foreach (var a in Wow.Attempts) _log.Info($"WoW detection: {a}");
-            foreach (var a in Drive.Attempts) _log.Info($"Drive detection: {a}");
+            foreach (var a in Drive.Attempts) _log.Info($"Cloud folder detection ({ProviderName}): {a}");
             _log.Info(Wow.Found
                 ? $"World of Warcraft: {string.Join("; ", Wow.Installs.Select(i => i.Root))} (from {Wow.Source}). Versions: {DescribeVersions()}"
                 : "World of Warcraft was not found. Choose its folder in the status window.");
             _log.Info(Drive.Found
-                ? $"Google Drive: {Drive.MyDrivePath} ({Drive.Mode}, from {Drive.Source})."
-                : "Google Drive was not found. Is Google Drive for desktop running and signed in?");
+                ? $"{ProviderName}: {Drive.MyDrivePath} ({Drive.Mode}, from {Drive.Source})."
+                : $"{ProviderName} was not found. Is the {ProviderName} app running and signed in?");
             if (oldDrive != null && Drive.MyDrivePath != null && !PathUtil.SamePath(oldDrive, Drive.MyDrivePath))
-                _log.Warn($"Google Drive moved from {oldDrive} to {Drive.MyDrivePath}. Following it.");
-            if (Drive.Mode == DriveMode.Streaming)
-                _log.Info("Google Drive is streaming: set My Drive\\WoWSync to 'Available offline' so settings are on this PC when needed.");
+                _log.Warn($"The cloud folder moved from {oldDrive} to {Drive.MyDrivePath}. Following it.");
+            if (Drive.Mode == DriveMode.Streaming || (Drive.Found && Drive.Provider != CloudProvider.GoogleDrive))
+                _log.Info($"{ProviderName} may keep files online-only. {Drive.Provider.KeepOfflineHint()}");
         }
 
         Settings.LastDetectedWowInstall = Wow.PrimaryRoot;
@@ -251,6 +251,26 @@ public sealed class SyncService
         TrySaveSettings();
         BuildWorkers();
     }
+
+    public string ProviderName => (Drive?.Provider ?? EffectiveProvider()).DisplayName();
+
+    /// <summary>
+    /// The chosen cloud app. Settings from builds before the choice existed (setup done, nothing chosen)
+    /// keep Google Drive; on a new PC, the first app found (Google Drive, OneDrive, Dropbox) is suggested.
+    /// </summary>
+    public CloudProvider EffectiveProvider()
+    {
+        if (Settings.CloudProvider is { } chosen) return chosen;
+        if (Settings.SetupComplete) return CloudProvider.GoogleDrive;
+        foreach (var p in CloudProviders.All)
+            if (CloudDetector.Detect(p, _fs, _registry, _env, Paths.Temp, null).Found) return p;
+        return CloudProvider.GoogleDrive;
+    }
+
+    /// <summary>What each supported cloud app's detection finds on this PC (for the setup window's choice).</summary>
+    public IReadOnlyDictionary<CloudProvider, DriveDetectionResult> DetectAllProviders() =>
+        CloudProviders.All.ToDictionary(p => p,
+            p => CloudDetector.Detect(p, _fs, _registry, _env, Paths.Temp, p == EffectiveProvider() ? Settings.DriveOverride : null));
 
     private string DescribeVersions() => Versions.Count == 0
         ? "none"
@@ -279,7 +299,7 @@ public sealed class SyncService
                     TrySaveSettings();
                 }
                 if (note != null && _folderNotesLogged.Add(note)) _log.Warn(note);
-                var cloud = new CloudLayout(myDrive, folderName);
+                var cloud = new CloudLayout(myDrive, folderName, Drive.Provider);
                 workers.Add(new VersionSync(version, cloud, _fs, _clock, _backups, _states, _log, _machineName,
                     () => Watcher.IsRunning(version), _timing) { Paused = Settings.Paused });
             }
@@ -302,8 +322,8 @@ public sealed class SyncService
         if (!_driveNoticeSent && _clock.UtcNow - since >= DriveMissingGrace)
         {
             _driveNoticeSent = true;
-            Raise(new Notice(NoticeKind.DriveNotFound, "Google Drive not found",
-                "WoWSync can't find your Google Drive folder. Check that Google Drive for desktop is running and signed in."));
+            Raise(new Notice(NoticeKind.DriveNotFound, $"{ProviderName} not found",
+                $"WoWSync can't find your {ProviderName} folder. Check that the {ProviderName} app is running and signed in."));
         }
     }
 
@@ -353,8 +373,8 @@ public sealed class SyncService
         // Attention overrides everything except an explicit pause of normal syncing.
         if (Wow is { Found: false }) (state, text) = (OverallState.NeedsAttention, "World of Warcraft not found");
         else if (Drive is { Found: false } && _driveMissingSinceUtc is { } since && _clock.UtcNow - since >= DriveMissingGrace)
-            (state, text) = (OverallState.NeedsAttention, "Google Drive not found");
-        else if (Drive is { Found: false }) (state, text) = (OverallState.Waiting, "Waiting for Google Drive");
+            (state, text) = (OverallState.NeedsAttention, $"{ProviderName} not found");
+        else if (Drive is { Found: false }) (state, text) = (OverallState.Waiting, $"Waiting for {ProviderName}");
         else if (workers.FirstOrDefault(w => w.Status is SyncStatus.NeedsAttention or SyncStatus.Error) is { } bad)
             (state, text) = (OverallState.NeedsAttention, $"{bad.Version.Key}: {bad.StatusText}");
         else if (_log.WriteFailure != null) (state, text) = (OverallState.NeedsAttention, "Log can't be written");
@@ -390,7 +410,7 @@ public sealed class SyncService
         sb.AppendLine($"World of Warcraft ({Wow?.Source}):");
         foreach (var i in Wow?.Installs ?? []) sb.AppendLine($"  {i.Root} [{string.Join(", ", i.Products.Select(p => $"{p.Uid}:{p.GameFolder}:{p.Version}"))}]");
         foreach (var a in Wow?.Attempts ?? []) sb.AppendLine($"  - {a}");
-        sb.AppendLine($"Google Drive ({Drive?.Source}, {Drive?.Mode}): {Drive?.MyDrivePath ?? "not found"}");
+        sb.AppendLine($"{ProviderName} ({Drive?.Source}, {Drive?.Mode}): {Drive?.MyDrivePath ?? "not found"}");
         foreach (var a in Drive?.Attempts ?? []) sb.AppendLine($"  - {a}");
         sb.AppendLine();
         sb.AppendLine("Game versions:");

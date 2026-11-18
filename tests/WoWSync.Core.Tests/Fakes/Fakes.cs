@@ -56,6 +56,9 @@ public sealed class FakeEnvironment : IUserEnvironment
     public string LocalAppData { get; set; } = @"C:\Users\Player\AppData\Local";
     public string UserProfile { get; set; } = @"C:\Users\Player";
     public string ProgramData { get; set; } = @"C:\ProgramData";
+    public string RoamingAppData { get; set; } = @"C:\Users\Player\AppData\Roaming";
+    public Dictionary<string, string> Variables { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public string? Variable(string name) => Variables.TryGetValue(name, out var v) ? v : null;
     public string UserName { get; set; } = "Player";
     public bool IsElevated { get; set; }
 }
