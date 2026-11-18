@@ -61,8 +61,8 @@ public class WowDetectionTests
             [
                 new BattleNetProduct("agent", "agent", @"C:\ProgramData\Battle.net\Agent", null, "2.42.1.9886"),
                 new BattleNetProduct("battle.net", "bna", @"C:\Program Files (x86)\Battle.net", null, "2.53.8.17986"),
-                new BattleNetProduct("wow_classic_beta", "wow_classic_beta", @"C:\Program Files (x86)\World of Warcraft", "_classic_beta_", "1.60.1.70532"),
-                new BattleNetProduct("wowf", "wowf", @"C:\Program Files (x86)\World of Warcraft", "_forever_", "1.60.1.70959"),
+                new BattleNetProduct("wow_classic_beta", "wow_classic_beta", @"C:\Program Files (x86)\World of Warcraft", "_classic_beta_", "1.60.1.70532", "wow"),
+                new BattleNetProduct("wowf", "wowf", @"C:\Program Files (x86)\World of Warcraft", "_forever_", "1.60.1.70959", "wow"),
             ],
             products);
     }
@@ -101,6 +101,21 @@ public class WowDetectionTests
             ProductDbFixtures.Product("wowf", "C:/Program Files (x86)/World of Warcraft", "_forever_", null, folderField: 14));
         var p = Assert.Single(ProductDb.Parse(db));
         Assert.Equal("_forever_", p.GameFolder);
+    }
+
+    [Fact]
+    public void Product_family_decides_and_the_uid_prefix_is_only_a_fallback()
+    {
+        var db = ProductDbFixtures.Database(
+            ProductDbFixtures.Product("wlby", "C:/Program Files (x86)/World of Warcraft", "_lobby_", "2.0", family: "wow"),
+            ProductDbFixtures.Product("wowtool", "C:/Tools/WowTool", null, null, family: "tools"),
+            ProductDbFixtures.Product("wow_old", "C:/Program Files (x86)/World of Warcraft", "_retail_", "1.0"));
+
+        var products = ProductDb.Parse(db);
+
+        Assert.True(products.Single(p => p.Uid == "wlby").IsWow);      // family "wow", uid without the prefix
+        Assert.False(products.Single(p => p.Uid == "wowtool").IsWow);  // uid prefix, different family
+        Assert.True(products.Single(p => p.Uid == "wow_old").IsWow);   // no family recorded: prefix fallback
     }
 
     [Fact]

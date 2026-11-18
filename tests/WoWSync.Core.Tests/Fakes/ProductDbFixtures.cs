@@ -22,7 +22,7 @@ public static class ProductDbFixtures
     }
 
     public static byte[] Product(string uid, string? installPath, string? folder, string? version,
-        bool folderFirst = false, int folderField = 13)
+        bool folderFirst = false, int folderField = 13, string? family = null)
     {
         var settings = new Writer();
         if (folderFirst && folder != null) settings.String(folderField, folder);
@@ -42,6 +42,7 @@ public static class ProductDbFixtures
             .String(2, uid)                                          // product_code = 2
             .Bytes(3, settings.ToArray())                            // settings = 3
             .Bytes(4, cached.ToArray())                              // cached_product_state = 4
+            .String(6, family ?? "")                                 // product_family = 6
             .ToArray();
     }
 

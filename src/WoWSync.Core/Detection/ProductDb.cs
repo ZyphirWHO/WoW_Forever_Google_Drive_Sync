@@ -9,9 +9,16 @@ public sealed record BattleNetProduct(
     string? ProductCode,
     string? InstallPath,
     string? GameFolder,
-    string? Version)
+    string? Version,
+    string? Family = null)
 {
-    public bool IsWow => Uid.StartsWith("wow", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Battle.net's product family ("wow") decides. Only when a product has no family recorded
+    /// does the uid prefix count, so a future WoW uid without the "wow" prefix is still found.
+    /// </summary>
+    public bool IsWow => string.IsNullOrEmpty(Family)
+        ? Uid.StartsWith("wow", StringComparison.OrdinalIgnoreCase)
+        : Family.Equals("wow", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -21,7 +28,7 @@ public sealed record BattleNetProduct(
 /// (Battle.net 2.53, Nov 2026):
 /// <code>
 ///   Database        { repeated ProductInstall product_installs = 1; ... }
-///   ProductInstall  { string uid = 1; string product_code = 2; UserSettings settings = 3; CachedProductState cached_product_state = 4; ... }
+///   ProductInstall  { string uid = 1; string product_code = 2; UserSettings settings = 3; CachedProductState cached_product_state = 4; string product_family = 6; ... }
 ///   UserSettings    { string install_path = 1; ... string game_subfolder = 13; }
 ///   CachedProductState { BaseProductState base_product_state = 1; ... }
 ///   BaseProductState   { ... string current_version_str = 7; ... }
@@ -37,6 +44,7 @@ public static class ProductDb
     internal const int InstallProductCode = 2;
     internal const int InstallSettings = 3;
     internal const int InstallCachedState = 4;
+    internal const int InstallFamily = 6;
     internal const int SettingsInstallPath = 1;
     internal const int SettingsGameSubfolder = 13;
     internal const int CachedBaseState = 1;
@@ -59,7 +67,7 @@ public static class ProductDb
 
     private static BattleNetProduct? ParseInstall(ReadOnlySpan<byte> data)
     {
-        string? uid = null, code = null, path = null, folder = null, version = null;
+        string? uid = null, code = null, path = null, folder = null, version = null, family = null;
         List<Protobuf.Field> fields;
         try { fields = Protobuf.ReadMessage(data); }
         catch (FormatException) { return null; }
@@ -77,12 +85,16 @@ public static class ProductDb
                 case InstallSettings when f.WireType == Protobuf.WireType.Len:
                     (path, folder) = ParseSettings(f.Bytes.Span);
                     break;
+                case InstallFamily when f.WireType == Protobuf.WireType.Len:
+                    family = f.AsString();
+                    break;
                 case InstallCachedState when f.WireType == Protobuf.WireType.Len:
                     version = ParseVersion(f.Bytes.Span);
                     break;
             }
         }
-        return string.IsNullOrEmpty(uid) ? null : new BattleNetProduct(uid, code, NormalizePath(path), folder, version);
+        return string.IsNullOrEmpty(uid) ? null : new BattleNetProduct(uid, code, NormalizePath(path), folder, version,
+            string.IsNullOrEmpty(family) ? null : family);
     }
 
     private static (string? path, string? folder) ParseSettings(ReadOnlySpan<byte> data)
