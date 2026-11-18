@@ -43,7 +43,7 @@ public sealed class PhysicalFileSystem : IFileSystem
         var dir = Path.GetDirectoryName(destination);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         if (File.Exists(destination)) ClearReadOnly(destination);
-        File.Copy(source, destination, overwrite: true);
+        CopyShared(source, destination);
         // Windows CopyFile already keeps the write time; set it explicitly so every platform agrees.
         File.SetLastWriteTimeUtc(destination, File.GetLastWriteTimeUtc(source));
     }
@@ -92,6 +92,15 @@ public sealed class PhysicalFileSystem : IFileSystem
 
     public string ReadAllText(string path) => File.ReadAllText(path, Encoding.UTF8);
 
+    public byte[] ReadAllBytes(string path)
+    {
+        // Share everything: never block the program that owns the file.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return memory.ToArray();
+    }
+
     public void WriteAllText(string path, string contents)
     {
         var dir = Path.GetDirectoryName(path);
@@ -126,6 +135,17 @@ public sealed class PhysicalFileSystem : IFileSystem
             result.Add(new DriveEntry(d.RootDirectory.FullName, kind, label, ready));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Copies with full sharing on the source, so a file another program has open for writing
+    /// (Battle.net's product.db, WoW's own files) can still be copied.
+    /// </summary>
+    private static void CopyShared(string source, string destination)
+    {
+        using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+            input.CopyTo(output);
     }
 
     private static void ClearReadOnly(string path)

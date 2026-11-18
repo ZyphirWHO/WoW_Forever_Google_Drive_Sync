@@ -60,6 +60,8 @@ public interface IFileSystem
 
     string ReadAllText(string path);
 
+    byte[] ReadAllBytes(string path);
+
     /// <summary>Writes atomically where possible (temp file + replace).</summary>
     void WriteAllText(string path, string contents);
 

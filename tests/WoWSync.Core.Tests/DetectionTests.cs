@@ -8,82 +8,180 @@ namespace WoWSync.Core.Tests;
 public class WowDetectionTests
 {
     private const string Root = @"C:\Program Files (x86)\World of Warcraft";
+    private const string ProductDbPath = @"C:\ProgramData\Battle.net\Agent\product.db";
+    private const string Scratch = @"C:\Users\Player\AppData\Local\WoWSync\Temp";
 
-    private static InMemoryFileSystem StandardInstall(string root = Root)
+    private static WowDetector Detector(InMemoryFileSystem fs, FakeRegistry? reg = null) =>
+        new(fs, reg ?? new FakeRegistry(), new FakeEnvironment(), Scratch);
+
+    /// <summary>The laptop's layout: _forever_ and _classic_beta_ in the default folder.</summary>
+    private static InMemoryFileSystem LaptopInstall(string root = Root)
     {
         var fs = new InMemoryFileSystem();
-        fs.File($@"{root}\_retail_\Wow.exe").Dir($@"{root}\_retail_\WTF\Account\PLAYER#1").File($@"{root}\_retail_\WTF\Config.wtf");
-        fs.File($@"{root}\_forever_\Wow.exe").Dir($@"{root}\_forever_\WTF\Account");
-        fs.File($@"{root}\_classic_era_\WowClassic.exe").Dir($@"{root}\_classic_era_\WTF");          // never launched
-        fs.File($@"{root}\_ptr_\WowT.exe").File($@"{root}\_ptr_\.flavor.info");                        // no WTF yet
-        fs.Dir($@"{root}\_junk_");                                                                       // no exe
-        fs.File($@"{root}\Data\data.000");
-        fs.File($@"{root}\_backup_\notes.txt").Dir($@"{root}\_backup_\WTF");                            // WTF but no exe
+        fs.File($@"{root}\_forever_\Wow.exe").Dir($@"{root}\_forever_\WTF\Account\PLAYER#1").File($@"{root}\_forever_\WTF\Config.wtf");
+        fs.File($@"{root}\_classic_beta_\WowB.exe").Dir($@"{root}\_classic_beta_\WTF");
+        fs.Dir($@"C:\Program Files (x86)\Warcraft III\Warcraft III.exe");
         return fs;
     }
 
     [Fact]
-    public void Registry_install_path_pointing_at_retail_resolves_to_install_root()
+    public void Laptop_product_db_finds_the_install_and_tags_each_version()
     {
-        var fs = StandardInstall();
-        var reg = new FakeRegistry().Set(RegistryHive.LocalMachine, WowDetector.BlizzardKeyWow64, "InstallPath", Root + @"\_retail_\");
+        var fs = LaptopInstall().Bytes(ProductDbPath, ProductDbFixtures.Laptop());
+        fs.File(@"C:\ProgramData\Battle.net\Agent\.product.db", "ignored");
+        var detector = Detector(fs);
 
-        var result = new WowDetector(fs, reg).DetectInstall(null);
+        var result = detector.DetectInstalls(null);
 
-        Assert.Equal(DetectionSource.Registry, result.Source);
-        Assert.Equal(Root, result.Path);
+        Assert.Equal(DetectionSource.BattleNetProductDb, result.Source);
+        var install = Assert.Single(result.Installs);
+        Assert.Equal(Root, install.Root);
+        Assert.Equal(["wowf", "wow_classic_beta"], install.Products.Select(p => p.Uid));
+        Assert.Contains(result.Attempts, a => a.Contains("'battle.net' skipped"));
+        Assert.Contains(result.Attempts, a => a.Contains("'bdko' skipped"));
+
+        var versions = detector.ScanVersions(result);
+        var forever = versions.Single(v => v.FolderName == "_forever_");
+        Assert.Equal(("wowf", "1.60.1.70959"), (forever.ProductUid, forever.ClientVersion));
+        Assert.True(forever.CanEnable);
+        var beta = versions.Single(v => v.FolderName == "_classic_beta_");
+        Assert.Equal(("wow_classic_beta", "1.60.1.70532"), (beta.ProductUid, beta.ClientVersion));
+        Assert.False(beta.CanEnable);                                  // never launched
+
+        Assert.False(fs.FileExists(Scratch + @"\product.db.copy"));    // the copy is cleaned up
     }
 
     [Fact]
-    public void Uninstall_entry_is_used_when_blizzard_key_is_missing()
+    public void Parses_the_laptop_fixture_exactly()
     {
-        var fs = StandardInstall(@"E:\Blizzard\World of Warcraft");
-        var reg = new FakeRegistry()
-            .Set(RegistryHive.LocalMachine, WowDetector.UninstallKeyWow64 + @"\Some Other App", "DisplayName", "Other")
-            .Set(RegistryHive.LocalMachine, WowDetector.UninstallKeyWow64 + @"\World of Warcraft", "DisplayName", "World of Warcraft")
-            .Set(RegistryHive.LocalMachine, WowDetector.UninstallKeyWow64 + @"\World of Warcraft", "InstallLocation", @"""E:\Blizzard\World of Warcraft""");
+        var products = ProductDb.Parse(ProductDbFixtures.Laptop());
 
-        var result = new WowDetector(fs, reg).DetectInstall(null);
-
-        Assert.Equal(DetectionSource.UninstallEntry, result.Source);
-        Assert.Equal(@"E:\Blizzard\World of Warcraft", result.Path);
+        Assert.Equal(["battle.net", "wowf", "bdko", "wow_classic_beta"], products.Select(p => p.Uid));
+        var wowf = products.Single(p => p.Uid == "wowf");
+        Assert.Equal(@"C:\Program Files (x86)\World of Warcraft", wowf.InstallPath);
+        Assert.Equal("_forever_", wowf.GameFolder);
+        Assert.Equal("1.60.1.70959", wowf.Version);
+        Assert.Equal("_classic_beta_", products.Single(p => p.Uid == "wow_classic_beta").GameFolder);
     }
 
     [Fact]
-    public void Stale_registry_value_falls_through_to_common_locations_on_other_drives()
+    public void Paths_are_paired_with_their_own_products_folders_and_grouped_by_install()
     {
-        var fs = StandardInstall(@"D:\World of Warcraft");
-        fs.Drives.Add(new DriveEntry(@"C:\", DriveKind.Fixed, "OS", true));
-        fs.Drives.Add(new DriveEntry(@"D:\", DriveKind.Fixed, "Games", true));
-        var reg = new FakeRegistry().Set(RegistryHive.LocalMachine, WowDetector.BlizzardKeyWow64, "InstallPath", @"C:\Old\World of Warcraft");
+        // Two installs, products interleaved, settings fields in unusual order.
+        var db = ProductDbFixtures.Database(
+            ProductDbFixtures.Product("wow", "D:/Games/World of Warcraft/", "_retail_", "11.2.7.64000", folderFirst: true),
+            ProductDbFixtures.Product("wowf", "C:/Program Files (x86)/World of Warcraft", "_forever_", "1.60.1.70959"),
+            ProductDbFixtures.Product("wow_classic_era", "d:/games/world of warcraft", "_classic_era_", "1.15.8.1"));
+        var fs = LaptopInstall()
+            .File(@"D:\Games\World of Warcraft\_retail_\Wow.exe").Dir(@"D:\Games\World of Warcraft\_retail_\WTF\Account")
+            .File(@"D:\Games\World of Warcraft\_classic_era_\WowClassic.exe").Dir(@"D:\Games\World of Warcraft\_classic_era_\WTF\Account")
+            .Bytes(ProductDbPath, db);
+        var detector = Detector(fs);
 
-        var result = new WowDetector(fs, reg).DetectInstall(null);
+        var result = detector.DetectInstalls(null);
 
-        Assert.Equal(DetectionSource.CommonLocation, result.Source);
-        Assert.Equal(@"D:\World of Warcraft", result.Path);
-        Assert.Contains(result.Attempts, a => a.Contains(@"C:\Old\World of Warcraft"));
+        Assert.Equal(2, result.Installs.Count);
+        var d = result.Installs.Single(i => i.Root.StartsWith("D:"));
+        Assert.Equal(@"D:\Games\World of Warcraft", d.Root);
+        Assert.Equal(["_retail_", "_classic_era_"], d.Products.Select(p => p.GameFolder));
+        Assert.Equal(["_forever_"], result.Installs.Single(i => i.Root.StartsWith("C:")).Products.Select(p => p.GameFolder));
+
+        var versions = detector.ScanVersions(result);
+        Assert.Equal("11.2.7.64000", versions.Single(v => v.FolderName == "_retail_").ClientVersion);
+        Assert.Equal("wowf", versions.Single(v => v.FolderName == "_forever_").ProductUid);
+    }
+
+    [Fact]
+    public void Folder_name_in_an_unexpected_field_is_still_found_within_the_same_product()
+    {
+        var db = ProductDbFixtures.Database(
+            ProductDbFixtures.Product("wowf", "C:/Program Files (x86)/World of Warcraft", "_forever_", null, folderField: 14));
+        var p = Assert.Single(ProductDb.Parse(db));
+        Assert.Equal("_forever_", p.GameFolder);
+    }
+
+    [Fact]
+    public void Warcraft_III_and_other_products_are_never_taken_for_wow()
+    {
+        var db = ProductDbFixtures.Database(
+            ProductDbFixtures.Product("w3", "C:/Program Files (x86)/Warcraft III", "_retail_", "1.36"),
+            ProductDbFixtures.Product("battle.net", "C:/Program Files (x86)/Battle.net", null, null));
+        var fs = LaptopInstall().Bytes(ProductDbPath, db);
+        fs.File(@"C:\Program Files (x86)\Warcraft III\_retail_\Warcraft III.exe").Dir(@"C:\Program Files (x86)\Warcraft III\_retail_\WTF");
+
+        var result = Detector(fs).DetectInstalls(null);
+
+        Assert.Equal(DetectionSource.CommonLocation, result.Source);           // fell back, ignoring W3
+        Assert.Equal(Root, result.PrimaryRoot);
+        Assert.Contains(result.Attempts, a => a.Contains("no World of Warcraft products"));
+    }
+
+    [Fact]
+    public void Unreadable_or_locked_product_db_falls_back_to_the_folder_scan()
+    {
+        var corrupt = LaptopInstall().Bytes(ProductDbPath, [0x0A, 0xFF, 0xFF, 0xFF]);
+        var r1 = Detector(corrupt).DetectInstalls(null);
+        Assert.Equal((DetectionSource.CommonLocation, Root), (r1.Source, r1.PrimaryRoot));
+        Assert.Contains(r1.Attempts, a => a.Contains("could not be read"));
+
+        var locked = LaptopInstall().Bytes(ProductDbPath, ProductDbFixtures.Laptop());
+        locked.Locked.Add(ProductDbPath);
+        var r2 = Detector(locked).DetectInstalls(null);
+        Assert.Equal((DetectionSource.CommonLocation, Root), (r2.Source, r2.PrimaryRoot));
+    }
+
+    [Fact]
+    public void Product_db_pointing_at_a_removed_folder_falls_back()
+    {
+        var fs = new InMemoryFileSystem().Bytes(ProductDbPath, ProductDbFixtures.Laptop());
+        fs.File(@"E:\World of Warcraft\_retail_\Wow.exe").Dir(@"E:\World of Warcraft\_retail_\WTF\Account");
+        fs.Drives.Add(new DriveEntry(@"E:\", DriveKind.Fixed, "Games", true));
+
+        var result = Detector(fs).DetectInstalls(null);
+
+        Assert.Equal((DetectionSource.CommonLocation, @"E:\World of Warcraft"), (result.Source, result.PrimaryRoot));
+        Assert.Contains(result.Attempts, a => a.Contains("but no game version was found there"));
+    }
+
+    [Fact]
+    public void Home_pc_without_uninstall_entries_or_registry_still_detects_from_product_db()
+    {
+        var fs = LaptopInstall().Bytes(ProductDbPath, ProductDbFixtures.Laptop());
+        var result = Detector(fs, new FakeRegistry()).DetectInstalls(null);
+        Assert.Equal((DetectionSource.BattleNetProductDb, Root), (result.Source, result.PrimaryRoot));
+    }
+
+    [Fact]
+    public void Blizzard_registry_key_is_only_a_hint_when_product_db_is_missing()
+    {
+        var fs = LaptopInstall(@"F:\Blizz\World of Warcraft");
+        var reg = new FakeRegistry().Set(RegistryHive.LocalMachine, WowDetector.BlizzardKeyWow64, "InstallPath", @"F:\Blizz\World of Warcraft\_forever_\");
+
+        var result = Detector(fs, reg).DetectInstalls(null);
+
+        Assert.Equal((DetectionSource.RegistryHint, @"F:\Blizz\World of Warcraft"), (result.Source, result.PrimaryRoot));
     }
 
     [Fact]
     public void User_override_wins_and_a_vanished_override_falls_back()
     {
-        var fs = StandardInstall();
+        var fs = LaptopInstall().Bytes(ProductDbPath, ProductDbFixtures.Laptop());
         fs.File(@"F:\WoW\_retail_\Wow.exe").Dir(@"F:\WoW\_retail_\WTF\Account");
-        var reg = new FakeRegistry().Set(RegistryHive.LocalMachine, WowDetector.BlizzardKeyWow64, "InstallPath", Root);
-        var detector = new WowDetector(fs, reg);
+        var detector = Detector(fs);
 
-        Assert.Equal((@"F:\WoW", DetectionSource.UserOverride), (detector.DetectInstall(@"F:\WoW").Path, detector.DetectInstall(@"F:\WoW").Source));
+        var chosen = detector.DetectInstalls(@"F:\WoW");
+        Assert.Equal((DetectionSource.UserOverride, @"F:\WoW"), (chosen.Source, chosen.PrimaryRoot));
 
         fs.RemoveTree(@"F:\WoW");
-        var fallback = detector.DetectInstall(@"F:\WoW");
-        Assert.Equal(DetectionSource.Registry, fallback.Source);
+        var fallback = detector.DetectInstalls(@"F:\WoW");
+        Assert.Equal(DetectionSource.BattleNetProductDb, fallback.Source);
         Assert.Contains(fallback.Attempts, a => a.Contains("no longer contains"));
     }
 
     [Fact]
     public void Not_found_asks_the_user()
     {
-        var result = new WowDetector(new InMemoryFileSystem(), new FakeRegistry()).DetectInstall(null);
+        var result = Detector(new InMemoryFileSystem()).DetectInstalls(null);
         Assert.False(result.Found);
         Assert.Equal(DetectionSource.NotFound, result.Source);
     }
@@ -91,15 +189,21 @@ public class WowDetectionTests
     [Fact]
     public void Scans_every_game_version_including_new_ones_without_code_changes()
     {
-        var fs = StandardInstall();
+        var fs = new InMemoryFileSystem();
+        fs.File($@"{Root}\_retail_\Wow.exe").Dir($@"{Root}\_retail_\WTF\Account\PLAYER#1");
+        fs.File($@"{Root}\_forever_\Wow.exe").Dir($@"{Root}\_forever_\WTF\Account");
+        fs.File($@"{Root}\_classic_era_\WowClassic.exe").Dir($@"{Root}\_classic_era_\WTF");
+        fs.File($@"{Root}\_ptr_\WowT.exe").File($@"{Root}\_ptr_\.flavor.info");
         fs.File($@"{Root}\_anniversary_\WowClassic.exe").Dir($@"{Root}\_anniversary_\WTF\Account");
+        fs.Dir($@"{Root}\_junk_");
+        fs.File($@"{Root}\Data\data.000");
+        fs.File($@"{Root}\_backup_\notes.txt").Dir($@"{Root}\_backup_\WTF");
 
-        var versions = new WowDetector(fs, new FakeRegistry()).ScanVersions(Root);
+        var versions = Detector(fs).ScanVersions(Root);
 
         Assert.Equal(["_anniversary_", "_classic_era_", "_forever_", "_ptr_", "_retail_"], versions.Select(v => v.FolderName));
         Assert.True(versions.Single(v => v.FolderName == "_retail_").CanEnable);
-        Assert.True(versions.Single(v => v.FolderName == "_forever_").CanEnable);
-        Assert.False(versions.Single(v => v.FolderName == "_classic_era_").CanEnable); // never launched
+        Assert.False(versions.Single(v => v.FolderName == "_classic_era_").CanEnable);
         Assert.False(versions.Single(v => v.FolderName == "_ptr_").CanEnable);
         Assert.Equal("classic_era", versions.Single(v => v.FolderName == "_classic_era_").Key);
     }
@@ -107,15 +211,15 @@ public class WowDetectionTests
     [Fact]
     public void Linked_version_folders_and_linked_account_folders_are_not_trusted()
     {
-        var fs = StandardInstall();
-        fs.Link($@"{Root}\_retail_\WTF\Account");
+        var fs = LaptopInstall();
+        fs.Link($@"{Root}\_forever_\WTF\Account");
         fs.File($@"{Root}\_beta_\Wow.exe").Dir($@"{Root}\_beta_\WTF");
         fs.Link($@"{Root}\_beta_");
 
-        var versions = new WowDetector(fs, new FakeRegistry()).ScanVersions(Root);
+        var versions = Detector(fs).ScanVersions(Root);
 
         Assert.DoesNotContain(versions, v => v.FolderName == "_beta_");
-        Assert.False(versions.Single(v => v.FolderName == "_retail_").CanEnable);
+        Assert.False(versions.Single(v => v.FolderName == "_forever_").CanEnable);
     }
 }
 

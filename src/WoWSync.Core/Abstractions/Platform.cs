@@ -43,6 +43,9 @@ public interface IUserEnvironment
 {
     string LocalAppData { get; }
     string UserProfile { get; }
+
+    /// <summary>C:\ProgramData (machine-wide app data, readable by every user).</summary>
+    string ProgramData { get; }
     string UserName { get; }
     bool IsElevated { get; }
 }

@@ -140,6 +140,7 @@ public sealed class WindowsUserEnvironment : IUserEnvironment
 {
     public string LocalAppData => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
     public string UserProfile => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    public string ProgramData => Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
     public string UserName => Environment.UserName;
 
     public bool IsElevated

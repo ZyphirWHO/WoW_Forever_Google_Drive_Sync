@@ -55,6 +55,7 @@ public sealed class FakeEnvironment : IUserEnvironment
 {
     public string LocalAppData { get; set; } = @"C:\Users\Player\AppData\Local";
     public string UserProfile { get; set; } = @"C:\Users\Player";
+    public string ProgramData { get; set; } = @"C:\ProgramData";
     public string UserName { get; set; } = "Player";
     public bool IsElevated { get; set; }
 }
@@ -74,7 +75,7 @@ public sealed class FakeProcessList : IProcessList
 public sealed class InMemoryFileSystem : IFileSystem
 {
     private readonly HashSet<string> _dirs = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _files = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, byte[]> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _links = new(StringComparer.OrdinalIgnoreCase);
 
     public List<DriveEntry> Drives { get; } = [];
@@ -92,12 +93,23 @@ public sealed class InMemoryFileSystem : IFileSystem
         return this;
     }
 
-    public InMemoryFileSystem File(string path, string contents = "x")
+    public InMemoryFileSystem File(string path, string contents = "x") => Bytes(path, System.Text.Encoding.UTF8.GetBytes(contents));
+
+    public InMemoryFileSystem Bytes(string path, byte[] contents)
     {
         var p = N(path);
         if (PathUtil.Parent(p) is { } parent) Dir(parent);
-        _files[p] = contents;
+        _files[p] = contents.ToArray();
         return this;
+    }
+
+    /// <summary>Paths whose reads throw, to simulate a file locked by another program.</summary>
+    public HashSet<string> Locked { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    private byte[] Get(string path)
+    {
+        if (Locked.Contains(N(path))) throw new IOException("The process cannot access the file because it is being used by another process.");
+        return _files[N(path)];
     }
 
     public InMemoryFileSystem Link(string path)
@@ -129,16 +141,17 @@ public sealed class InMemoryFileSystem : IFileSystem
     public IEnumerable<string> EnumerateFiles(string path) => Children(_files.Keys, path);
 
     public FileEntryInfo GetFileInfo(string path) =>
-        new(N(path), _files[N(path)].Length, DateTime.UnixEpoch, FileAttributes.Normal);
+        new(N(path), Get(path).Length, DateTime.UnixEpoch, FileAttributes.Normal);
 
     public void CreateDirectory(string path) => Dir(path);
-    public void CopyFile(string source, string destination) => File(destination, _files[N(source)]);
+    public void CopyFile(string source, string destination) => Bytes(destination, Get(source));
     public void DeleteFile(string path) => _files.Remove(N(path));
-    public void MoveFile(string source, string destination) { File(destination, _files[N(source)]); _files.Remove(N(source)); }
+    public void MoveFile(string source, string destination) { Bytes(destination, Get(source)); _files.Remove(N(source)); }
     public void DeleteDirectory(string path) => RemoveTree(path);
     public void RemoveLink(string path) { _links.Remove(N(path)); _dirs.Remove(N(path)); }
     public void MoveDirectory(string source, string destination) => throw new NotSupportedException();
-    public string ReadAllText(string path) => _files[N(path)];
+    public string ReadAllText(string path) => System.Text.Encoding.UTF8.GetString(Get(path));
+    public byte[] ReadAllBytes(string path) => Get(path).ToArray();
     public void WriteAllText(string path, string contents) => File(path, contents);
     public void AppendAllText(string path, string contents) => File(path, (FileExists(path) ? ReadAllText(path) : "") + contents);
     public IReadOnlyList<DriveEntry> GetDrives() => Drives;

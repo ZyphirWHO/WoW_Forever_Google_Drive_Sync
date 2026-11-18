@@ -165,6 +165,7 @@ public sealed class ScriptedFileSystem : IFileSystem
     public void RemoveLink(string path) => _inner.RemoveLink(path);
     public void MoveDirectory(string source, string destination) => _inner.MoveDirectory(source, destination);
     public string ReadAllText(string path) => _inner.ReadAllText(path);
+    public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
     public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
     public void AppendAllText(string path, string contents) => _inner.AppendAllText(path, contents);
     public IReadOnlyList<DriveEntry> GetDrives() => _inner.GetDrives();
