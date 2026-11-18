@@ -34,18 +34,7 @@ jobs:
       # product name attributes to match the project name in every build).
       - name: Check product name
         shell: pwsh
-        run: |
-          $props = [xml](Get-Content Directory.Build.props)
-          $name = ($props.Project.PropertyGroup | Where-Object { $_.ProductDisplayName }).ProductDisplayName
-          $id = ($props.Project.PropertyGroup | Where-Object { $_.ProductId }).ProductId
-          $files = Get-ChildItem publish
-          if ($files.Count -ne 1 -or $files[0].Name -ne "$id.exe") { throw "Publish must produce only $id.exe, found: $($files.Name -join ', ')" }
-          $info = (Get-Item "publish/$id.exe").VersionInfo
-          "ProductName: $($info.ProductName)  FileDescription: $($info.FileDescription)  CompanyName: $($info.CompanyName)  Version: $($info.ProductVersion)"
-          if ($info.ProductName -ne $name) { throw "ProductName '$($info.ProductName)' differs from '$name'" }
-          if ($info.FileDescription -ne $name) { throw "FileDescription '$($info.FileDescription)' differs from '$name'" }
-          if ($info.InternalName -ne "$id.dll" -and $info.OriginalFilename -ne "$id.dll") { throw "Internal/original file name doesn't match $id" }
-          "SHA-256: $((Get-FileHash "publish/$id.exe" -Algorithm SHA256).Hash)"
+        run: ./.github/check-product-name.ps1 publish
 
       - name: Upload development build
         uses: actions/upload-artifact@v4
