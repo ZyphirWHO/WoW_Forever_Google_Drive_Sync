@@ -22,6 +22,19 @@ public static class ProductInfo
 
     public static string Version => Self.GetName().Version?.ToString(3) ?? "0.0.0";
 
+    /// <summary>Descriptive use only: the game's name describes what the program works with.</summary>
+    public const string Tagline = "Syncs your World of Warcraft® interface settings between your Windows PCs.";
+
+    public const string NotAffiliated =
+        "An independent, free, open-source tool. Not affiliated with, endorsed by or sponsored by Blizzard Entertainment, Inc.";
+
+    /// <summary>Blizzard's credit line, as required for descriptive use of its marks.</summary>
+    public const string TrademarkNotice =
+        "World of Warcraft and Warcraft are trademarks or registered trademarks of Blizzard Entertainment, Inc., " +
+        "in the U.S. and/or other countries.";
+
+    public const string Licence = "MIT License";
+
     /// <summary>Names earlier builds used, so their data can be found and moved once.</summary>
     public static class Legacy
     {

@@ -55,6 +55,8 @@ internal sealed class StatusForm : Form
         openBackups.Click += (_, _) => Open(Service.Paths.Backups);
         var changeCloud = new Button { Text = "Change cloud folder...", AutoSize = true };
         changeCloud.Click += (_, _) => ChangeCloudFolder();
+        var about = new Button { Text = "About", AutoSize = true };
+        about.Click += (_, _) => ShowAbout(this);
         var copyDiag = new Button { Text = "Copy diagnostics", AutoSize = true };
         copyDiag.Click += (_, _) =>
         {
@@ -63,7 +65,7 @@ internal sealed class StatusForm : Form
         };
 
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
-        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag]);
+        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag, about]);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -162,6 +164,24 @@ internal sealed class StatusForm : Form
         var result = TaskDialog.ShowDialog(this, page);
         if (result == keepLocal) _app.Run(() => Service.Resolve(w, KeepChoice.Local));
         else if (result == keepCloud) _app.Run(() => Service.Resolve(w, KeepChoice.Cloud));
+    }
+
+    internal static string AboutText =>
+        $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\n" +
+        $"Version {ProductInfo.Version}. {ProductInfo.Licence}.";
+
+    internal static void ShowAbout(IWin32Window? owner)
+    {
+        var page = new TaskDialogPage
+        {
+            Caption = $"About {ProductInfo.Name}",
+            Heading = $"{ProductInfo.Name} {ProductInfo.Version}",
+            Text = AboutText,
+            Icon = new TaskDialogIcon(TrayIcons.AppIcon),
+            Buttons = { TaskDialogButton.OK },
+        };
+        if (owner != null) TaskDialog.ShowDialog(owner, page);
+        else TaskDialog.ShowDialog(page);
     }
 
     private void ChangeCloudFolder()

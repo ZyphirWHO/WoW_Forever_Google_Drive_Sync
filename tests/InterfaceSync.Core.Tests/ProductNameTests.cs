@@ -126,3 +126,30 @@ public sealed class CloudFolderMigrationTests : IDisposable
         Assert.Contains(log.Lines, l => l.Level == InterfaceSync.Core.Logging.LogLevel.Warning && l.Message.Contains("left untouched"));
     }
 }
+
+public class TrademarkHygieneTests
+{
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props"))) dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("repo root not found");
+    }
+
+    [Fact]
+    public void Product_names_carry_no_game_trademarks()
+    {
+        foreach (var name in new[] { ProductInfo.Name, ProductInfo.Id, CloudLayout.AppFolderName })
+            foreach (var mark in new[] { "WoW", "Warcraft", "Blizzard" })
+                Assert.DoesNotContain(mark, name, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Readme_has_the_credit_line_and_the_not_affiliated_statement()
+    {
+        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md"));
+        Assert.Contains("World of Warcraft and Warcraft are trademarks or registered trademarks of Blizzard Entertainment, Inc.,\nin the U.S. and/or other countries.", readme.Replace("\r\n", "\n"));
+        Assert.Contains("not affiliated with", readme, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("World of Warcraft®", readme);
+    }
+}

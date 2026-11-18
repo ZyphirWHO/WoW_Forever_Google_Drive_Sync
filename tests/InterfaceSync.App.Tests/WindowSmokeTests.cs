@@ -173,6 +173,16 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
+    public void About_text_has_the_trademark_credit_and_not_affiliated_statement()
+    {
+        var text = StatusForm.AboutText;
+        Assert.Contains("World of Warcraft and Warcraft are trademarks or registered trademarks of Blizzard Entertainment, Inc., in the U.S. and/or other countries.", text);
+        Assert.Contains("Not affiliated with, endorsed by or sponsored by Blizzard Entertainment", text);
+        Assert.Contains("World of Warcraft®", text);
+        Assert.Contains("MIT License", text);
+    }
+
+    [Fact]
     public void First_run_window_opens_when_nothing_is_found()
     {
         var service = Service(setupComplete: false);
