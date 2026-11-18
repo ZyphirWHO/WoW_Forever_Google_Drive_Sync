@@ -290,6 +290,110 @@ public sealed class SyncEngineTests : IDisposable
         Assert.True(File.Exists(_world.CommitFilePath()));
     }
 
+    private void WriteLegacyCloud(string relative, string contents, DateTime? stamp = null)
+    {
+        var path = Path.Combine(_world.CloudAccount(), relative.Replace('\\', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, contents);
+        File.SetLastWriteTimeUtc(path, stamp ?? _world.Clock.UtcNow);
+    }
+
+    [Fact]
+    public void Legacy_cloud_folder_with_files_but_no_commit_file_is_pulled_on_first_sync_not_pushed_over()
+    {
+        // v1.1 data: files in WTF-Account, no WTF-Account.wowsync.json.
+        WriteLegacyCloud(@"PLAYER#1\macros-cache.txt", "v1.1 macros");
+        WriteLegacyCloud(@"PLAYER#1\SavedVariables\Addon.lua", "v1.1 addon settings");
+        _world.Clock.Advance(FiveMinutes);
+        var laptop = _world.Pc("WorkLaptop");
+        laptop.WriteSetting(@"PLAYER#1\macros-cache.txt", "laptop macros (newer)");
+        laptop.WriteSetting(@"PLAYER#1\only-local.txt", "x");
+
+        Assert.Equal(SyncOutcome.Pulled, laptop.Sync.Tick());
+
+        // Cloud won; the cloud copy was not touched.
+        Assert.Equal("v1.1 macros", laptop.ReadSetting(@"PLAYER#1\macros-cache.txt"));
+        Assert.Equal("v1.1 addon settings", laptop.ReadSetting(@"PLAYER#1\SavedVariables\Addon.lua"));
+        Assert.Null(laptop.ReadSetting(@"PLAYER#1\only-local.txt"));
+        Assert.Equal("v1.1 macros", File.ReadAllText(Path.Combine(_world.CloudAccount(), "PLAYER#1", "macros-cache.txt")));
+        Assert.DoesNotContain(laptop.Log.Lines, l => l.Message.Contains("uploaded"));
+
+        // This PC's settings were backed up first.
+        var backup = Assert.Single(laptop.Backups.List("_retail_"), b => b.Reason == "first-join");
+        Assert.Equal("laptop macros (newer)", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
+
+        // A commit file now describes the adopted data, with the same id as the legacy content.
+        var commit = CommitFile.TryRead(new WoWSync.Core.Platform.PhysicalFileSystem(), _world.CommitFilePath())!;
+        Assert.Equal(CommitState.Committed, commit.State);
+        Assert.Equal(laptop.Sync.State.LastCommitId, commit.CommitId);
+        Assert.Equal(2, commit.Files.Count);
+        Assert.Equal(SyncOutcome.NothingToDo, laptop.PollAfter(FiveMinutes));
+    }
+
+    [Fact]
+    public void Second_pc_that_joined_the_same_legacy_data_sees_no_change_after_the_commit_file_appears()
+    {
+        WriteLegacyCloud(@"PLAYER#1\macros-cache.txt", "v1.1 macros");
+        var a = _world.Pc("HomePC");
+        var b = _world.Pc("WorkLaptop");
+        Assert.Equal(SyncOutcome.Pulled, a.Sync.Tick());   // writes the commit file
+        Assert.Equal(SyncOutcome.Pulled, b.Sync.Tick());
+        Assert.Equal(SyncOutcome.NothingToDo, a.PollAfter(FiveMinutes));
+        Assert.Equal(SyncOutcome.NothingToDo, b.PollAfter(FiveMinutes));
+    }
+
+    [Fact]
+    public void Push_over_a_cloud_copy_without_a_commit_file_backs_up_the_whole_cloud_copy_first()
+    {
+        var (a, _) = TwoJoinedPcs();
+        File.Delete(_world.CommitFilePath());                       // e.g. written by something other than 2.0
+        WriteLegacyCloud(@"PLAYER#1\extra-from-elsewhere.txt", "keep me");
+
+        Assert.Equal(SyncOutcome.Pushed, a.Sync.ResolveConflict(KeepChoice.Local));
+
+        var backup = Assert.Single(a.Backups.List("_retail_"), x => x.Reason == "cloud-before-push");
+        Assert.Equal("keep me", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "extra-from-elsewhere.txt")));
+        Assert.Equal("M1", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
+    }
+
+    [Fact]
+    public void Every_push_backs_up_the_cloud_files_it_replaces()
+    {
+        var (a, _) = TwoJoinedPcs();
+        Assert.Equal(SyncOutcome.Pushed, a.PlaySession((@"PLAYER#1\macros-cache.txt", "M2")));
+
+        var backup = Assert.Single(a.Backups.List("_retail_"), x => x.Reason == "cloud-before-push");
+        Assert.Equal("M1", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
+        Assert.Equal(1, backup.FileCount);                          // only what changed
+    }
+
+    [Fact]
+    public void Cloud_folder_holding_only_conflict_copies_is_not_treated_as_empty()
+    {
+        WriteLegacyCloud(@"PLAYER#1\macros-cache (1).txt", "only a Drive conflict copy");
+        var a = _world.Pc("HomePC");
+        a.WriteSetting(@"PLAYER#1\macros-cache.txt", "local");
+
+        Assert.Equal(SyncOutcome.Waiting, a.Sync.Tick());
+        Assert.Contains("conflict copies", a.Sync.StatusText);
+        Assert.False(File.Exists(_world.CommitFilePath()));         // nothing uploaded
+    }
+
+    [Fact]
+    public void Uploading_to_an_empty_cloud_logs_the_exact_folder_and_other_folders_found()
+    {
+        Directory.CreateDirectory(Path.Combine(_world.MyDrive, "WoWSync", "forever", "WTF-Account"));
+        var a = _world.Pc("HomePC");
+        a.WriteSetting(@"PLAYER#1\macros-cache.txt", "local");
+
+        Assert.Equal(SyncOutcome.Pushed, a.Sync.Tick());
+        var line = Assert.Single(a.Log.Lines, l => l.Message.Contains("first sync on this PC")).Message;
+        Assert.Contains(_world.CloudAccount(), line);
+        Assert.Contains("does not exist", line);
+        Assert.Contains("Other folders in", line);
+        Assert.Contains("forever", line);
+    }
+
     [Fact]
     public void Config_wtf_is_never_synced()
     {
@@ -310,7 +414,7 @@ public sealed class SyncEngineTests : IDisposable
         Assert.Equal(SyncOutcome.Pushed, a.PollAfter(TimeSpan.FromSeconds(15)));
 
         Assert.False(File.Exists(Path.Combine(_world.CloudAccount(), "PLAYER#1", "bindings-cache.wtf")));
-        var removed = Directory.GetDirectories(Path.Combine(a.DataFolder, "Backups", "_retail_"), "*cloud-removed-files");
+        var removed = Directory.GetDirectories(Path.Combine(a.DataFolder, "Backups", "_retail_"), "*cloud-before-push");
         Assert.True(File.Exists(Path.Combine(Assert.Single(removed), "PLAYER#1", "bindings-cache.wtf")));
 
         Assert.Equal(SyncOutcome.Pulled, b.PollAfter(FiveMinutes));

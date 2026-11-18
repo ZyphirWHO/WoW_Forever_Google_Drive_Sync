@@ -240,9 +240,22 @@ public sealed class VersionSync
                     SetStatus(SyncStatus.Idle, "Nothing to sync yet: launch this game version once");
                     return SyncOutcome.NothingToDo;
                 }
-                _log.Info($"{Name}: first sync on this PC. The cloud is empty, so this PC's settings are uploaded.");
+                var why = cloud.Readiness == CloudReadiness.Missing
+                    ? $"the folder {Cloud.Account} does not exist"
+                    : $"the folder {Cloud.Account} has no files";
+                _log.Info($"{Name}: first sync on this PC. Google Drive has no settings for this version yet ({why}), so this PC's settings are uploaded.{OtherCloudFolders()}");
                 return Push(local, cloud, force: true);
         }
+    }
+
+    /// <summary>Names other folders in My Drive\WoWSync, so a folder-name mismatch with v1.1 shows in the log.</summary>
+    private string OtherCloudFolders()
+    {
+        var appFolder = PathUtil.Parent(Cloud.VersionRoot);
+        if (appFolder == null || !_fs.DirectoryExists(appFolder)) return "";
+        var others = _fs.EnumerateDirectories(appFolder).Select(PathUtil.Name)
+            .Where(n => !n.Equals(PathUtil.Name(Cloud.VersionRoot), StringComparison.OrdinalIgnoreCase)).ToList();
+        return others.Count == 0 ? "" : $" Other folders in {appFolder}: {string.Join(", ", others)}.";
     }
 
     // ------------------------------------------------------------------ push
@@ -285,6 +298,25 @@ public sealed class VersionSync
             Files = cloud.Commit?.Files ?? [],
         }.Write(_fs, Cloud.CommitFile);
 
+        // Never overwrite or delete a cloud file without a backup. With no commit file the cloud copy
+        // wasn't written by 2.0 (e.g. v1.1 data), so back up all of it; otherwise just what changes.
+        var localLookup = local.Manifest.ToLookup();
+        var replaced = local.Manifest.Entries
+            .Where(e => cloudFiles.TryGetValue(e.RelativePath, out var c) && !Manifest.SameFile(e, c))
+            .Select(e => cloudFiles[e.RelativePath]);
+        var removed = cloudScan.Manifest.Entries.Where(e => !localLookup.ContainsKey(e.RelativePath));
+        var atRisk = replaced.Concat(removed).ToList();
+        if (cloud.Commit == null && FolderScanner.AllFiles(_fs, Cloud.Account).Count > 0)
+        {
+            var whole = _backups.Create(Name, Cloud.Account, "cloud-before-push");
+            _log.Info($"{Name}: the cloud copy had no WoWSync 2.0 commit file, so all of it was backed up first ({whole?.FileCount} files, {whole?.Path}).");
+        }
+        else if (atRisk.Count > 0)
+        {
+            var partial = _backups.CreateFromFiles(Name, Cloud.Account, atRisk, "cloud-before-push");
+            _log.Info($"{Name}: backed up {atRisk.Count} cloud file(s) about to be replaced or removed ({partial.Path}).");
+        }
+
         int copied = 0;
         foreach (var entry in local.Manifest.Entries)
         {
@@ -298,14 +330,12 @@ public sealed class VersionSync
             copied++;
         }
 
-        // Mirror deletions, after backing up what is about to go.
-        var localFiles = local.Manifest.ToLookup();
-        var toDelete = cloudScan.Manifest.Entries.Where(e => !localFiles.ContainsKey(e.RelativePath)).ToList();
+        // Mirror deletions (already backed up above).
+        var toDelete = cloudScan.Manifest.Entries.Where(e => !localLookup.ContainsKey(e.RelativePath)).ToList();
         if (toDelete.Count > 0)
         {
-            var backupDir = BackupCloudFiles(toDelete);
             foreach (var e in toDelete) _fs.DeleteFile(PathUtil.FromRelative(Cloud.Account, e.RelativePath));
-            _log.Info($"{Name}: removed {toDelete.Count} file(s) from the cloud that were deleted on this PC (backup: {backupDir}).");
+            _log.Info($"{Name}: removed {toDelete.Count} file(s) from the cloud that were deleted on this PC.");
         }
         foreach (var temp in cloudScan.TempFiles.Where(t => t.EndsWith(FolderScanner.TempSuffix, StringComparison.OrdinalIgnoreCase)))
             _fs.DeleteFile(PathUtil.FromRelative(Cloud.Account, temp));
@@ -333,13 +363,6 @@ public sealed class VersionSync
         return SyncOutcome.Pushed;
     }
 
-    private string? BackupCloudFiles(List<ManifestEntry> files)
-    {
-        var stamp = _clock.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
-        var dest = PathUtil.Join(_backups.Root, Name, $"{stamp}-cloud-removed-files");
-        TreeCopy.CopyFiles(_fs, Cloud.Account, dest, files);
-        return dest;
-    }
 
     // ------------------------------------------------------------------ pull
 
@@ -411,6 +434,21 @@ public sealed class VersionSync
             return SyncOutcome.Cancelled;
         }
         if (hadLocal) _fs.DeleteDirectory(old); // already in the backup store
+
+        if (cloud.Commit == null)
+        {
+            // Adopted data WoWSync 2.0 didn't write (v1.1): describe it with a commit file so every PC
+            // reads it the same way from now on. The id is the same content hash other PCs already hold.
+            new CommitFile
+            {
+                State = CommitState.Committed,
+                CommitId = cloud.CommitId!,
+                PushedBy = $"{_machineName} (adopted existing data)",
+                PushedAtUtc = _clock.UtcNow,
+                Files = files.Entries,
+            }.Write(_fs, Cloud.CommitFile);
+            _log.Info($"{Name}: the existing cloud settings (no WoWSync 2.0 commit file, e.g. from v1.1) were used, and a commit file was written for them.");
+        }
 
         State.Joined = true;
         State.PendingPush = false;
@@ -521,7 +559,19 @@ public sealed class VersionSync
         {
             // Legacy (v1.1) data or a cloud folder never written by 2.0.
             if (!scan.Exists) return new CloudSnapshot { Readiness = CloudReadiness.Missing };
-            if (scan.Manifest.IsEmpty) return new CloudSnapshot { Readiness = CloudReadiness.Empty };
+            if (scan.Manifest.IsEmpty)
+            {
+                // "Has data" means any file at all. A folder holding only Drive conflict copies or temp files
+                // is never treated as empty (it would be uploaded over); the player is asked to look.
+                int anyFiles = FolderScanner.AllFiles(_fs, Cloud.Account).Count;
+                return anyFiles == 0
+                    ? new CloudSnapshot { Readiness = CloudReadiness.Empty }
+                    : new CloudSnapshot
+                    {
+                        Readiness = CloudReadiness.Incomplete,
+                        Problem = $"{Cloud.Account} holds only Google Drive conflict copies or temporary files ({anyFiles}); check that folder",
+                    };
+            }
             if (scan.TempFiles.Count > 0)
                 return new CloudSnapshot { Readiness = CloudReadiness.Incomplete, Problem = "Google Drive is still transferring files" };
             if (scan.OnlineOnly.Count > 0)

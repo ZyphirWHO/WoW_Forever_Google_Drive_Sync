@@ -56,6 +56,7 @@ public sealed class SyncService
     private readonly BackupStore _backups;
     private readonly object _gate = new();
     private readonly HashSet<(string version, SyncStatus status)> _notified = [];
+    private readonly HashSet<string> _folderNotesLogged = [];
 
     private List<VersionSync> _workers = [];
     private DateTime _startedUtc;
@@ -225,12 +226,14 @@ public sealed class SyncService
 
         var wowDetector = new WowDetector(_fs, _registry, _env, Paths.Temp);
         Wow = wowDetector.DetectInstalls(Settings.WowInstallOverride);
-        Drive = new DriveDetector(_fs, _registry, _env).Detect(Settings.DriveOverride);
+        Drive = new DriveDetector(_fs, _registry, _env, Paths.Temp).Detect(Settings.DriveOverride);
         Versions = Wow.Found ? wowDetector.ScanVersions(Wow) : [];
 
         bool quiet = reason != null && Drive.MyDrivePath == oldDrive && Wow.PrimaryRoot == oldWow;
         if (!quiet)
         {
+            foreach (var a in Wow.Attempts) _log.Info($"WoW detection: {a}");
+            foreach (var a in Drive.Attempts) _log.Info($"Drive detection: {a}");
             _log.Info(Wow.Found
                 ? $"World of Warcraft: {string.Join("; ", Wow.Installs.Select(i => i.Root))} (from {Wow.Source}). Versions: {DescribeVersions()}"
                 : "World of Warcraft was not found. Choose its folder in the status window.");
@@ -269,7 +272,14 @@ public sealed class SyncService
                 if (existing != null) { workers.Add(existing); continue; }
 
                 var version = v;
-                var cloud = new CloudLayout(myDrive, CloudLayout.FolderNameFor(v.FolderName, Settings));
+                var folderName = CloudLayout.ResolveFolderName(_fs, myDrive, v.FolderName, Settings, out var adopted, out var note);
+                if (adopted != null)
+                {
+                    Settings.CloudFolderNames[v.FolderName] = adopted;
+                    TrySaveSettings();
+                }
+                if (note != null && _folderNotesLogged.Add(note)) _log.Warn(note);
+                var cloud = new CloudLayout(myDrive, folderName);
                 workers.Add(new VersionSync(version, cloud, _fs, _clock, _backups, _states, _log, _machineName,
                     () => Watcher.IsRunning(version), _timing) { Paused = Settings.Paused });
             }

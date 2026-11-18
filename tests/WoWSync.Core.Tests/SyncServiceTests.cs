@@ -184,6 +184,60 @@ public sealed class SyncServiceTests : IDisposable
     }
 
     [Fact]
+    public void V1_cloud_folder_named_without_underscores_is_found_and_remembered()
+    {
+        var legacy = Path.Combine(MirrorDrive, "WoWSync", "forever", "WTF-Account", "PLAYER#1");
+        Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(legacy, "macros-cache.txt"), "v1.1 forever settings");
+        var s = Service(c => c.EnabledVersions["_retail_"] = false);
+        s.Start();
+        var forever = s.Workers.Single();
+        Assert.Equal(Path.Combine(MirrorDrive, "WoWSync", "forever", "WTF-Account"), forever.Cloud.Account);
+        Assert.Equal("forever", new SettingsStore(_fs, s.Paths.Data).Load().CloudFolderNames["_forever_"]);
+
+        s.Poll();                                             // first sync: the v1.1 data wins
+        Assert.Equal("v1.1 forever settings",
+            File.ReadAllText(Path.Combine(_wow, "_forever_", "WTF", "Account", "PLAYER#1", "macros-cache.txt")));
+        Assert.False(Directory.Exists(Path.Combine(MirrorDrive, "WoWSync", "_forever_")));
+    }
+
+    [Fact]
+    public void When_both_folder_names_hold_settings_the_2_0_one_is_used_and_the_player_is_told()
+    {
+        foreach (var name in new[] { "forever", "_forever_" })
+        {
+            var dir = Path.Combine(MirrorDrive, "WoWSync", name, "WTF-Account");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "macros-cache.txt"), name);
+        }
+        var log = new MemoryLog();
+        var paths = new AppPaths(_env.LocalAppData);
+        var settings = new AppSettings { WowInstallOverride = _wow, SetupComplete = true };
+        settings.EnabledVersions["_forever_"] = true;
+        new SettingsStore(_fs, paths.Data).Save(settings);
+        var s = new SyncService(_fs, new FakeRegistry(), _processes, _env, _clock, log, paths, "HomePC");
+        s.Start();
+
+        Assert.EndsWith(Path.Combine("_forever_", "WTF-Account"), s.Workers.Single().Cloud.Account);
+        Assert.Contains(log.Lines, l => l.Level == LogLevel.Warning && l.Message.Contains("both") && l.Message.Contains("forever"));
+    }
+
+    [Fact]
+    public void Every_detection_attempt_is_written_to_the_log()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var log = new MemoryLog();
+        var paths = new AppPaths(_env.LocalAppData);
+        new SettingsStore(_fs, paths.Data).Save(new AppSettings { WowInstallOverride = _wow, SetupComplete = true });
+        var s = new SyncService(_fs, new FakeRegistry(), _processes, _env, _clock, log, paths, "HomePC");
+        s.Start();
+
+        Assert.Contains(log.Lines, l => l.Message.StartsWith("Drive detection: ") && l.Message.Contains("registry"));
+        Assert.Contains(log.Lines, l => l.Message.StartsWith("Drive detection: ") && l.Message.Contains("root_preference_sqlite.db"));
+        Assert.Contains(log.Lines, l => l.Message.StartsWith("Drive detection: Mirrored folder: found"));
+    }
+
+    [Fact]
     public void Diagnostics_include_paths_versions_and_log_lines()
     {
         Directory.CreateDirectory(MirrorDrive);

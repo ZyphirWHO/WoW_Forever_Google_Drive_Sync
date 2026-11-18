@@ -39,7 +39,19 @@ public sealed class BackupStore
         for (int i = 2; _fs.DirectoryExists(dest); i++) dest = PathUtil.Join(Root, versionFolder, $"{name}-{i}");
 
         TreeCopy.CopyFiles(_fs, sourceFolder, dest, files);
-        Prune(versionFolder);
+        Prune(versionFolder, reason);
+        return new BackupInfo(versionFolder, dest, now, reason, files.Count);
+    }
+
+    /// <summary>Backs up only the listed files (e.g. the cloud files a push is about to replace).</summary>
+    public BackupInfo CreateFromFiles(string versionFolder, string sourceFolder, IReadOnlyCollection<ManifestEntry> files, string reason)
+    {
+        var now = _clock.UtcNow;
+        var name = $"{now.ToString(StampFormat, CultureInfo.InvariantCulture)}-{Sanitize(reason)}";
+        var dest = PathUtil.Join(Root, versionFolder, name);
+        for (int i = 2; _fs.DirectoryExists(dest); i++) dest = PathUtil.Join(Root, versionFolder, $"{name}-{i}");
+        TreeCopy.CopyFiles(_fs, sourceFolder, dest, files);
+        Prune(versionFolder, reason);
         return new BackupInfo(versionFolder, dest, now, reason, files.Count);
     }
 
@@ -61,11 +73,18 @@ public sealed class BackupStore
         return result.OrderByDescending(b => b.CreatedUtc).ThenByDescending(b => b.Path, StringComparer.Ordinal).ToList();
     }
 
-    private void Prune(string versionFolder)
+    /// <summary>
+    /// Keeps the newest 10 per version, counting cloud-copy backups ("cloud-...") and this PC's backups
+    /// separately, so frequent push backups never push out the backups of this PC's own settings.
+    /// </summary>
+    private void Prune(string versionFolder, string reason)
     {
-        foreach (var old in List(versionFolder).Skip(KeepPerVersion))
+        bool cloud = IsCloudReason(reason);
+        foreach (var old in List(versionFolder).Where(b => IsCloudReason(b.Reason) == cloud).Skip(KeepPerVersion))
             _fs.DeleteDirectory(old.Path);
     }
+
+    public static bool IsCloudReason(string reason) => reason.StartsWith("cloud-", StringComparison.OrdinalIgnoreCase);
 
     private static string Sanitize(string reason)
     {

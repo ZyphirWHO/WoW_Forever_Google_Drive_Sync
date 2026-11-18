@@ -35,6 +35,40 @@ public sealed class CloudLayout
         settings.CloudFolderNames.TryGetValue(gameVersionFolder, out var mapped) && !string.IsNullOrWhiteSpace(mapped)
             ? mapped
             : gameVersionFolder;
+
+    /// <summary>
+    /// Picks the cloud folder for a game version: a saved mapping first; otherwise the game folder name
+    /// ("_forever_"), unless only the name without underscores ("forever", as v1.1 may have used) holds data.
+    /// <paramref name="adopted"/> is set when the v1.1-style name was chosen, so the caller can save it.
+    /// <paramref name="note"/> explains anything the player should know (e.g. both folders hold data).
+    /// </summary>
+    public static string ResolveFolderName(IFileSystem fs, string myDrive, string gameVersionFolder, AppSettings settings,
+        out string? adopted, out string? note)
+    {
+        adopted = null;
+        note = null;
+        if (settings.CloudFolderNames.TryGetValue(gameVersionFolder, out var mapped) && !string.IsNullOrWhiteSpace(mapped))
+            return mapped;
+
+        var plain = gameVersionFolder.Trim('_');
+        var primary = new CloudLayout(myDrive, gameVersionFolder);
+        if (plain.Length == 0 || plain.Equals(gameVersionFolder, StringComparison.OrdinalIgnoreCase)) return gameVersionFolder;
+        var alternate = new CloudLayout(myDrive, plain);
+
+        bool primaryHasData = fs.FileExists(primary.CommitFile) || FolderScanner.AllFiles(fs, primary.Account).Count > 0;
+        bool alternateHasData = fs.FileExists(alternate.CommitFile) || FolderScanner.AllFiles(fs, alternate.Account).Count > 0;
+
+        if (!primaryHasData && alternateHasData)
+        {
+            adopted = plain;
+            note = $"{gameVersionFolder}: using the existing cloud folder {alternate.VersionRoot} (named as by WoWSync 1.1).";
+            return plain;
+        }
+        if (primaryHasData && alternateHasData)
+            note = $"{gameVersionFolder}: both {primary.VersionRoot} and {alternate.VersionRoot} hold settings. Using {primary.VersionRoot}; " +
+                   $"{alternate.VersionRoot} is left untouched.";
+        return gameVersionFolder;
+    }
 }
 
 public enum CommitState { Writing, Committed }

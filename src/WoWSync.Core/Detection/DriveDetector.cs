@@ -21,16 +21,23 @@ public sealed class DriveDetector
     internal const string DriveFsPolicyKey = @"SOFTWARE\Google\DriveFS";
     internal const string MyDriveFolderName = "My Drive";
 
+    internal const string DriveFsDbRelative = @"Google\DriveFS\root_preference_sqlite.db";
+
     private readonly IFileSystem _fs;
     private readonly IRegistry _registry;
     private readonly IUserEnvironment _env;
+    private readonly string _scratchFolder;
 
-    public DriveDetector(IFileSystem fs, IRegistry registry, IUserEnvironment env)
+    /// <param name="scratchFolder">Where Drive's database is copied before reading; defaults to %LOCALAPPDATA%\WoWSync\Temp.</param>
+    public DriveDetector(IFileSystem fs, IRegistry registry, IUserEnvironment env, string? scratchFolder = null)
     {
         _fs = fs;
         _registry = registry;
         _env = env;
+        _scratchFolder = scratchFolder ?? PathUtil.Join(env.LocalAppData, "WoWSync", "Temp");
     }
+
+    public string DriveFsDbPath => PathUtil.Join(_env.LocalAppData, DriveFsDbRelative);
 
     public DriveDetectionResult Detect(string? userOverride)
     {
@@ -52,6 +59,16 @@ public sealed class DriveDetector
                 return new(myDrive, GuessMode(myDrive), DetectionSource.DriveFsSettings, attempts);
             }
             attempts.Add($"Drive settings point at '{mount}', which has no '{MyDriveFolderName}' folder");
+        }
+
+        foreach (var root in RootsFromDriveDatabase(attempts))
+        {
+            var myDrive = MyDriveUnder(root);
+            if (myDrive != null)
+            {
+                attempts.Add($"Drive database: found {myDrive}");
+                return new(myDrive, GuessMode(myDrive), DetectionSource.DriveFsSettings, attempts);
+            }
         }
 
         foreach (var drive in _fs.GetDrives())
@@ -87,7 +104,17 @@ public sealed class DriveDetector
 
         var json = _registry.GetString(RegistryHive.CurrentUser, DriveFsUserKey, "PerAccountPreferences");
         if (!string.IsNullOrWhiteSpace(json))
-            raw.AddRange(ExtractMountPoints(json, attempts));
+        {
+            var found = ExtractMountPoints(json, attempts).ToList();
+            attempts.Add(found.Count == 0
+                ? $"Drive settings in the registry (HKCU\\{DriveFsUserKey} PerAccountPreferences): no mount point recorded"
+                : $"Drive settings in the registry (HKCU\\{DriveFsUserKey} PerAccountPreferences): mount point {string.Join(", ", found)}");
+            raw.AddRange(found);
+        }
+        else
+        {
+            attempts.Add($"Drive settings in the registry: none (HKCU\\{DriveFsUserKey} has no PerAccountPreferences)");
+        }
 
         foreach (var valueName in new[] { "DefaultMountPoint", "MountPoint" })
         {
@@ -98,6 +125,80 @@ public sealed class DriveDetector
 
         foreach (var value in raw.Distinct(StringComparer.OrdinalIgnoreCase))
             yield return ToRootPath(value);
+    }
+
+    /// <summary>
+    /// Folder paths Drive for desktop records in %LOCALAPPDATA%\Google\DriveFS\root_preference_sqlite.db
+    /// (its mirrored "My Drive" root among them). Read from a copy, never the live file. Every step is
+    /// reported in <paramref name="attempts"/> so the log shows why this source was used or skipped.
+    /// </summary>
+    private IEnumerable<string> RootsFromDriveDatabase(List<string> attempts)
+    {
+        var source = DriveFsDbPath;
+        if (!_fs.FileExists(source))
+        {
+            attempts.Add($"Drive database not found ({source})");
+            return [];
+        }
+
+        IReadOnlyList<SqliteReader.Table> tables;
+        var copy = PathUtil.Join(_scratchFolder, "root_preference.db.copy");
+        try
+        {
+            _fs.CreateDirectory(_scratchFolder);
+            _fs.CopyFile(source, copy);
+            tables = new SqliteReader(_fs.ReadAllBytes(copy)).ReadTables();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException
+                                      or ArgumentException or IndexOutOfRangeException or InvalidCastException or OverflowException)
+        {
+            attempts.Add($"Drive database {source} could not be read ({e.GetType().Name}: {e.Message})");
+            return [];
+        }
+        finally
+        {
+            try { if (_fs.FileExists(copy)) _fs.DeleteFile(copy); } catch (IOException) { }
+        }
+
+        var wal = source + "-wal";
+        if (_fs.FileExists(wal) && _fs.GetFileInfo(wal).Size > 0)
+            attempts.Add("Drive database has recent changes in its -wal file that may not be included yet");
+
+        var paths = new List<string>();
+        foreach (var t in tables)
+        {
+            var pathColumns = t.Columns.Select((c, i) => (c, i))
+                .Where(x => x.c.Contains("path", StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var row in t.Rows)
+                foreach (var (_, i) in pathColumns)
+                    if (i < row.Length && row[i] is string s && !string.IsNullOrWhiteSpace(s))
+                        paths.Add(CleanPath(s));
+        }
+        if (paths.Count == 0)
+        {
+            // Unknown schema: fall back to any absolute Windows path stored anywhere.
+            foreach (var t in tables)
+                foreach (var row in t.Rows)
+                    foreach (var v in row)
+                        if (v is string s && CleanPath(s) is { Length: > 3 } c && char.IsLetter(c[0]) && c[1] == ':' && c[2] == '\\')
+                            paths.Add(c);
+        }
+
+        var described = string.Join("; ", tables.Select(t => $"{t.Name}({string.Join(", ", t.Columns)}) {t.Rows.Count} row(s)"));
+        paths = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        attempts.Add(paths.Count == 0
+            ? $"Drive database {source}: no folder paths recorded. Tables: {described}"
+            : $"Drive database {source}: folder paths {string.Join(", ", paths)}");
+        if (paths.Count > 0 && !paths.Any(p => MyDriveUnder(PathUtil.ExpandUserVars(p, _env.UserProfile, _env.LocalAppData)) != null))
+            attempts.Add($"Drive database: none of those is, or contains, an existing '{MyDriveFolderName}' folder");
+        return paths.Select(p => PathUtil.ExpandUserVars(p, _env.UserProfile, _env.LocalAppData));
+    }
+
+    private static string CleanPath(string s)
+    {
+        var p = s.Trim().Trim('"');
+        if (p.StartsWith(@"\\?\", StringComparison.Ordinal)) p = p[4..];
+        return p.Length > 0 ? PathUtil.TrimEnd(p) : p;
     }
 
     /// <summary>Pulls every "mount_point_path" string out of DriveFS's PerAccountPreferences JSON.</summary>
