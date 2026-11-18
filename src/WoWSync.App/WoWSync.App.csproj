@@ -16,6 +16,18 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
+  <!--
+    The Windows desktop runtime pack also carries WPF's native DLLs, which a single-file publish leaves
+    beside the exe. WoWSync is WinForms only and never loads them, so keep them out: the download is
+    one WoWSync.exe.
+  -->
+  <Target Name="ExcludeWpfNativeFiles" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(Filename)' == 'D3DCompiler_47_cor3' Or '%(Filename)' == 'PenImc_cor3' Or '%(Filename)' == 'PresentationNative_cor3' Or '%(Filename)' == 'vcruntime140_cor3' Or '%(Filename)' == 'wpfgfx_cor3'" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <ProjectReference Include="..\WoWSync.Core\WoWSync.Core.csproj" />
   </ItemGroup>
