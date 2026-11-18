@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -45,7 +46,9 @@ jobs:
 
   # macOS: Core and Mac app tests on a real Mac, then the menu-bar app for Apple silicon and Intel.
   macos:
-    runs-on: macos-latest
+    # Intel runner: GitHub's arm64 macOS runners were unavailable ("not acquired ... after multiple attempts").
+    # Both the arm64 and x64 apps are still built here.
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
