@@ -1,0 +1,137 @@
+using WoWSync.App;
+using WoWSync.Core.Logging;
+using WoWSync.Core.Platform;
+using WoWSync.Core.Service;
+using WoWSync.Core.Settings;
+using WoWSync.Core.Tests.Fakes;
+using Xunit;
+
+namespace WoWSync.App.Tests;
+
+/// <summary>
+/// Builds and shows the real windows against a real SyncService over temp folders, on an STA thread,
+/// so a window that throws while opening fails CI instead of reaching a player.
+/// </summary>
+public sealed class WindowSmokeTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "wowsync-ui", Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
+    }
+
+    private SyncService Service(bool setupComplete, params (string folder, bool launched)[] versions)
+    {
+        var env = new FakeEnvironment
+        {
+            LocalAppData = Path.Combine(_root, "LocalAppData"),
+            UserProfile = Path.Combine(_root, "Users", "Player"),
+            ProgramData = Path.Combine(_root, "ProgramData"),
+        };
+        var wow = Path.Combine(_root, "World of Warcraft");
+        foreach (var (folder, launched) in versions)
+        {
+            Directory.CreateDirectory(Path.Combine(wow, folder, launched ? Path.Combine("WTF", "Account") : "WTF"));
+            File.WriteAllText(Path.Combine(wow, folder, "Wow.exe"), "exe");
+        }
+        Directory.CreateDirectory(Path.Combine(env.UserProfile, "My Drive"));
+
+        var fs = new PhysicalFileSystem();
+        var paths = new AppPaths(env.LocalAppData);
+        var settings = new AppSettings { WowInstallOverride = wow, SetupComplete = setupComplete };
+        if (setupComplete) foreach (var (folder, launched) in versions) settings.EnabledVersions[folder] = launched;
+        new SettingsStore(fs, paths.Data).Save(settings);
+
+        var service = new SyncService(fs, new FakeRegistry(), new FakeProcessList(), env, new FakeClock(DateTime.UtcNow),
+            new MemoryLog(), paths, "TestPC");
+        service.Start();
+        return service;
+    }
+
+    private static void OnSta(Action action)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { action(); }
+            catch (Exception e) { failure = e; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "UI test timed out");
+        if (failure != null) throw new Exception("Window failed: " + failure.Message, failure);
+    }
+
+    [Fact]
+    public void First_run_window_opens_with_launched_versions_ticked()
+    {
+        var service = Service(setupComplete: false, ("_forever_", true), ("_classic_beta_", false), ("_retail_", true));
+        OnSta(() =>
+        {
+            using var form = new FirstRun(service, new FakeRegistry());   // the 2.0 dev build crashed here
+            form.Show();
+            Application.DoEvents();
+
+            Assert.Equal(2, form.VersionCount);                           // _classic_beta_ never launched: not listed
+            Assert.Equal(2, form.CheckedCount);
+            Assert.True(form.CanStart);
+
+            form.SetChecked(0, false);
+            form.SetChecked(1, false);
+            Assert.False(form.CanStart);                                  // nothing ticked: can't start
+            form.SetChecked(1, true);
+            Assert.True(form.CanStart);
+            form.Close();
+        });
+    }
+
+    [Fact]
+    public void First_run_window_opens_when_nothing_is_found()
+    {
+        var service = Service(setupComplete: false);
+        OnSta(() =>
+        {
+            using var form = new FirstRun(service, new FakeRegistry());
+            form.Show();
+            Application.DoEvents();
+            Assert.Equal(0, form.VersionCount);
+            Assert.False(form.CanStart);
+            form.Close();
+        });
+    }
+
+    private sealed class TestHost(SyncService service) : IStatusHost
+    {
+        public SyncService Service { get; } = service;
+        public void Run(Action work, Action? afterOnUi = null) { work(); afterOnUi?.Invoke(); }
+    }
+
+    [Fact]
+    public void Status_window_opens_and_refreshes()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true), ("_retail_", true), ("_ptr_", false));
+        service.Poll();
+        OnSta(() =>
+        {
+            using var form = new StatusForm(new TestHost(service));
+            form.Show();
+            Application.DoEvents();
+            form.RefreshView();
+            Application.DoEvents();
+            form.AllowClose();
+            form.Close();
+        });
+    }
+
+    [Fact]
+    public void Tray_icons_can_be_drawn()
+    {
+        OnSta(() =>
+        {
+            using var icons = new TrayIcons();
+            foreach (var state in Enum.GetValues<OverallState>())
+                Assert.NotNull(icons.For(state));
+        });
+    }
+}

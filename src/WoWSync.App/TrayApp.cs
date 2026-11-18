@@ -6,7 +6,7 @@ using WoWSync.Core.Service;
 namespace WoWSync.App;
 
 /// <summary>The tray icon and its menu. All sync work runs on a background timer, never on the UI thread.</summary>
-internal sealed class TrayApp : ApplicationContext
+internal sealed class TrayApp : ApplicationContext, IStatusHost
 {
     private readonly Control _ui = new();
     private readonly TrayIcons _icons = new();
@@ -24,12 +24,14 @@ internal sealed class TrayApp : ApplicationContext
     public TrayApp(WindowsUserEnvironment env, bool startInTray)
     {
         _startInTray = startInTray;
-        _ui.CreateControl(); // gives a handle to marshal background events onto the UI thread
+        _ = _ui.Handle; // force the window handle now: background events are marshalled through it
 
         var fs = new PhysicalFileSystem();
         var clock = new SystemClock();
         var paths = new AppPaths(env.LocalAppData);
         _log = new FileLog(fs, clock, paths.Logs);
+        Application.ThreadException += (_, e) => OnUnexpected(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => _log.Error($"Unexpected error: {e.ExceptionObject}");
         Service = new SyncService(fs, _registry, new WindowsProcessList(), env, clock, _log, paths, Environment.MachineName);
         Service.Changed += () => OnUi(RefreshTray);
         Service.NoticeRaised += notice => OnUi(() => ShowNotice(notice));
@@ -131,7 +133,7 @@ internal sealed class TrayApp : ApplicationContext
 
     private void TogglePause() => RunInBackground(() => Service.SetPaused(!Service.Settings.Paused));
 
-    internal void Run(Action work, Action? afterOnUi = null) => RunInBackground(work, afterOnUi);
+    public void Run(Action work, Action? afterOnUi = null) => RunInBackground(work, afterOnUi);
 
     internal void OnUi(Action action)
     {
@@ -150,6 +152,16 @@ internal sealed class TrayApp : ApplicationContext
             }
             catch (ObjectDisposedException) { return; }
         }
+    }
+
+    /// <summary>A UI error must never leave a .NET crash dialog: log it, tell the player plainly, keep running.</summary>
+    private void OnUnexpected(Exception e)
+    {
+        _log.Error($"Unexpected error in the window: {e}");
+        MessageBox.Show(
+            $"WoWSync hit an unexpected problem: {e.Message}\n\nIt has been written to the log. " +
+            "Open the status window and use Copy diagnostics to send the details.",
+            "WoWSync", MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
     // ------------------------------------------------------------------ exit

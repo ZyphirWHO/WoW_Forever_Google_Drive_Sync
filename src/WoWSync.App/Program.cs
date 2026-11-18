@@ -12,6 +12,8 @@ internal static class Program
     private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        // Route UI-thread exceptions to TrayApp's handler (log + plain message) instead of the .NET crash dialog.
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
         // An elevated process may belong to a different admin account and can't see this user's
         // Google Drive drive letter (both happened with v1.1). Never continue elevated.

@@ -4,10 +4,17 @@ using WoWSync.Core.Sync;
 
 namespace WoWSync.App;
 
+/// <summary>What the status window needs from the tray app (lets tests build the window without a tray).</summary>
+internal interface IStatusHost
+{
+    SyncService Service { get; }
+    void Run(Action work, Action? afterOnUi = null);
+}
+
 /// <summary>Per-version state, recent log lines and the rare manual actions.</summary>
 internal sealed class StatusForm : Form
 {
-    private readonly TrayApp _app;
+    private readonly IStatusHost _app;
     private SyncService Service => _app.Service;
 
     private readonly Label _overall = new() { AutoSize = true, Font = new Font(SystemFonts.MessageBoxFont ?? DefaultFont, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) };
@@ -19,7 +26,7 @@ internal sealed class StatusForm : Form
     private readonly Button _resolve = new() { Text = "Choose settings to keep...", AutoSize = true, Enabled = false };
     private bool _allowClose;
 
-    public StatusForm(TrayApp app)
+    public StatusForm(IStatusHost app)
     {
         _app = app;
         Text = $"WoWSync {AppInfo.Version}";

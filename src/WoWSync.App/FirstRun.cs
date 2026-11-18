@@ -21,7 +21,7 @@ internal sealed class FirstRun : Form
     private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0), ForeColor = Color.FromArgb(140, 70, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
 
-    private FirstRun(SyncService service, IRegistry registry)
+    internal FirstRun(SyncService service, IRegistry registry)
     {
         _service = service;
         _registry = registry;
@@ -61,7 +61,12 @@ internal sealed class FirstRun : Form
         Controls.Add(grid);
         AcceptButton = _start;
         CancelButton = cancel;
-        _versions.ItemCheck += (_, _) => BeginInvoke(UpdateStartButton);
+        // ItemCheck fires before the item changes (and while Fill adds pre-ticked items, before the window
+        // exists), so work out the new count from the event instead of deferring with BeginInvoke.
+        _versions.ItemCheck += (_, e) => UpdateStartButton(
+            _versions.CheckedItems.Count
+            + (e.NewValue == CheckState.Checked ? 1 : 0)
+            - (e.CurrentValue == CheckState.Checked ? 1 : 0));
         Fill();
     }
 
@@ -107,8 +112,16 @@ internal sealed class FirstRun : Form
         UpdateStartButton();
     }
 
-    private void UpdateStartButton() =>
-        _start.Enabled = _service.Wow is { Found: true } && _service.Drive is { Found: true } && _versions.CheckedItems.Count > 0;
+    private void UpdateStartButton() => UpdateStartButton(_versions.CheckedItems.Count);
+
+    private void UpdateStartButton(int checkedCount) =>
+        _start.Enabled = _service.Wow is { Found: true } && _service.Drive is { Found: true } && checkedCount > 0;
+
+    // For the UI smoke tests.
+    internal bool CanStart => _start.Enabled;
+    internal int VersionCount => _versions.Items.Count;
+    internal int CheckedCount => _versions.CheckedItems.Count;
+    internal void SetChecked(int index, bool value) => _versions.SetItemChecked(index, value);
 
     private void ChooseWow()
     {
