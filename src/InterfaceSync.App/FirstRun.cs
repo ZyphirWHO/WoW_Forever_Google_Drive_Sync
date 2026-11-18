@@ -48,6 +48,7 @@ internal sealed class FirstRun : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(12);
         Font = SystemFonts.MessageBoxFont ?? Font;
+        Icon = TrayIcons.AppIcon;
 
         var grid = _setupGrid;
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));

@@ -211,13 +211,25 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
-    public void Tray_icons_can_be_drawn()
+    public void Every_tray_state_has_its_own_embedded_icon_and_the_app_icon_has_all_sizes()
     {
         OnSta(() =>
         {
             using var icons = new TrayIcons();
+            var seen = new HashSet<string>();
             foreach (var state in Enum.GetValues<OverallState>())
-                Assert.NotNull(icons.For(state));
+            {
+                using var bmp = icons.For(state).ToBitmap();
+                using var ms = new MemoryStream();
+                bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                Assert.True(seen.Add(Convert.ToBase64String(ms.ToArray())), $"{state} looks the same as another state");
+            }
+            Assert.NotNull(TrayIcons.AppIcon);
         });
+
+        using var stream = typeof(TrayIcons).Assembly.GetManifestResourceStream("app.ico")!;
+        var header = new byte[6];
+        stream.ReadExactly(header);
+        Assert.Equal(8, BitConverter.ToUInt16(header, 4));   // 16, 20, 24, 32, 40, 48, 64, 256
     }
 }

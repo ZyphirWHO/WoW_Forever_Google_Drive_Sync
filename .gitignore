@@ -482,3 +482,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Icon previews made by assets/icon/generate.py (for review only)
+assets/icon/preview/

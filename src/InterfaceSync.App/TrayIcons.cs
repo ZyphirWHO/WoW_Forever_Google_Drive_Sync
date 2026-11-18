@@ -1,57 +1,39 @@
-using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 using InterfaceSync.Core.Service;
 
 namespace InterfaceSync.App;
 
-/// <summary>Tray icons drawn at start-up: one colour per state, no image files to ship.</summary>
+/// <summary>
+/// The app and tray icons, generated from assets/icon/app.svg by assets/icon/generate.py and embedded in the exe.
+/// Tray states differ by badge shape (check, dots, clock, pause, warning triangle), not by colour alone.
+/// </summary>
 internal sealed class TrayIcons : IDisposable
 {
     private readonly Dictionary<OverallState, Icon> _icons = new();
 
     public TrayIcons()
     {
-        _icons[OverallState.InSync] = Make(Color.FromArgb(46, 158, 68), filled: true);
-        _icons[OverallState.Syncing] = Make(Color.FromArgb(47, 111, 222), filled: true);
-        _icons[OverallState.Waiting] = Make(Color.FromArgb(138, 143, 152), filled: true);
-        _icons[OverallState.NeedsAttention] = Make(Color.FromArgb(209, 52, 56), filled: true);
-        _icons[OverallState.Paused] = Make(Color.FromArgb(138, 143, 152), filled: false);
+        var size = SystemInformation.SmallIconSize;
+        _icons[OverallState.InSync] = Load("tray-insync.ico", size);
+        _icons[OverallState.Syncing] = Load("tray-syncing.ico", size);
+        _icons[OverallState.Waiting] = Load("tray-waiting.ico", size);
+        _icons[OverallState.Paused] = Load("tray-paused.ico", size);
+        _icons[OverallState.NeedsAttention] = Load("tray-attention.ico", size);
     }
 
     public Icon For(OverallState state) => _icons[state];
 
-    private static Icon Make(Color color, bool filled)
+    /// <summary>The app icon, for window title bars and the taskbar.</summary>
+    public static Icon AppIcon { get; } = Load("app.ico", new Size(32, 32));
+
+    private static Icon Load(string name, Size size)
     {
-        int size = Math.Max(16, SystemInformation.SmallIconSize.Width);
-        using var bmp = new Bitmap(size, size);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            float inset = size * 0.08f;
-            var rect = new RectangleF(inset, inset, size - 2 * inset - 1, size - 2 * inset - 1);
-            if (filled)
-            {
-                using var brush = new SolidBrush(color);
-                g.FillEllipse(brush, rect);
-            }
-            using var pen = new Pen(filled ? Color.FromArgb(200, Color.Black) : color, Math.Max(1.5f, size / 8f));
-            g.DrawEllipse(pen, rect);
-            using var font = new Font("Segoe UI", size * 0.42f, FontStyle.Bold, GraphicsUnit.Pixel);
-            using var text = new SolidBrush(filled ? Color.White : color);
-            var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString("W", font, text, new RectangleF(0, 0, size, size + 1), fmt);
-        }
-        var handle = bmp.GetHicon();
-        try { return (Icon)Icon.FromHandle(handle).Clone(); }
-        finally { DestroyIcon(handle); }
+        using var stream = typeof(TrayIcons).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException($"Embedded icon {name} is missing.");
+        return new Icon(stream, size);
     }
 
     public void Dispose()
     {
         foreach (var icon in _icons.Values) icon.Dispose();
     }
-
-    [DllImport("user32.dll")]
-    private static extern bool DestroyIcon(IntPtr handle);
 }

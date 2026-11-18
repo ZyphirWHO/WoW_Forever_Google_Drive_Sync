@@ -8,6 +8,8 @@
     <AssemblyName>$(ProductId)</AssemblyName>
     <RootNamespace>InterfaceSync.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Generated from assets/icon/app.svg by assets/icon/generate.py -->
+    <ApplicationIcon>Icons\app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <!-- File version info shown in Explorer and read by antivirus engines. -->
     <AssemblyTitle>$(ProductDisplayName)</AssemblyTitle>
@@ -26,6 +28,10 @@
         Condition="'%(Filename)' == 'D3DCompiler_47_cor3' Or '%(Filename)' == 'PenImc_cor3' Or '%(Filename)' == 'PresentationNative_cor3' Or '%(Filename)' == 'vcruntime140_cor3' Or '%(Filename)' == 'wpfgfx_cor3'" />
     </ItemGroup>
   </Target>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\*.ico" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="InterfaceSync.App.Tests" />

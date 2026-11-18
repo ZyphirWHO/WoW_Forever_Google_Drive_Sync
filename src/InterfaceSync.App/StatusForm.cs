@@ -36,6 +36,8 @@ internal sealed class StatusForm : Form
         MinimumSize = new Size(640, 420);
         Font = SystemFonts.MessageBoxFont ?? Font;
         Padding = new Padding(10);
+        Icon = TrayIcons.AppIcon;
+
 
         _list.Columns.Add("Game version", 130);
         _list.Columns.Add("Status", 260);

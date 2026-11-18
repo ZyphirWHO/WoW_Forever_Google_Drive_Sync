@@ -23,6 +23,7 @@ internal sealed class ChangeCloudFolder : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(12);
         Font = SystemFonts.MessageBoxFont ?? Font;
+        Icon = TrayIcons.AppIcon;
         _found = service.DetectAllProviders();
         var current = service.Drive?.Provider;
 
