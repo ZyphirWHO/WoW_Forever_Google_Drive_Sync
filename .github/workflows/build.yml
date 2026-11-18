@@ -9,11 +9,33 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - run: dotnet test --configuration Release
+
+      - name: Build and test
+        run: dotnet test --configuration Release
+
+      # One self-contained exe: no trimming, no compression, no self-extraction of native files.
+      - name: Publish WoWSync.exe
+        shell: pwsh
+        run: |
+          dotnet publish src/WoWSync.App/WoWSync.App.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
+            -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:DebugType=none `
+            -o publish
+          Get-ChildItem publish | Format-Table Name, Length
+          $exe = Get-Item publish/WoWSync.exe
+          "Version: $($exe.VersionInfo.ProductVersion)  Description: $($exe.VersionInfo.FileDescription)"
+          "SHA-256: $((Get-FileHash $exe -Algorithm SHA256).Hash)"
+
+      - name: Upload development build
+        uses: actions/upload-artifact@v4
+        with:
+          name: WoWSync-dev-${{ github.sha }}
+          path: publish/
+          retention-days: 14

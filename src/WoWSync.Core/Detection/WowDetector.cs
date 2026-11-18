@@ -211,7 +211,7 @@ public sealed class WowDetector
     /// <summary>Some sources record the _retail_ folder itself; step up to the install root.</summary>
     private static string ToInstallRoot(string path)
     {
-        var trimmed = PathUtil.TrimEnd(path.Replace('/', '\\'));
+        var trimmed = PathUtil.TrimEnd(path);
         return VersionFolderPattern.IsMatch(PathUtil.Name(trimmed)) && PathUtil.Parent(trimmed) is { } parent
             ? parent
             : trimmed;

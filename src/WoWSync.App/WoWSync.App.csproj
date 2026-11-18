@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>WoWSync</AssemblyName>
+    <RootNamespace>WoWSync.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- File version info shown in Explorer and read by antivirus engines. -->
+    <AssemblyTitle>WoWSync - keeps WoW settings in step between your PCs</AssemblyTitle>
+    <Description>Keeps World of Warcraft account settings in step between your PCs through your own Google Drive.</Description>
+    <!-- Publishing: one self-contained exe, no trimming, no compression (see .github/workflows). -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WoWSync.Core\WoWSync.Core.csproj" />
+  </ItemGroup>
+
+</Project>
