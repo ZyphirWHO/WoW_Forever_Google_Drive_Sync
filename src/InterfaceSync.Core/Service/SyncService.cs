@@ -386,7 +386,7 @@ public sealed class SyncService
             if (oldDrive != null && Drive.MyDrivePath != null && !PathUtil.SamePath(oldDrive, Drive.MyDrivePath))
                 _log.Warn($"The cloud folder moved from {oldDrive} to {Drive.MyDrivePath}. Following it.");
             if (Drive.Mode == DriveMode.Streaming || (Drive.Found && Drive.Provider != CloudProvider.GoogleDrive))
-                _log.Info($"{ProviderName} may keep files online-only. {Drive.Provider.KeepOfflineHint()}");
+                _log.Info($"{ProviderName} may keep files online-only. {Drive.Provider.KeepOfflineHint(_env.Os)}");
         }
 
         if (Drive.MyDrivePath is { } root)

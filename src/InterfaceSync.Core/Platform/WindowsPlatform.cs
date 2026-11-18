@@ -138,6 +138,7 @@ public sealed class WindowsProcessList : IProcessList
 [SupportedOSPlatform("windows")]
 public sealed class WindowsUserEnvironment : IUserEnvironment
 {
+    public HostOs Os => HostOs.Windows;
     public string LocalAppData => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
     public string UserProfile => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     public string ProgramData => Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);

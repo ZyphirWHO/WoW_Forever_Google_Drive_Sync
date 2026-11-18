@@ -19,7 +19,17 @@ public static class CloudProviders
         _ => "Google Drive",
     };
 
-    /// <summary>How to make sure the InterfaceSync folder's files are really on this PC.</summary>
+    /// <summary>How to make sure the app folder's files are really on this computer.</summary>
+    public static string KeepOfflineHint(this CloudProvider p, HostOs os) => os == HostOs.MacOS
+        ? p switch
+        {
+            CloudProvider.OneDrive => $"In Finder, Control-click the {ProductInfo.Id} folder in OneDrive and choose Always Keep on This Device.",
+            CloudProvider.Dropbox => $"In Finder, Control-click the {ProductInfo.Id} folder in Dropbox and choose Make available offline.",
+            _ => $"In Finder, Control-click My Drive/{ProductInfo.Id} in Google Drive and choose Offline access → Available offline.",
+        }
+        : p.KeepOfflineHint();
+
+    /// <summary>How to make sure the app folder's files are really on this PC (Windows wording).</summary>
     public static string KeepOfflineHint(this CloudProvider p) => p switch
     {
         CloudProvider.OneDrive => $"In File Explorer, right-click the {ProductInfo.Id} folder in OneDrive and choose Always keep on this device.",
@@ -78,6 +88,8 @@ public sealed class DriveDetector
             attempts.Add($"Your chosen Google Drive folder '{userOverride}' no longer exists.");
         }
 
+        if (_env.Os == HostOs.MacOS) return DetectMac(attempts);
+
         foreach (var mount in MountPointsFromSettings(attempts))
         {
             var myDrive = MyDriveUnder(mount);
@@ -118,6 +130,53 @@ public sealed class DriveDetector
         }
         attempts.Add($"No '{MyDriveFolderName}' at {mirror}");
 
+        attempts.Add("Google Drive was not found. Is Google Drive for desktop installed and signed in?");
+        return new(null, DriveMode.Unknown, DetectionSource.NotFound, attempts);
+    }
+
+    /// <summary>
+    /// macOS: Drive's own database (~/Library/Application Support/Google/DriveFS), then the File Provider
+    /// folder ~/Library/CloudStorage/GoogleDrive-&lt;account&gt;/My Drive, then older locations.
+    /// </summary>
+    private DriveDetectionResult DetectMac(List<string> attempts)
+    {
+        foreach (var root in RootsFromDriveDatabase(attempts))
+        {
+            var myDrive = MyDriveUnder(root);
+            if (myDrive != null)
+            {
+                attempts.Add($"Drive database: found {myDrive}");
+                return new(myDrive, DriveMode.Unknown, DetectionSource.DriveFsSettings, attempts);
+            }
+        }
+
+        var cloudStorage = PathUtil.Join(_env.UserProfile, "Library", "CloudStorage");
+        if (_fs.DirectoryExists(cloudStorage))
+        {
+            foreach (var account in _fs.EnumerateDirectories(cloudStorage)
+                         .Where(d => PathUtil.Name(d).StartsWith("GoogleDrive", StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+            {
+                var myDrive = MyDriveUnder(account);
+                if (myDrive != null)
+                {
+                    attempts.Add($"Google Drive folder: found {myDrive}");
+                    return new(myDrive, DriveMode.Unknown, DetectionSource.Probe, attempts);
+                }
+                attempts.Add($"{account} has no '{MyDriveFolderName}' folder");
+            }
+        }
+        else attempts.Add($"No {cloudStorage} folder");
+
+        foreach (var legacy in new[] { "/Volumes/GoogleDrive", PathUtil.Join(_env.UserProfile, "Google Drive"), _env.UserProfile })
+        {
+            var myDrive = MyDriveUnder(legacy);
+            if (myDrive != null)
+            {
+                attempts.Add($"Google Drive folder: found {myDrive}");
+                return new(myDrive, DriveMode.Unknown, DetectionSource.Probe, attempts);
+            }
+        }
         attempts.Add("Google Drive was not found. Is Google Drive for desktop installed and signed in?");
         return new(null, DriveMode.Unknown, DetectionSource.NotFound, attempts);
     }
@@ -209,7 +268,7 @@ public sealed class DriveDetector
             foreach (var t in tables)
                 foreach (var row in t.Rows)
                     foreach (var v in row)
-                        if (v is string s && CleanPath(s) is { Length: > 3 } c && char.IsLetter(c[0]) && c[1] == ':' && c[2] == '\\')
+                        if (v is string s && CleanPath(s) is { Length: > 3 } c && IsFullPath(c, _env.Os))
                             paths.Add(c);
         }
 
@@ -217,10 +276,10 @@ public sealed class DriveDetector
         paths = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         // Only full paths count: a relative value (seen on a real PC: "Users\name\My Drive") would be
         // resolved against whatever folder InterfaceSync happened to start in.
-        var relative = paths.Where(p => !IsFullPath(p)).ToList();
+        var relative = paths.Where(p => !IsFullPath(p, _env.Os)).ToList();
         if (relative.Count > 0)
             attempts.Add($"Drive database: ignored paths without a drive letter: {string.Join(", ", relative)}");
-        paths = paths.Where(IsFullPath).ToList();
+        paths = paths.Where(p => IsFullPath(p, _env.Os)).ToList();
         attempts.Add(paths.Count == 0
             ? $"Drive database {source}: no folder paths recorded. Tables: {described}"
             : $"Drive database {source}: folder paths {string.Join(", ", paths)}");
@@ -230,10 +289,10 @@ public sealed class DriveDetector
     }
 
     /// <summary>"C:\..." or "\\server\share\...", plus "/..." so tests on Linux can use real temp folders.</summary>
-    internal static bool IsFullPath(string p) =>
+    internal static bool IsFullPath(string p, HostOs os) =>
         (p.Length >= 3 && char.IsAsciiLetter(p[0]) && p[1] == ':' && (p[2] == '\\' || p[2] == '/'))
         || p.StartsWith(@"\\", StringComparison.Ordinal)
-        || (!OperatingSystem.IsWindows() && p.StartsWith('/'));
+        || ((os == HostOs.MacOS || !OperatingSystem.IsWindows()) && p.StartsWith('/'));
 
     /// <summary>
     /// Rows flagged is_my_drive = 1, ordered so the account in CurrentAccountToken comes first.

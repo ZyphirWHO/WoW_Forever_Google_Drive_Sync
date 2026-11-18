@@ -42,3 +42,14 @@ jobs:
           name: InterfaceSync-dev-${{ github.sha }}
           path: publish/
           retention-days: 14
+
+  # Core runs on macOS too (the Mac app's engine): all tests, including the native struct-layout check.
+  core-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Core tests on macOS
+        run: dotnet test tests/InterfaceSync.Core.Tests --configuration Release

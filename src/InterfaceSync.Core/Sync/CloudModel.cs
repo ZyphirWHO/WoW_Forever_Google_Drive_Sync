@@ -17,6 +17,8 @@ public sealed class CloudLayout
 
     public CloudLayout(string myDrivePath, string cloudVersionFolderName, CloudProvider provider = CloudProvider.GoogleDrive)
     {
+        // A macOS cloud folder ("/Users/...") gets Finder wording in messages.
+        KeepOfflineHint = provider.KeepOfflineHint(OperatingSystem.IsMacOS() ? HostOs.MacOS : HostOs.Windows);
         MyDrive = myDrivePath;
         Provider = provider;
         VersionRoot = PathUtil.Join(myDrivePath, AppFolderName, cloudVersionFolderName);
@@ -28,6 +30,7 @@ public sealed class CloudLayout
     /// <summary>The cloud folder root on this PC (Google Drive's "My Drive", the OneDrive or the Dropbox folder).</summary>
     public string MyDrive { get; }
     public CloudProvider Provider { get; }
+    public string KeepOfflineHint { get; }
     public string ProviderName => Provider.DisplayName();
     public string VersionRoot { get; }
     public string Account { get; }

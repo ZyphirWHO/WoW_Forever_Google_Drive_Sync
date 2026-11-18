@@ -653,7 +653,7 @@ public sealed class VersionSync
     private CloudSnapshot OnlineOnly(int count) => new()
     {
         Readiness = CloudReadiness.OnlineOnly,
-        Problem = $"{count} file(s) are online-only. {Cloud.Provider.KeepOfflineHint()}",
+        Problem = $"{count} file(s) are online-only. {Cloud.KeepOfflineHint}",
     };
 
     private static string LegacyId(Manifest m)

@@ -33,6 +33,9 @@ public sealed class PhysicalFileSystem : IFileSystem
         var fi = new FileInfo(path);
         var attrs = fi.Attributes;
         if (fi.LinkTarget != null) attrs |= FileAttributes.ReparsePoint;
+        // macOS cloud placeholders are marked with the SF_DATALESS flag, not Windows attributes:
+        // report them the same way so every provider's online-only check works unchanged.
+        if (OperatingSystem.IsMacOS() && MacNative.IsDataless(fi.FullName)) attrs |= FileEntryInfo.RecallOnDataAccess;
         return new FileEntryInfo(fi.FullName, fi.Length, fi.LastWriteTimeUtc, attrs);
     }
 

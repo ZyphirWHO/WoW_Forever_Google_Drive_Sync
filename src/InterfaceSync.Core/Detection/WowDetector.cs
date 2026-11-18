@@ -21,7 +21,7 @@ public sealed record WowInstallDetection(IReadOnlyList<WowInstall> Installs, Det
     public string? PrimaryRoot => Installs.Count > 0 ? Installs[0].Root : null;
 }
 
-/// <summary>One playable game version inside the WoW install, e.g. _retail_ or _forever_.</summary>
+/// <summary>One playable game version inside the WoW install, e.g. _retail_ or _forever_ (Executables: Wow.exe or "World of Warcraft.app").</summary>
 public sealed record GameVersion(string FolderName, string FolderPath, IReadOnlyList<string> Executables, bool HasAccountFolder)
 {
     /// <summary>Friendly name: "_classic_era_" → "classic_era".</summary>
@@ -47,6 +47,7 @@ public sealed record GameVersion(string FolderName, string FolderPath, IReadOnly
 public sealed class WowDetector
 {
     internal const string BlizzardKeyWow64 = @"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft";
+    // Windows: C:\ProgramData\Battle.net\Agent\product.db; macOS: /Users/Shared/Battle.net/Agent/product.db.
     internal const string ProductDbRelative = @"Battle.net\Agent\product.db";
     private const int ProductDbReadAttempts = 3;
 
@@ -84,7 +85,7 @@ public sealed class WowDetector
         if (fromBattleNet.Count > 0)
             return new WowInstallDetection(fromBattleNet, DetectionSource.BattleNetProductDb, attempts);
 
-        var hint = _registry.GetString(RegistryHive.LocalMachine, BlizzardKeyWow64, "InstallPath");
+        var hint = _env.Os == HostOs.Windows ? _registry.GetString(RegistryHive.LocalMachine, BlizzardKeyWow64, "InstallPath") : null;
         if (!string.IsNullOrWhiteSpace(hint))
         {
             var root = ToInstallRoot(hint.Trim().Trim('"'));
@@ -196,6 +197,13 @@ public sealed class WowDetector
 
     private IEnumerable<string> CommonLocations()
     {
+        if (_env.Os == HostOs.MacOS)
+        {
+            yield return "/Applications/World of Warcraft";
+            yield return PathUtil.Join(_env.UserProfile, "Applications", "World of Warcraft");
+            yield return PathUtil.Join(_env.UserProfile, "Games", "World of Warcraft");
+            yield break;
+        }
         yield return @"C:\Program Files (x86)\World of Warcraft";
         yield return @"C:\Program Files\World of Warcraft";
         foreach (var drive in _fs.GetDrives())
@@ -256,10 +264,16 @@ public sealed class WowDetector
             List<string> exes;
             try
             {
+                // Windows: Wow.exe, WowClassic.exe, WowT.exe...; macOS: "World of Warcraft.app",
+                // "World of Warcraft Classic.app"... (application bundles are folders).
                 exes = _fs.EnumerateFiles(dir)
                     .Select(PathUtil.Name)
                     .Where(n => n.StartsWith("wow", StringComparison.OrdinalIgnoreCase)
                                 && n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    .Concat(_fs.EnumerateDirectories(dir)
+                        .Select(PathUtil.Name)
+                        .Where(n => n.StartsWith("World of Warcraft", StringComparison.OrdinalIgnoreCase)
+                                    && n.EndsWith(".app", StringComparison.OrdinalIgnoreCase)))
                     .ToList();
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }

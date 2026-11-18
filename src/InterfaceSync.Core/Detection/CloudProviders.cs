@@ -36,7 +36,9 @@ public abstract class CloudProviderBase : ICloudProvider
 {
     public abstract CloudProvider Kind { get; }
     public string DisplayName => Kind.DisplayName();
-    public string KeepOnDeviceHelp => Kind.KeepOfflineHint();
+    protected CloudProviderBase(HostOs os) => Os = os;
+    protected HostOs Os { get; }
+    public string KeepOnDeviceHelp => Kind.KeepOfflineHint(Os);
     public abstract DriveDetectionResult Detect(string? userOverride);
     public abstract bool IsConflictCopy(string name, ISet<string> siblings);
 
@@ -49,7 +51,7 @@ public abstract class CloudProviderBase : ICloudProvider
         throw new NotSupportedException($"{DisplayName}: keep the folder on this PC from the app itself. {KeepOnDeviceHelp}");
 }
 
-public sealed class GoogleDriveProvider(IFileSystem fs, IRegistry registry, IUserEnvironment env, string scratchFolder) : CloudProviderBase
+public sealed class GoogleDriveProvider(IFileSystem fs, IRegistry registry, IUserEnvironment env, string scratchFolder) : CloudProviderBase(env.Os)
 {
     // "Name (1).ext", "Name (2)".
     private static readonly Regex Pattern = new(@"^.+ \(\d+\)(\.[^.\\/ ]+)?$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -60,7 +62,7 @@ public sealed class GoogleDriveProvider(IFileSystem fs, IRegistry registry, IUse
     public static bool IsConflictName(string name) => Pattern.IsMatch(name);
 }
 
-public sealed class OneDriveProvider(IFileSystem fs, IRegistry registry, IUserEnvironment env) : CloudProviderBase
+public sealed class OneDriveProvider(IFileSystem fs, IRegistry registry, IUserEnvironment env) : CloudProviderBase(env.Os)
 {
     public override CloudProvider Kind => CloudProvider.OneDrive;
     public override DriveDetectionResult Detect(string? userOverride) => new OneDriveDetector(fs, registry, env).Detect(userOverride);
@@ -88,8 +90,9 @@ public sealed class OneDriveProvider(IFileSystem fs, IRegistry registry, IUserEn
         && (char.IsAsciiLetterUpper(s[0]) || char.IsAsciiDigit(s[0]))
         && s.All(c => char.IsAsciiLetterUpper(c) || char.IsAsciiDigit(c) || c == '-');
 
-    // OneDrive honours FILE_ATTRIBUTE_PINNED, which is what "Always keep on this device" sets.
-    public override bool CanPinFolder => true;
+    // OneDrive on Windows honours FILE_ATTRIBUTE_PINNED, which is what "Always keep on this device" sets.
+    // On macOS it is a File Provider setting the player changes in Finder.
+    public override bool CanPinFolder => Os == HostOs.Windows;
 
     public override void PinFolder(IFileSystem fs, string folder)
     {
@@ -109,7 +112,7 @@ public sealed class OneDriveProvider(IFileSystem fs, IRegistry registry, IUserEn
         fs.SetAttributes(path, (fs.GetAttributes(path) | FileEntryInfo.Pinned) & ~FileEntryInfo.Unpinned);
 }
 
-public sealed class DropboxProvider(IFileSystem fs, IUserEnvironment env) : CloudProviderBase
+public sealed class DropboxProvider(IFileSystem fs, IUserEnvironment env) : CloudProviderBase(env.Os)
 {
     // "Name (PC's conflicted copy 2026-11-18).ext", "Name (Case Conflict).ext", "(Selective Sync Conflict)".
     private static readonly Regex Pattern =

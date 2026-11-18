@@ -36,7 +36,11 @@ public static class PathUtil
     /// <summary>Joins using the separator style the base path already uses.</summary>
     public static string Join(string basePath, params string[] parts)
     {
-        char sep = basePath.Contains('\\') || (basePath.Length >= 2 && basePath[1] == ':') ? '\\' : Path.DirectorySeparatorChar;
+        // Keep the style of the base path: "C:\..." joins with '\', "/Users/..." (macOS) with '/',
+        // whatever OS the code runs on (tests run Windows and Mac layouts everywhere).
+        char sep = basePath.StartsWith('/') ? '/'
+            : basePath.Contains('\\') || (basePath.Length >= 2 && basePath[1] == ':') ? '\\'
+            : Path.DirectorySeparatorChar;
         var result = basePath.TrimEnd(Separators);
         foreach (var part in parts)
         {

@@ -13,7 +13,8 @@ public sealed class GameWatcher
 
     public GameWatcher(IProcessList processes) => _processes = processes;
 
-    public IReadOnlyList<ProcessEntry> Snapshot() => _processes.GetProcesses("wow");
+    // Windows: Wow*.exe. macOS: "World of Warcraft" (process names are cut to 16 characters: "World of Warcraf").
+    public IReadOnlyList<ProcessEntry> Snapshot() => _processes.GetProcesses("wow", "World of");
 
     public static bool IsRunning(GameVersion version, IReadOnlyList<ProcessEntry> snapshot)
     {
@@ -27,7 +28,9 @@ public sealed class GameWatcher
             // Path unreadable (e.g. access denied): if the name matches this version's exe, assume it is
             // running. Never writing to a running game matters more than an occasional delayed sync.
             if (version.Executables.Any(exe =>
-                    PathUtil.Name(exe).Equals(p.Name + ".exe", StringComparison.OrdinalIgnoreCase)))
+                    PathUtil.Name(exe).Equals(p.Name + ".exe", StringComparison.OrdinalIgnoreCase)
+                    || (exe.EndsWith(".app", StringComparison.OrdinalIgnoreCase)
+                        && p.Name.StartsWith("World of", StringComparison.OrdinalIgnoreCase))))
                 return true;
         }
         return false;

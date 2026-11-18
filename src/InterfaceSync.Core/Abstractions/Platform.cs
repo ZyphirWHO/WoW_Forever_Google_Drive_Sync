@@ -38,9 +38,14 @@ public interface IProcessList
     IReadOnlyList<ProcessEntry> GetProcesses(params string[] namePrefixes);
 }
 
+public enum HostOs { Windows, MacOS }
+
 /// <summary>Per-user folders and identity. The app always runs as the signed-in user.</summary>
 public interface IUserEnvironment
 {
+    /// <summary>Which OS's layout to look for (WoW, cloud apps, settings folders).</summary>
+    HostOs Os { get; }
+
     string LocalAppData { get; }
     string UserProfile { get; }
 

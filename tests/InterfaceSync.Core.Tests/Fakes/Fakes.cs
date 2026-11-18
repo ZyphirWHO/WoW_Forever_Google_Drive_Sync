@@ -53,6 +53,19 @@ public sealed class FakeRegistry : IRegistry
 
 public sealed class FakeEnvironment : IUserEnvironment
 {
+    public HostOs Os { get; set; } = HostOs.Windows;
+
+    /// <summary>A Mac user's folders, as MacUserEnvironment reports them.</summary>
+    public static FakeEnvironment Mac(string user = "player") => new()
+    {
+        Os = HostOs.MacOS,
+        UserProfile = $"/Users/{user}",
+        LocalAppData = $"/Users/{user}/Library/Application Support",
+        RoamingAppData = $"/Users/{user}/Library/Application Support",
+        ProgramData = "/Users/Shared",
+        UserName = user,
+    };
+
     public string LocalAppData { get; set; } = @"C:\Users\Player\AppData\Local";
     public string UserProfile { get; set; } = @"C:\Users\Player";
     public string ProgramData { get; set; } = @"C:\ProgramData";
@@ -83,7 +96,10 @@ public sealed class InMemoryFileSystem : IFileSystem
 
     public List<DriveEntry> Drives { get; } = [];
 
-    private static string N(string p) => PathUtil.TrimEnd(p.Replace('/', '\\'));
+    // Keep each path's own style: Windows paths use '\\', macOS paths ("/Users/...") use '/'.
+    private static string N(string p) => p.StartsWith('/')
+        ? PathUtil.TrimEnd(p.Replace('\\', '/'))
+        : PathUtil.TrimEnd(p.Replace('/', '\\'));
 
     public InMemoryFileSystem Dir(string path)
     {

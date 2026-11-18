@@ -132,9 +132,17 @@ public static class ProductDb
         return null;
     }
 
-    /// <summary>"C:/Program Files (x86)/World of Warcraft/" → "C:\Program Files (x86)\World of Warcraft".</summary>
-    internal static string? NormalizePath(string? path) =>
-        string.IsNullOrWhiteSpace(path) ? null : PathUtil.TrimEnd(path.Trim().Replace('/', '\\'));
+    /// <summary>
+    /// "C:/Program Files (x86)/World of Warcraft/" → "C:\Program Files (x86)\World of Warcraft".
+    /// macOS paths ("/Applications/World of Warcraft") keep their forward slashes.
+    /// </summary>
+    internal static string? NormalizePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var p = path.Trim();
+        bool windows = p.Length >= 2 && char.IsAsciiLetter(p[0]) && p[1] == ':';
+        return PathUtil.TrimEnd(windows ? p.Replace('/', '\\') : p);
+    }
 }
 
 /// <summary>Minimal protobuf wire-format reader (no schema, no dependencies).</summary>

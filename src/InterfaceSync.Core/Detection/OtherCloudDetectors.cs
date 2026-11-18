@@ -33,6 +33,8 @@ public sealed class OneDriveDetector
             attempts.Add($"Your chosen OneDrive folder '{userOverride}' no longer exists.");
         }
 
+        if (_env.Os == HostOs.MacOS) return DetectMac(attempts);
+
         // 1. Environment variables OneDrive sets for the signed-in user.
         foreach (var name in new[] { "OneDriveConsumer", "OneDrive", "OneDriveCommercial" })
         {
@@ -87,6 +89,34 @@ public sealed class OneDriveDetector
         return new(null, DriveMode.Unknown, DetectionSource.NotFound, attempts, CloudProvider.OneDrive);
     }
 
+    /// <summary>macOS: ~/Library/CloudStorage/OneDrive-Personal first, then OneDrive-&lt;org&gt;, then the older ~/OneDrive.</summary>
+    private DriveDetectionResult DetectMac(List<string> attempts)
+    {
+        var cloudStorage = PathUtil.Join(_env.UserProfile, "Library", "CloudStorage");
+        if (_fs.DirectoryExists(cloudStorage))
+        {
+            var found = _fs.EnumerateDirectories(cloudStorage)
+                .Where(d => PathUtil.Name(d).StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => PathUtil.Name(d).Equals("OneDrive-Personal", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(d => d, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+            if (found != null)
+            {
+                attempts.Add($"OneDrive folder: found {found}");
+                return Result(found, DetectionSource.Probe, attempts);
+            }
+        }
+        attempts.Add($"No OneDrive folder in {cloudStorage}");
+        var legacy = PathUtil.Join(_env.UserProfile, "OneDrive");
+        if (_fs.DirectoryExists(legacy))
+        {
+            attempts.Add($"OneDrive folder: found {legacy}");
+            return Result(legacy, DetectionSource.Probe, attempts);
+        }
+        attempts.Add("OneDrive was not found. Is OneDrive installed and signed in?");
+        return new(null, DriveMode.Unknown, DetectionSource.NotFound, attempts, CloudProvider.OneDrive);
+    }
+
     // OneDrive's Files On-Demand can make files online-only, like Google Drive streaming; files are
     // checked one by one before every pull, so the mode is reported as unknown rather than guessed.
     private static DriveDetectionResult Result(string path, DetectionSource source, List<string> attempts) =>
@@ -117,7 +147,11 @@ public sealed class DropboxDetector
             attempts.Add($"Your chosen Dropbox folder '{userOverride}' no longer exists.");
         }
 
-        foreach (var info in new[] { PathUtil.Join(_env.RoamingAppData, "Dropbox", "info.json"), PathUtil.Join(_env.LocalAppData, "Dropbox", "info.json") })
+        // Windows: %APPDATA% / %LOCALAPPDATA%\Dropbox\info.json. macOS: ~/.dropbox/info.json.
+        var infoFiles = _env.Os == HostOs.MacOS
+            ? new[] { PathUtil.Join(_env.UserProfile, ".dropbox", "info.json") }
+            : new[] { PathUtil.Join(_env.RoamingAppData, "Dropbox", "info.json"), PathUtil.Join(_env.LocalAppData, "Dropbox", "info.json") };
+        foreach (var info in infoFiles)
         {
             if (!_fs.FileExists(info)) { attempts.Add($"Dropbox settings not found ({info})"); continue; }
             List<(string account, string path)> paths;
@@ -139,6 +173,17 @@ public sealed class DropboxDetector
             }
         }
 
+        if (_env.Os == HostOs.MacOS)
+        {
+            var cloudStorage = PathUtil.Join(_env.UserProfile, "Library", "CloudStorage");
+            if (_fs.DirectoryExists(cloudStorage) && _fs.EnumerateDirectories(cloudStorage)
+                    .Where(d => PathUtil.Name(d).StartsWith("Dropbox", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(d => d, StringComparer.OrdinalIgnoreCase).FirstOrDefault() is { } fp)
+            {
+                attempts.Add($"Dropbox folder: found {fp}");
+                return Result(fp, DetectionSource.Probe, attempts);
+            }
+        }
         foreach (var name in new[] { "Dropbox", "Dropbox (Personal)" })
         {
             var candidate = PathUtil.Join(_env.UserProfile, name);
