@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>WoWSync.Core</RootNamespace>
+    <AssemblyTitle>WoWSync core: detection, game watcher, sync engine, backups</AssemblyTitle>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WoWSync.Core.Tests" />
+  </ItemGroup>
+</Project>
