@@ -8,6 +8,8 @@
   <PropertyGroup>
     <ProductDisplayName>Interface Sync</ProductDisplayName>
     <ProductId>InterfaceSync</ProductId>
+    <!-- macOS bundle identifier (reverse-DNS of the project's home). -->
+    <ProductBundleId>io.github.zyphirwho.interfacesync</ProductBundleId>
   </PropertyGroup>
 
   <PropertyGroup>

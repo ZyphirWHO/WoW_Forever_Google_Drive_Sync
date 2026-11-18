@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Filled in by packaging/macos/make-app.sh from Directory.Build.props (the single source of the product name). -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>{{NAME}}</string>
+  <key>CFBundleDisplayName</key><string>{{NAME}}</string>
+  <key>CFBundleIdentifier</key><string>{{BUNDLE_ID}}</string>
+  <key>CFBundleExecutable</key><string>{{ID}}</string>
+  <key>CFBundleIconFile</key><string>InterfaceSync</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>{{VERSION}}</string>
+  <key>CFBundleVersion</key><string>{{VERSION}}</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <!-- Menu-bar app: no Dock icon, no app menu bar of its own. -->
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>{{COPYRIGHT}}</string>
+</dict>
+</plist>

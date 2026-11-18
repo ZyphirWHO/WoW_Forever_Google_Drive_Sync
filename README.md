@@ -1,7 +1,7 @@
 # Interface Sync
 
-**Syncs your World of Warcraft® interface settings between your Windows PCs** (keybindings, macros and
-addon settings) through your own Google Drive, OneDrive or Dropbox.
+**Syncs your World of Warcraft® interface settings between your Windows PCs and Macs** (keybindings, macros
+and addon settings) through your own Google Drive, OneDrive or Dropbox.
 
 Interface Sync is an independent, free, open-source tool. It is not affiliated with, endorsed by or
 sponsored by Blizzard Entertainment, Inc.
@@ -24,10 +24,13 @@ sponsored by Blizzard Entertainment, Inc.
 ## Repository layout
 
 ```
-src/InterfaceSync.App/            tray app, setup and status windows (WinForms)
+src/InterfaceSync.App/            Windows tray app, setup and status windows (WinForms)
+src/InterfaceSync.Mac/            macOS menu-bar app, setup and status windows (Avalonia)
 src/InterfaceSync.Core/           detection, game watcher, sync engine, backups (no UI)
 tests/InterfaceSync.Core.Tests/   unit tests and simulated two-PC tests
-tests/InterfaceSync.App.Tests/    window smoke tests (run on Windows)
+tests/InterfaceSync.App.Tests/    Windows window smoke tests (run on Windows)
+tests/InterfaceSync.Mac.Tests/    Mac window tests (headless, run on every OS)
+packaging/macos/                  Info.plist template and the script that builds the .app
 assets/icon/                      icon master (SVG) and the script that builds the .ico files
 ```
 
@@ -42,6 +45,7 @@ and run `InterfaceSync.exe`. Development builds don't install themselves or star
 
 ## Docs
 
+- [docs/MAC.md](docs/MAC.md): the Mac version: install, the Gatekeeper warning, what it finds
 - [docs/ANTIVIRUS.md](docs/ANTIVIRUS.md): what to do if your browser, Windows or antivirus warns about the download
 - [docs/DISTRIBUTION-PLAN.md](docs/DISTRIBUTION-PLAN.md): plan for a Microsoft Store (MSIX) package and winget
 
@@ -79,12 +83,14 @@ cloud app (Google Drive, OneDrive or Dropbox) does the uploading.
 
 Interface Sync is licensed under the MIT License (OSI-approved), see [LICENSE](LICENSE).
 
-The shipped program depends only on the .NET runtime (MIT). Development-only dependencies, all open source:
+The Windows program depends only on the .NET runtime (MIT). The Mac program also uses Avalonia (MIT), with
+SkiaSharp and HarfBuzzSharp (MIT). Development-only dependencies, all open source:
 
 | Used for | Component | Licence |
 |---|---|---|
 | Tests | xUnit, xunit.runner.visualstudio | Apache-2.0 |
 | Tests | Microsoft.NET.Test.Sdk, coverlet.collector | MIT |
+| Mac window tests | Avalonia.Headless.XUnit | MIT |
 | Rebuilding the icon (not shipped) | CairoSVG | LGPL-3.0 |
 | Rebuilding the icon (not shipped) | Pillow | MIT-CMU |
 
