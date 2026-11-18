@@ -34,6 +34,7 @@ public sealed class WindowSmokeTests : IDisposable
         {
             Directory.CreateDirectory(Path.Combine(wow, folder, launched ? Path.Combine("WTF", "Account") : "WTF"));
             File.WriteAllText(Path.Combine(wow, folder, "Wow.exe"), "exe");
+            if (launched) File.WriteAllText(Path.Combine(wow, folder, "WTF", "Account", "macros-cache.txt"), folder);
         }
         Directory.CreateDirectory(Path.Combine(env.UserProfile, "My Drive"));
 
@@ -84,6 +85,30 @@ public sealed class WindowSmokeTests : IDisposable
             Assert.True(form.CanStart);
             form.Close();
         });
+    }
+
+    [Fact]
+    public void First_run_shows_each_versions_first_sync_then_finish()
+    {
+        var service = Service(setupComplete: false, ("_forever_", true), ("_retail_", true));
+        OnSta(() =>
+        {
+            using var form = new FirstRun(service, new FakeRegistry());
+            form.Show();
+            Application.DoEvents();
+            form.ClickStart();
+
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (!form.IsFinished && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+
+            Assert.True(form.IsFinished, "Finish button never enabled");
+            Assert.Equal(2, form.Results.Count);
+            Assert.All(form.Results, r => Assert.Contains("Done.", r));
+            Assert.Contains(form.Results, r => r.StartsWith("_forever_: Done. Google Drive had no settings"));
+            form.Close();
+            Assert.Equal(DialogResult.OK, form.DialogResult);
+        });
+        Assert.True(service.Settings.SetupComplete);
     }
 
     [Fact]

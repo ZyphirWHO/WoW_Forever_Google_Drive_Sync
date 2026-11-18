@@ -7,7 +7,8 @@ using WoWSync.Core.Sync;
 namespace WoWSync.App;
 
 /// <summary>
-/// First run: shows what was found, lets the player change any path and pick game versions, then starts syncing.
+/// First run: shows what was found, lets the player change any path and pick game versions, then runs
+/// each version's first sync with its result shown, and a Finish button once everything is done.
 /// No typing needed when detection works.
 /// </summary>
 internal sealed class FirstRun : Form
@@ -20,6 +21,17 @@ internal sealed class FirstRun : Form
     private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
     private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0), ForeColor = Color.FromArgb(140, 70, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
+    private readonly TableLayoutPanel _setupGrid = new() { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill };
+
+    // First-sync progress page
+    private readonly TableLayoutPanel _progressPage = new() { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, Visible = false };
+    private readonly Label _progressHeading = new() { AutoSize = true, Margin = new Padding(0, 0, 0, 10) };
+    private readonly ListView _results = new() { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 640, Height = 150 };
+    private readonly ProgressBar _bar = new() { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Width = 640, Height = 14, Margin = new Padding(0, 8, 0, 0) };
+    private readonly Label _afterword = new() { AutoSize = true, MaximumSize = new Size(640, 0), Margin = new Padding(0, 10, 0, 0) };
+    private readonly Button _finish = new() { Text = "Finish", AutoSize = true, Enabled = false };
+    private bool _syncStarted;
+    private volatile bool _syncing;
 
     internal FirstRun(SyncService service, IRegistry registry)
     {
@@ -34,7 +46,7 @@ internal sealed class FirstRun : Form
         Padding = new Padding(12);
         Font = SystemFonts.MessageBoxFont ?? Font;
 
-        var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill };
+        var grid = _setupGrid;
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 420));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -59,6 +71,8 @@ internal sealed class FirstRun : Form
         grid.SetColumnSpan(buttons, 3);
 
         Controls.Add(grid);
+        BuildProgressPage();
+        Controls.Add(_progressPage);
         AcceptButton = _start;
         CancelButton = cancel;
         // ItemCheck fires before the item changes (and while Fill adds pre-ticked items, before the window
@@ -159,9 +173,117 @@ internal sealed class FirstRun : Form
         }
         settings.SetupComplete = true;
         _service.SaveSettings(settings);
-        DialogResult = DialogResult.OK;
-        Close();
+        ShowProgressAndSync();
     }
+
+    // ------------------------------------------------------------------ first-sync progress
+
+    private void BuildProgressPage()
+    {
+        _progressHeading.Font = new Font(Font, FontStyle.Bold);
+        _results.Columns.Add("Game version", 130);
+        _results.Columns.Add("Result", 505);
+        _finish.Click += (_, _) => { DialogResult = DialogResult.OK; Close(); };
+        var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 12, 0, 0) };
+        buttons.Controls.Add(_finish);
+        _progressPage.Controls.Add(_progressHeading);
+        _progressPage.Controls.Add(_results);
+        _progressPage.Controls.Add(_bar);
+        _progressPage.Controls.Add(_afterword);
+        _progressPage.Controls.Add(buttons);
+    }
+
+    private void ShowProgressAndSync()
+    {
+        _syncStarted = true;
+        _syncing = true;
+        _setupGrid.Visible = false;
+        _progressPage.Visible = true;
+        AcceptButton = _finish;
+        CancelButton = null;
+        ControlBox = false; // no closing mid-copy
+        _progressHeading.Text = "Running the first sync...";
+        _afterword.Text = "";
+
+        var workers = _service.Workers;
+        _results.Items.Clear();
+        foreach (var w in workers)
+            _results.Items.Add(new ListViewItem([w.Version.FolderName, "Waiting..."]) { Tag = w });
+
+        Task.Run(() =>
+        {
+            int problems = 0;
+            for (int i = 0; i < workers.Count; i++)
+            {
+                var w = workers[i];
+                int row = i;
+                Post(() => _results.Items[row].SubItems[1].Text = "Syncing...");
+                bool firstSync = !w.State.Joined;
+                SyncOutcome outcome;
+                try { outcome = _service.SyncNow(w); }
+                catch (Exception e) { outcome = SyncOutcome.Failed; w.State.LastError = e.Message; }
+                var (text, problem) = Describe(w, outcome, firstSync);
+                if (problem) problems++;
+                Post(() =>
+                {
+                    var item = _results.Items[row];
+                    item.SubItems[1].Text = text;
+                    if (problem) item.ForeColor = Color.FromArgb(180, 30, 30);
+                });
+            }
+            Post(() => FinishProgress(workers.Count, problems));
+        });
+    }
+
+    private void FinishProgress(int versions, int problems)
+    {
+        _syncing = false;
+        _bar.Visible = false;
+        ControlBox = true;
+        _progressHeading.Text = versions == 0
+            ? "Setup complete. No game version is switched on."
+            : problems == 0 ? "Setup complete." : "Setup complete, but something needs a look (shown in red).";
+        _afterword.Text =
+            "WoWSync keeps running in the system tray: the W icon by the clock (it may be under the ^ arrow). " +
+            "It syncs on its own whenever you close the game. Click the icon to see its status at any time.";
+        _finish.Enabled = true;
+        _finish.Focus();
+    }
+
+    /// <summary>Plain-words result for one version's first sync, and whether it needs the player.</summary>
+    internal static (string text, bool problem) Describe(VersionSync w, SyncOutcome outcome, bool firstSync) => outcome switch
+    {
+        SyncOutcome.Pushed when firstSync => ("Done. Google Drive had no settings for this version yet, so this PC's were uploaded.", false),
+        SyncOutcome.Pushed => ("Done. This PC's settings were uploaded to Google Drive.", false),
+        SyncOutcome.Pulled when firstSync => ("Done. The settings already in Google Drive were copied to this PC (this PC's previous settings are backed up).", false),
+        SyncOutcome.Pulled => ("Done. Newer settings from Google Drive were copied to this PC.", false),
+        SyncOutcome.NothingToDo => (w.Status == SyncStatus.Idle && w.StatusText.StartsWith("Nothing", StringComparison.Ordinal)
+            ? w.StatusText : "Done. Already in sync.", false),
+        SyncOutcome.Waiting when w.Status == SyncStatus.GameRunning =>
+            ("Waiting: this game is running. It will sync after you close it.", false),
+        SyncOutcome.Waiting => ($"Waiting: {w.StatusText}. It will sync on its own when ready.", false),
+        SyncOutcome.Busy => ("Will sync in the background in a moment.", false),
+        SyncOutcome.Conflict => ("Needs your choice: settings changed in two places. Open the status window to choose.", true),
+        _ => ($"Problem: {(string.IsNullOrEmpty(w.StatusText) ? w.State.LastError : w.StatusText)}", true),
+    };
+
+    private void Post(Action action)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try { BeginInvoke(action); } catch (InvalidOperationException) { }
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (_syncing) { e.Cancel = true; return; }          // never close mid-copy
+        if (_syncStarted) DialogResult = DialogResult.OK;   // closing after the sync counts as Finish
+        base.OnFormClosing(e);
+    }
+
+    // For the UI smoke tests.
+    internal void ClickStart() => _start.PerformClick();
+    internal bool IsFinished => _finish.Enabled;
+    internal IReadOnlyList<string> Results => _results.Items.Cast<ListViewItem>().Select(i => $"{i.Text}: {i.SubItems[1].Text}").ToList();
 
     private static Label PathLabel() => new() { AutoSize = true, MaximumSize = new Size(420, 0), Margin = new Padding(0, 6, 8, 6) };
 

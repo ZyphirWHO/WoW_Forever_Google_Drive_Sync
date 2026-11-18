@@ -74,6 +74,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
                 Exit();
                 return;
             }
+            _tray.ShowBalloonTip(8_000, "WoWSync is running",
+                "It syncs on its own when you close the game. Click the W icon by the clock to see its status.", ToolTipIcon.Info);
         }
         else if (!_startInTray)
         {

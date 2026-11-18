@@ -161,6 +161,19 @@ public sealed class SyncService
         UpdateOverall();
     }
 
+    /// <summary>Syncs one version now (used by the setup window to show each version's first sync).</summary>
+    public SyncOutcome SyncNow(VersionSync worker)
+    {
+        SyncOutcome outcome;
+        lock (_gate)
+        {
+            outcome = worker.SyncNow();
+            NotifyFor(worker);
+        }
+        UpdateOverall();
+        return outcome;
+    }
+
     public void SetPaused(bool paused)
     {
         lock (_gate)
