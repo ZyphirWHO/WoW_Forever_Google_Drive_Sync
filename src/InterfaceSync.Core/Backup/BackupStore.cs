@@ -4,7 +4,11 @@ using InterfaceSync.Core.Sync;
 
 namespace InterfaceSync.Core.Backup;
 
-public sealed record BackupInfo(string VersionFolder, string Path, DateTime CreatedUtc, string Reason, int FileCount);
+public sealed record BackupInfo(string VersionFolder, string Path, DateTime CreatedUtc, string Reason, int FileCount)
+{
+    /// <summary>True when nothing had changed since this existing backup, so no new copy was made.</summary>
+    public bool Reused { get; init; }
+}
 
 /// <summary>
 /// Timestamped copies under %LOCALAPPDATA%\InterfaceSync\Backups\&lt;version&gt;\, newest 10 kept per version.
@@ -32,6 +36,12 @@ public sealed class BackupStore
     {
         var files = FolderScanner.AllFiles(_fs, sourceFolder);
         if (files.Count == 0) return null;
+
+        // Identical to the newest backup of the same kind? Reuse it. Without this, a sync retried every poll
+        // made a new backup each time, and pruning to 10 then deleted the backup that mattered (laptop, 2026-11-18).
+        var newest = List(versionFolder).FirstOrDefault(b => IsCloudReason(b.Reason) == IsCloudReason(reason));
+        if (newest != null && SameFiles(files, FolderScanner.AllFiles(_fs, newest.Path)))
+            return newest with { Reused = true };
 
         var now = _clock.UtcNow;
         var name = $"{now.ToString(StampFormat, CultureInfo.InvariantCulture)}-{Sanitize(reason)}";
@@ -82,6 +92,13 @@ public sealed class BackupStore
         bool cloud = IsCloudReason(reason);
         foreach (var old in List(versionFolder).Where(b => IsCloudReason(b.Reason) == cloud).Skip(KeepPerVersion))
             _fs.DeleteDirectory(old.Path);
+    }
+
+    private static bool SameFiles(List<ManifestEntry> a, List<ManifestEntry> b)
+    {
+        if (a.Count != b.Count) return false;
+        var lookup = b.ToDictionary(e => e.RelativePath, StringComparer.OrdinalIgnoreCase);
+        return a.All(e => lookup.TryGetValue(e.RelativePath, out var o) && Manifest.SameFile(e, o));
     }
 
     public static bool IsCloudReason(string reason) => reason.StartsWith("cloud-", StringComparison.OrdinalIgnoreCase);

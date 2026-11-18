@@ -268,6 +268,23 @@ public sealed class SyncServiceTests : IDisposable
     }
 
     [Fact]
+    public void Detection_is_logged_once_not_on_every_settings_save()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var log = new MemoryLog();
+        var paths = new AppPaths(_env.LocalAppData);
+        new SettingsStore(_fs, paths.Data).Save(new AppSettings { WowInstallOverride = _wow });
+        var s = new SyncService(_fs, new FakeRegistry(), _processes, _env, _clock, log, paths, "HomePC");
+        s.Start();
+        s.SaveSettings(s.Settings);                 // setup saves settings a few times
+        s.SaveSettings(s.Settings);
+        s.Reload();
+
+        Assert.Single(log.Lines, l => l.Message.StartsWith("Cloud folder detection (Google Drive): Mirrored folder: found"));
+        Assert.Single(log.Lines, l => l.Message.StartsWith("World of Warcraft: "));
+    }
+
+    [Fact]
     public void Diagnostics_include_paths_versions_and_log_lines()
     {
         Directory.CreateDirectory(MirrorDrive);

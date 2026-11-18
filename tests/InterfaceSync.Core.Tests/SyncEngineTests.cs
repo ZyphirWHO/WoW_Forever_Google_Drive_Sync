@@ -529,10 +529,10 @@ public sealed class SyncEngineTests : IDisposable
     public void Backups_are_pruned_to_the_newest_ten_per_version()
     {
         var a = _world.Pc("HomePC");
-        a.WriteSetting(@"PLAYER#1\macros-cache.txt", "x");
         for (int i = 0; i < 13; i++)
         {
             _world.Clock.Advance(TimeSpan.FromMinutes(1));
+            a.WriteSetting(@"PLAYER#1\macros-cache.txt", $"version {i}");   // a changed folder each time
             a.Backups.Create("_retail_", a.AccountPath, $"test-{i}");
         }
         var list = a.Backups.List("_retail_");

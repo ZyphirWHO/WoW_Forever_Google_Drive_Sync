@@ -257,7 +257,7 @@ public sealed class VersionSync
         switch (cloud.Readiness)
         {
             case CloudReadiness.Ready:
-                _log.Info($"{Name}: first sync on this PC. The cloud already has settings, so they replace this PC's (backed up first).");
+                LogOnce($"{Name}: first sync on this PC. The cloud already has settings, so they replace this PC's (backed up first).");
                 return Pull(cloud, force: true, reason: "first-join");
 
             case CloudReadiness.Writing:
@@ -276,7 +276,7 @@ public sealed class VersionSync
                 var why = cloud.Readiness == CloudReadiness.Missing
                     ? $"the folder {Cloud.Account} does not exist"
                     : $"the folder {Cloud.Account} has no files";
-                _log.Info($"{Name}: first sync on this PC. {Cloud.ProviderName} has no settings for this version yet ({why}), so this PC's settings are uploaded.{OtherCloudFolders()}");
+                LogOnce($"{Name}: first sync on this PC. {Cloud.ProviderName} has no settings for this version yet ({why}), so this PC's settings are uploaded.{OtherCloudFolders()}");
                 return Push(local, cloud, force: true);
         }
     }
@@ -420,7 +420,8 @@ public sealed class VersionSync
         var localFiles = localScan.Manifest.ToLookup();
 
         var backup = _backups.Create(Name, LocalAccount, reason);
-        if (backup != null) _log.Info($"{Name}: backed up this PC's settings to {backup.Path}.");
+        if (backup is { Reused: true }) LogOnce($"{Name}: this PC's settings are unchanged since the backup {backup.Path}, so it wasn't copied again.");
+        else if (backup != null) _log.Info($"{Name}: backed up this PC's settings to {backup.Path}.");
 
         var staging = FreeAside(LocalAccount + StagingSuffix);
         var old = FreeAside(LocalAccount + OldSuffix);
@@ -749,8 +750,17 @@ public sealed class VersionSync
             _log.Warn($"{Name}: found {fresh.Count} cloud conflict copies in {where} (not synced): {string.Join(", ", fresh.Take(5))}{(fresh.Count > 5 ? ", ..." : "")}");
     }
 
+    private readonly HashSet<string> _loggedOnce = [];
+
+    /// <summary>Logs a message once until the next successful sync, so retries don't repeat it every poll.</summary>
+    private void LogOnce(string message)
+    {
+        if (_loggedOnce.Add(message)) _log.Info(message);
+    }
+
     private void ClearError()
     {
+        _loggedOnce.Clear();
         State.LastError = null;
         State.LastErrorUtc = null;
         _lastLoggedProblem = null;

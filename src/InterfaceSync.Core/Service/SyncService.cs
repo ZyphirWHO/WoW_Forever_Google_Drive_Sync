@@ -58,6 +58,7 @@ public sealed class SyncService
     private readonly object _gate = new();
     private readonly HashSet<(string version, SyncStatus status)> _notified = [];
     private readonly HashSet<string> _folderNotesLogged = [];
+    private string? _lastDetectionSummary;
 
     private List<VersionSync> _workers = [];
     private DateTime _startedUtc;
@@ -367,7 +368,11 @@ public sealed class SyncService
         Drive = CloudDetector.Detect(EffectiveProvider(), _fs, _registry, _env, Paths.Temp, Settings.DriveOverride);
         Versions = Wow.Found ? wowDetector.ScanVersions(Wow) : [];
 
-        bool quiet = reason != null && Drive.MyDrivePath == oldDrive && Wow.PrimaryRoot == oldWow;
+        // Log detection only when its result changed (setup saving settings re-runs it several times).
+        var summary = string.Join("\n", Wow.Attempts.Concat(Drive.Attempts).Append(DescribeVersions()).Append(Drive.Provider.ToString()));
+        bool quiet = summary == _lastDetectionSummary
+                     || (reason != null && Drive.MyDrivePath == oldDrive && Wow.PrimaryRoot == oldWow);
+        _lastDetectionSummary = summary;
         if (!quiet)
         {
             foreach (var a in Wow.Attempts) _log.Info($"WoW detection: {a}");
