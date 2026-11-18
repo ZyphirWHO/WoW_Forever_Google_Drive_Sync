@@ -21,23 +21,35 @@ jobs:
         run: dotnet test --configuration Release
 
       # One self-contained exe: no trimming, no compression, no self-extraction of native files.
-      - name: Publish WoWSync.exe
+      - name: Publish
         shell: pwsh
         run: |
-          dotnet publish src/WoWSync.App/WoWSync.App.csproj -c Release -r win-x64 --self-contained true `
+          dotnet publish src/InterfaceSync.App/InterfaceSync.App.csproj -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
             -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:DebugType=none `
             -o publish
           Get-ChildItem publish | Format-Table Name, Length
-          $extra = Get-ChildItem publish | Where-Object Name -ne 'WoWSync.exe'
-          if ($extra) { throw "Publish must produce only WoWSync.exe, found: $($extra.Name -join ', ')" }
-          $exe = Get-Item publish/WoWSync.exe
-          "Version: $($exe.VersionInfo.ProductVersion)  Description: $($exe.VersionInfo.FileDescription)"
-          "SHA-256: $((Get-FileHash $exe -Algorithm SHA256).Hash)"
+
+      # The product name is set once in Directory.Build.props. Fail if the exe disagrees (SignPath requires the
+      # product name attributes to match the project name in every build).
+      - name: Check product name
+        shell: pwsh
+        run: |
+          $props = [xml](Get-Content Directory.Build.props)
+          $name = ($props.Project.PropertyGroup | Where-Object { $_.ProductDisplayName }).ProductDisplayName
+          $id = ($props.Project.PropertyGroup | Where-Object { $_.ProductId }).ProductId
+          $files = Get-ChildItem publish
+          if ($files.Count -ne 1 -or $files[0].Name -ne "$id.exe") { throw "Publish must produce only $id.exe, found: $($files.Name -join ', ')" }
+          $info = (Get-Item "publish/$id.exe").VersionInfo
+          "ProductName: $($info.ProductName)  FileDescription: $($info.FileDescription)  CompanyName: $($info.CompanyName)  Version: $($info.ProductVersion)"
+          if ($info.ProductName -ne $name) { throw "ProductName '$($info.ProductName)' differs from '$name'" }
+          if ($info.FileDescription -ne $name) { throw "FileDescription '$($info.FileDescription)' differs from '$name'" }
+          if ($info.InternalName -ne "$id.dll" -and $info.OriginalFilename -ne "$id.dll") { throw "Internal/original file name doesn't match $id" }
+          "SHA-256: $((Get-FileHash "publish/$id.exe" -Algorithm SHA256).Hash)"
 
       - name: Upload development build
         uses: actions/upload-artifact@v4
         with:
-          name: WoWSync-dev-${{ github.sha }}
+          name: InterfaceSync-dev-${{ github.sha }}
           path: publish/
           retention-days: 14
