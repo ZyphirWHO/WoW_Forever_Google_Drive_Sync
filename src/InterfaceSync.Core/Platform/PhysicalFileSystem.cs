@@ -36,6 +36,10 @@ public sealed class PhysicalFileSystem : IFileSystem
         return new FileEntryInfo(fi.FullName, fi.Length, fi.LastWriteTimeUtc, attrs);
     }
 
+    public FileAttributes GetAttributes(string path) => File.GetAttributes(path);
+
+    public void SetAttributes(string path, FileAttributes attributes) => File.SetAttributes(path, attributes);
+
     public void CreateDirectory(string path) => Directory.CreateDirectory(path);
 
     public void CopyFile(string source, string destination)

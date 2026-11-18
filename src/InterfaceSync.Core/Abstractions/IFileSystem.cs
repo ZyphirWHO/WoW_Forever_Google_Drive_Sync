@@ -9,6 +9,12 @@ public sealed record FileEntryInfo(string FullPath, long Size, DateTime LastWrit
     /// <summary>FILE_ATTRIBUTE_RECALL_ON_OPEN: placeholder that is fetched when opened.</summary>
     public const FileAttributes RecallOnOpen = (FileAttributes)0x00040000;
 
+    /// <summary>FILE_ATTRIBUTE_PINNED: cloud apps keep this file/folder on the device ("Always keep on this device").</summary>
+    public const FileAttributes Pinned = (FileAttributes)0x00080000;
+
+    /// <summary>FILE_ATTRIBUTE_UNPINNED: cloud apps may free up this file's space.</summary>
+    public const FileAttributes Unpinned = (FileAttributes)0x00100000;
+
     public bool IsReparsePoint => (Attributes & FileAttributes.ReparsePoint) != 0;
 
     /// <summary>True when the bytes are not on this PC yet (Drive streaming "online-only").</summary>
@@ -39,6 +45,11 @@ public interface IFileSystem
     IEnumerable<string> EnumerateFiles(string path);
 
     FileEntryInfo GetFileInfo(string path);
+
+    /// <summary>Attributes of a file or folder.</summary>
+    FileAttributes GetAttributes(string path);
+
+    void SetAttributes(string path, FileAttributes attributes);
 
     void CreateDirectory(string path);
 

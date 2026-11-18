@@ -149,6 +149,8 @@ public sealed class ScriptedFileSystem : IFileSystem
             : info;
     }
 
+    public FileAttributes GetAttributes(string path) => _inner.GetAttributes(path);
+    public void SetAttributes(string path, FileAttributes attributes) => _inner.SetAttributes(path, attributes);
     public void CreateDirectory(string path) => _inner.CreateDirectory(path);
 
     public void CopyFile(string source, string destination)

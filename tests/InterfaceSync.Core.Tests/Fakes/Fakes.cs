@@ -143,8 +143,15 @@ public sealed class InMemoryFileSystem : IFileSystem
     public IEnumerable<string> EnumerateDirectories(string path) => Children(_dirs, path);
     public IEnumerable<string> EnumerateFiles(string path) => Children(_files.Keys, path);
 
+    private readonly Dictionary<string, FileAttributes> _attributes = new(StringComparer.OrdinalIgnoreCase);
+
     public FileEntryInfo GetFileInfo(string path) =>
-        new(N(path), Get(path).Length, DateTime.UnixEpoch, FileAttributes.Normal);
+        new(N(path), Get(path).Length, DateTime.UnixEpoch, GetAttributes(path));
+
+    public FileAttributes GetAttributes(string path) =>
+        _attributes.TryGetValue(N(path), out var a) ? a : DirectoryExists(path) ? FileAttributes.Directory : FileAttributes.Normal;
+
+    public void SetAttributes(string path, FileAttributes attributes) => _attributes[N(path)] = attributes;
 
     public void CreateDirectory(string path) => Dir(path);
     public void CopyFile(string source, string destination) => Bytes(destination, Get(source));

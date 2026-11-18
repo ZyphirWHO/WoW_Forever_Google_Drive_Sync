@@ -179,10 +179,6 @@ public sealed class DropboxDetector
 public static class CloudDetector
 {
     public static DriveDetectionResult Detect(CloudProvider provider, IFileSystem fs, IRegistry registry, IUserEnvironment env,
-        string scratchFolder, string? userOverride) => provider switch
-    {
-        CloudProvider.OneDrive => new OneDriveDetector(fs, registry, env).Detect(userOverride),
-        CloudProvider.Dropbox => new DropboxDetector(fs, env).Detect(userOverride),
-        _ => new DriveDetector(fs, registry, env, scratchFolder).Detect(userOverride),
-    };
+        string scratchFolder, string? userOverride) =>
+        CloudProviderCatalog.Create(provider, fs, registry, env, scratchFolder).Detect(userOverride);
 }

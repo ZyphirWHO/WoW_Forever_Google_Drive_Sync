@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using InterfaceSync.Core.Abstractions;
+using InterfaceSync.Core.Detection;
 
 namespace InterfaceSync.Core.Sync;
 
@@ -65,47 +66,17 @@ public static class FolderScanner
 {
     public static readonly string TempSuffix = "." + ProductInfo.Id.ToLowerInvariant() + "-tmp";
 
-    // "Name (1).ext" or "Name (2)" — Google Drive's conflict-copy naming.
-    private static readonly Regex ConflictCopyPattern =
-        new(@"^.+ \(\d+\)(\.[^.\\/ ]+)?$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
     private static readonly HashSet<string> IgnoredNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "desktop.ini", "Thumbs.db", ".DS_Store", ".dropbox", ".dropbox.attr",
     };
 
-    // Dropbox: "Name (PC's conflicted copy 2026-11-18).ext", "Name (Case Conflict).ext", "(Selective Sync Conflict)".
-    private static readonly Regex DropboxConflictPattern =
-        new(@"\((?:[^()]*'s )?conflicted copy[^()]*\)|\((?:Case|Selective Sync) Conflict[^()]*\)",
-            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    /// <summary>Google Drive or Dropbox conflict-copy name (needs no context).</summary>
+    /// <summary>Conflict copy from Google Drive or Dropbox (names that need no neighbours to recognise).</summary>
     public static bool IsConflictCopyName(string name) =>
-        ConflictCopyPattern.IsMatch(name) || DropboxConflictPattern.IsMatch(name);
+        GoogleDriveProvider.IsConflictName(name) || DropboxProvider.IsConflictName(name);
 
-    /// <summary>
-    /// Conflict copy from any supported cloud app. OneDrive's "Name-PCNAME.ext" only counts when the
-    /// original "Name.ext" is beside it and the suffix looks like a computer name (capitals, digits, dashes),
-    /// so ordinary addon files such as "Details-Forever.lua" are never mistaken for one.
-    /// </summary>
-    public static bool IsConflictCopyName(string name, ISet<string> siblings)
-    {
-        if (IsConflictCopyName(name)) return true;
-        int dot = name.LastIndexOf('.');
-        var stem = dot > 0 ? name[..dot] : name;
-        var ext = dot > 0 ? name[dot..] : "";
-        // Try every dash: computer names can contain dashes ("TLIT-LT-001").
-        for (int i = stem.IndexOf('-'); i > 0; i = stem.IndexOf('-', i + 1))
-        {
-            var suffix = stem[(i + 1)..];
-            if (LooksLikeComputerName(suffix) && siblings.Contains(stem[..i] + ext)) return true;
-        }
-        return false;
-    }
-
-    private static bool LooksLikeComputerName(string s) =>
-        s.Length is >= 1 and <= 24 && char.IsAsciiLetterUpper(s[0]) | char.IsAsciiDigit(s[0])
-        && s.All(c => char.IsAsciiLetterUpper(c) || char.IsAsciiDigit(c) || c == '-');
+    /// <summary>Conflict copy from any supported cloud app (see <see cref="CloudProviderCatalog.IsAnyConflictCopy"/>).</summary>
+    public static bool IsConflictCopyName(string name, ISet<string> siblings) => CloudProviderCatalog.IsAnyConflictCopy(name, siblings);
 
     private static bool IsDriveTempName(string name) =>
         name.StartsWith(".tmp.drive", StringComparison.OrdinalIgnoreCase) ||

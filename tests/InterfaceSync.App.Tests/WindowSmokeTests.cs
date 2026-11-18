@@ -138,6 +138,41 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
+    public void OneDrive_offers_keep_on_device_unticked_so_it_only_happens_with_the_players_ok()
+    {
+        var service = Service(setupComplete: false, ("_forever_", true));
+        Directory.CreateDirectory(Path.Combine(_root, "Users", "Player", "OneDrive"));
+        OnSta(() =>
+        {
+            using var form = new FirstRun(service, new FakeRegistry());
+            form.Show();
+            Application.DoEvents();
+            Assert.False(form.KeepOnDeviceOffered);                       // Google Drive selected
+            form.ChooseProvider(InterfaceSync.Core.Detection.CloudProvider.OneDrive);
+            Application.DoEvents();
+            Assert.True(form.KeepOnDeviceOffered);
+            Assert.False(form.KeepOnDeviceTicked);
+            form.Close();
+        });
+    }
+
+    [Fact]
+    public void Change_cloud_folder_window_opens_and_preselects_another_app_that_is_installed()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true));
+        Directory.CreateDirectory(Path.Combine(_root, "Users", "Player", "Dropbox"));
+        OnSta(() =>
+        {
+            using var form = new ChangeCloudFolder(service);
+            form.Show();
+            Application.DoEvents();
+            Assert.Equal(InterfaceSync.Core.Detection.CloudProvider.Dropbox, form.Chosen);
+            Assert.False(form.KeepOnDevice);
+            form.Close();
+        });
+    }
+
+    [Fact]
     public void First_run_window_opens_when_nothing_is_found()
     {
         var service = Service(setupComplete: false);

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using InterfaceSync.Core.Abstractions;
 using InterfaceSync.Core.Backup;
 using InterfaceSync.Core.Detection;
@@ -137,7 +138,8 @@ public sealed class SyncService
         {
             if (PathsMissing(out var what)) Redetect(reason: what);
             CheckDriveNotice();
-            foreach (var w in _workers)
+            bool movedAway = CheckMovedAway();
+            foreach (var w in movedAway ? [] : _workers)
             {
                 w.Paused = Settings.Paused;
                 w.Tick();
@@ -153,7 +155,8 @@ public sealed class SyncService
         lock (_gate)
         {
             if (PathsMissing(out var what)) Redetect(reason: what);
-            foreach (var w in _workers)
+            bool movedAway = CheckMovedAway();
+            foreach (var w in movedAway ? [] : _workers)
             {
                 w.SyncNow();
                 NotifyFor(w);
@@ -205,6 +208,141 @@ public sealed class SyncService
         lock (_gate) outcome = worker.RestoreBackup(backup);
         UpdateOverall();
         return outcome;
+    }
+
+    // ------------------------------------------------------------------ changing cloud app
+
+    private MovedMarker? _movedAway;
+    private bool _movedNoticeSent;
+
+    /// <summary>True (and nothing syncs) when this PC's cloud folder says its data moved to another app.</summary>
+    private bool CheckMovedAway()
+    {
+        _movedAway = Drive?.MyDrivePath is { } root
+            ? MovedMarker.TryRead(_fs, PathUtil.Join(root, CloudLayout.AppFolderName))
+            : null;
+        if (_movedAway == null) { _movedNoticeSent = false; return false; }
+        if (!_movedNoticeSent)
+        {
+            _movedNoticeSent = true;
+            var text = MovedAwayText(_movedAway);
+            _log.Warn(text + " Nothing is synced here until this PC is switched too.");
+            Raise(new Notice(NoticeKind.SyncFailed, $"Your settings moved to {_movedAway.Provider.DisplayName()}", text));
+        }
+        return true;
+    }
+
+    private string MovedAwayText(MovedMarker m) =>
+        $"The settings in {ProviderName} were moved to {m.Provider.DisplayName()}" +
+        (m.MovedBy.Length > 0 ? $" by {m.MovedBy} on {m.MovedAtUtc.ToLocalTime():g}" : "") +
+        $". Switch this PC too: status window → Change cloud folder → {m.Provider.DisplayName()}.";
+
+    /// <summary>
+    /// Moves this PC (and the cloud data) to another cloud app. Pending changes are pushed first; the old
+    /// cloud copy is backed up; the data is copied to the new app; a marker in the old folder stops every
+    /// PC still using it. If the new app already has the settings (another PC moved first), this PC simply
+    /// joins it with the normal first-sync rule. Never leaves two apps in use at once.
+    /// </summary>
+    public ProviderChangeResult ChangeProvider(CloudProvider target, string? folderOverride, bool keepOnDevice)
+    {
+        string message;
+        lock (_gate)
+        {
+            var targetApp = CloudProviderCatalog.Create(target, _fs, _registry, _env, Paths.Temp);
+            var found = targetApp.Detect(folderOverride);
+            if (found.MyDrivePath is not { } newRoot)
+                return new(false, $"{targetApp.DisplayName} was not found on this PC. Install and sign in to it first, or choose its folder.");
+            var oldRoot = Drive?.MyDrivePath;
+            if (oldRoot != null && PathUtil.SamePath(oldRoot, newRoot))
+                return new(false, $"{ProductInfo.Name} already uses {newRoot}.");
+
+            foreach (var w in _workers)
+                if (Watcher.IsRunning(w.Version)) return new(false, $"Close {w.Version.FolderName} first.");
+            if (oldRoot != null && _movedAway == null)
+            {
+                foreach (var w in _workers)
+                {
+                    var o = w.SyncNow();
+                    if (o is SyncOutcome.Conflict or SyncOutcome.Refused or SyncOutcome.Failed || w.State.PendingPush)
+                        return new(false, $"{w.Version.FolderName}: {w.StatusText}. Sort that out first, then change the cloud folder.");
+                }
+            }
+
+            var newAppFolder = PathUtil.Join(newRoot, CloudLayout.AppFolderName);
+            var oldAppFolder = oldRoot != null ? PathUtil.Join(oldRoot, CloudLayout.AppFolderName) : null;
+
+            bool targetHasData = FolderScanner.AllFiles(_fs, newAppFolder).Count > 0;
+            var staleMarker = MovedMarker.TryRead(_fs, newAppFolder);
+            if (targetHasData && staleMarker == null)
+            {
+                message = $"{targetApp.DisplayName} already has {ProductInfo.Name} settings (another PC moved there first). " +
+                          "This PC now uses them: if they differ from this PC's, they replace this PC's after a backup.";
+            }
+            else if (oldAppFolder == null || _movedAway != null || FolderScanner.AllFiles(_fs, oldAppFolder).Count == 0)
+            {
+                message = $"Switched to {targetApp.DisplayName}. There were no settings to move.";
+            }
+            else
+            {
+                if (staleMarker != null)
+                {
+                    // An old copy left behind by an earlier move away from this app: back it up, then replace it.
+                    foreach (var v in _fs.EnumerateDirectories(newAppFolder))
+                        _backups.Create(PathUtil.Name(v), v, "cloud-before-provider-move-old-copy");
+                    _fs.DeleteDirectory(newAppFolder);
+                }
+                foreach (var v in _fs.EnumerateDirectories(oldAppFolder))
+                    _backups.Create(PathUtil.Name(v), v, "cloud-before-provider-move");
+
+                var files = FolderScanner.AllFiles(_fs, oldAppFolder)
+                    .Where(f => !f.RelativePath.Equals(MovedMarker.FileName, StringComparison.OrdinalIgnoreCase)).ToList();
+                TreeCopy.CopyFiles(_fs, oldAppFolder, newAppFolder, files);
+                foreach (var f in files)
+                {
+                    var copied = _fs.GetFileInfo(PathUtil.FromRelative(newAppFolder, f.RelativePath));
+                    if (copied.Size != f.Size)
+                        return new(false, $"Copying to {targetApp.DisplayName} failed ({f.RelativePath}). Nothing was switched; the original is untouched.");
+                }
+
+                _fs.WriteAllText(MovedMarker.PathIn(oldAppFolder), JsonSerializer.Serialize(
+                    new MovedMarker { Provider = target, MovedBy = _machineName, MovedAtUtc = _clock.UtcNow }, Json.Options));
+                message = $"Moved {files.Count} files from {oldAppFolder} to {newAppFolder} (the old copy was backed up and left in place, " +
+                          $"marked as moved, so other PCs stop syncing there until they switch too).";
+            }
+
+            if (keepOnDevice && targetApp.CanPinFolder)
+            {
+                targetApp.PinFolder(_fs, newAppFolder);
+                message += $" {newAppFolder} is set to always stay on this device.";
+            }
+
+            Settings.CloudProvider = target;
+            Settings.DriveOverride = folderOverride;
+            _settingsStore.Save(Settings);
+            _log.Info(message);
+            Settings = _settingsStore.Load();
+            Redetect(reason: null);
+            _movedAway = null;
+            _movedNoticeSent = false;
+        }
+        UpdateOverall();
+        return new(true, message);
+    }
+
+    /// <summary>Whether the chosen app lets Interface Sync mark its folder "always keep on this device" (OneDrive).</summary>
+    public bool CanKeepOnDevice =>
+        Drive is { Found: true } d && CloudProviderCatalog.Create(d.Provider, _fs, _registry, _env, Paths.Temp).CanPinFolder;
+
+    /// <summary>Marks the cloud app's Interface Sync folder "always keep on this device". Only on the player's OK.</summary>
+    public string? KeepCloudFolderOnDevice()
+    {
+        if (Drive is not { Found: true } d) return null;
+        var app = CloudProviderCatalog.Create(d.Provider, _fs, _registry, _env, Paths.Temp);
+        if (!app.CanPinFolder) return null;
+        var folder = PathUtil.Join(d.MyDrivePath!, CloudLayout.AppFolderName);
+        app.PinFolder(_fs, folder);
+        _log.Info($"{folder} is set to always stay on this device ({app.DisplayName}).");
+        return folder;
     }
 
     // ------------------------------------------------------------------ detection
@@ -380,7 +518,8 @@ public sealed class SyncService
             (state, text) = (OverallState.Waiting, workers.Any(w => w.Status == SyncStatus.GameRunning) ? "Waiting: game running" : "Waiting");
 
         // Attention overrides everything except an explicit pause of normal syncing.
-        if (Wow is { Found: false }) (state, text) = (OverallState.NeedsAttention, "World of Warcraft not found");
+        if (_movedAway != null) (state, text) = (OverallState.NeedsAttention, $"Settings moved to {_movedAway.Provider.DisplayName()}: switch this PC too");
+        else if (Wow is { Found: false }) (state, text) = (OverallState.NeedsAttention, "World of Warcraft not found");
         else if (Drive is { Found: false } && _driveMissingSinceUtc is { } since && _clock.UtcNow - since >= DriveMissingGrace)
             (state, text) = (OverallState.NeedsAttention, $"{ProviderName} not found");
         else if (Drive is { Found: false }) (state, text) = (OverallState.Waiting, $"Waiting for {ProviderName}");

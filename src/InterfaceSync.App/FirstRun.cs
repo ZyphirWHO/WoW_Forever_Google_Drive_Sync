@@ -20,6 +20,7 @@ internal sealed class FirstRun : Form
     private readonly Label _cloudPath = PathLabel();
     private readonly ComboBox _provider = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, Margin = new Padding(0, 4, 8, 4) };
     private bool _filling;
+    private readonly CheckBox _keepOnDevice = new() { AutoSize = true, Margin = new Padding(0, 2, 0, 4), Visible = false };
     private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
     private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0), ForeColor = Color.FromArgb(140, 70, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
@@ -62,6 +63,7 @@ internal sealed class FirstRun : Form
         var cloudCell = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         cloudCell.Controls.Add(_provider);
         cloudCell.Controls.Add(_drivePath);
+        cloudCell.Controls.Add(_keepOnDevice);
         AddRow(grid, 3, "Cloud folder:", cloudCell, ChangeButton(ChooseDrive));
         _provider.SelectedIndexChanged += (_, _) => { if (!_filling) ProviderChanged(); };
         AddRow(grid, 4, "Settings are kept in:", _cloudPath, null);
@@ -122,6 +124,8 @@ internal sealed class FirstRun : Form
                 : drive.MyDrivePath!
             : $"Not found: choose your {provider.DisplayName()} folder";
         _cloudPath.Text = drive is { Found: true } ? PathUtil.Join(drive.MyDrivePath!, CloudLayout.AppFolderName) : "-";
+        _keepOnDevice.Visible = _service.CanKeepOnDevice;
+        _keepOnDevice.Text = $"Always keep the {CloudLayout.AppFolderName} folder on this device (recommended)";
 
         _versions.Items.Clear();
         var notLaunched = new List<string>();
@@ -199,6 +203,8 @@ internal sealed class FirstRun : Form
     internal IReadOnlyList<string> ProviderChoices => _provider.Items.Cast<object>().Select(o => o.ToString()!).ToList();
     internal void ChooseProvider(CloudProvider p) => _provider.SelectedIndex = Array.IndexOf(CloudProviders.All, p);
     internal string CloudFolderText => _drivePath.Text;
+    internal bool KeepOnDeviceOffered => _keepOnDevice.Visible;
+    internal bool KeepOnDeviceTicked => _keepOnDevice.Checked;
 
     private string? PickFolder(string description)
     {
@@ -217,6 +223,7 @@ internal sealed class FirstRun : Form
         settings.SetupComplete = true;
         settings.CloudProvider ??= _service.EffectiveProvider();
         _service.SaveSettings(settings);
+        if (_keepOnDevice.Visible && _keepOnDevice.Checked) _service.KeepCloudFolderOnDevice();
         ShowProgressAndSync();
     }
 

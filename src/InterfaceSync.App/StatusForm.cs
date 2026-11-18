@@ -51,6 +51,8 @@ internal sealed class StatusForm : Form
         openLog.Click += (_, _) => Open(Service.Paths.Logs);
         var openBackups = new Button { Text = "Open backups", AutoSize = true };
         openBackups.Click += (_, _) => Open(Service.Paths.Backups);
+        var changeCloud = new Button { Text = "Change cloud folder...", AutoSize = true };
+        changeCloud.Click += (_, _) => ChangeCloudFolder();
         var copyDiag = new Button { Text = "Copy diagnostics", AutoSize = true };
         copyDiag.Click += (_, _) =>
         {
@@ -59,7 +61,7 @@ internal sealed class StatusForm : Form
         };
 
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
-        buttons.Controls.AddRange([_syncNow, _pause, _resolve, openLog, openBackups, copyDiag]);
+        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag]);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -158,6 +160,19 @@ internal sealed class StatusForm : Form
         var result = TaskDialog.ShowDialog(this, page);
         if (result == keepLocal) _app.Run(() => Service.Resolve(w, KeepChoice.Local));
         else if (result == keepCloud) _app.Run(() => Service.Resolve(w, KeepChoice.Cloud));
+    }
+
+    private void ChangeCloudFolder()
+    {
+        using var dialog = new ChangeCloudFolder(Service);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        var target = dialog.Chosen;
+        var keep = dialog.KeepOnDevice;
+        ProviderChangeResult? result = null;
+        _app.Run(
+            () => result = Service.ChangeProvider(target, null, keep),
+            () => MessageBox.Show(this, result?.Message ?? "Nothing changed.", ProductInfo.Name, MessageBoxButtons.OK,
+                result?.Changed == true ? MessageBoxIcon.Information : MessageBoxIcon.Warning));
     }
 
     private static string Format(DateTime? utc) => utc?.ToLocalTime().ToString("g") ?? "never";
