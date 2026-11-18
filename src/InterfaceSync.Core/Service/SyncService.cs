@@ -285,29 +285,41 @@ public sealed class SyncService
             }
             else
             {
+                // Back up both copies first (the target may hold an old copy left by an earlier move away from it).
                 if (staleMarker != null)
-                {
-                    // An old copy left behind by an earlier move away from this app: back it up, then replace it.
                     foreach (var v in _fs.EnumerateDirectories(newAppFolder))
                         _backups.Create(PathUtil.Name(v), v, "cloud-before-provider-move-old-copy");
-                    _fs.DeleteDirectory(newAppFolder);
-                }
                 foreach (var v in _fs.EnumerateDirectories(oldAppFolder))
                     _backups.Create(PathUtil.Name(v), v, "cloud-before-provider-move");
 
-                var files = FolderScanner.AllFiles(_fs, oldAppFolder)
-                    .Where(f => !f.RelativePath.Equals(MovedMarker.FileName, StringComparison.OrdinalIgnoreCase)).ToList();
-                TreeCopy.CopyFiles(_fs, oldAppFolder, newAppFolder, files);
-                foreach (var f in files)
+                // Copy files only, and only each version's settings and commit file. Folders in a cloud app's folder
+                // are never renamed, moved or deleted; an out-of-date file left over in the target is removed, not its folder.
+                int count = 0;
+                foreach (var oldVersion in _fs.EnumerateDirectories(oldAppFolder).Where(d => !_fs.IsReparsePoint(d)))
                 {
-                    var copied = _fs.GetFileInfo(PathUtil.FromRelative(newAppFolder, f.RelativePath));
-                    if (copied.Size != f.Size)
-                        return new(false, $"Copying to {targetApp.DisplayName} failed ({f.RelativePath}). Nothing was switched; the original is untouched.");
+                    var version = PathUtil.Name(oldVersion);
+                    var source = new CloudLayout(oldRoot, version, Drive?.Provider ?? CloudProvider.GoogleDrive);
+                    var dest = new CloudLayout(newRoot, version, target);
+                    if (!dest.IsSafeWriteTarget(out var why))
+                        return new(false, $"Refused to write to {dest.Account}: {why}. Nothing was switched.");
+
+                    var files = FolderScanner.AllFiles(_fs, source.Account);
+                    TreeCopy.CopyFiles(_fs, source.Account, dest.Account, files);
+                    foreach (var f in files)
+                        if (_fs.GetFileInfo(PathUtil.FromRelative(dest.Account, f.RelativePath)).Size != f.Size)
+                            return new(false, $"Copying to {targetApp.DisplayName} failed ({version}\\{f.RelativePath}). Nothing was switched; the original is untouched.");
+                    var keep = new HashSet<string>(files.Select(f => f.RelativePath), StringComparer.OrdinalIgnoreCase);
+                    foreach (var extra in FolderScanner.AllFiles(_fs, dest.Account).Where(f => !keep.Contains(f.RelativePath)))
+                        _fs.DeleteFile(PathUtil.FromRelative(dest.Account, extra.RelativePath));
+                    foreach (var commit in new[] { source.CommitFile, source.LegacyCommitFile })
+                        if (_fs.FileExists(commit)) { _fs.CopyFile(commit, dest.CommitFile); break; }
+                    count += files.Count;
                 }
+                if (staleMarker != null) _fs.DeleteFile(MovedMarker.PathIn(newAppFolder));
 
                 _fs.WriteAllText(MovedMarker.PathIn(oldAppFolder), JsonSerializer.Serialize(
                     new MovedMarker { Provider = target, MovedBy = _machineName, MovedAtUtc = _clock.UtcNow }, Json.Options));
-                message = $"Moved {files.Count} files from {oldAppFolder} to {newAppFolder} (the old copy was backed up and left in place, " +
+                message = $"Moved {count} files from {oldAppFolder} to {newAppFolder} (the old copy was backed up and left in place, " +
                           $"marked as moved, so other PCs stop syncing there until they switch too).";
             }
 

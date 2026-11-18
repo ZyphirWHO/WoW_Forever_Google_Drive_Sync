@@ -163,7 +163,11 @@ public sealed class ProviderMoveTests : IDisposable
         Assert.Contains("already has", joined.Message);
         laptop.Service.Poll();
         Assert.Equal(CloudProvider.OneDrive, laptop.Service.Drive!.Provider);
-        Assert.NotEqual(OverallState.NeedsAttention, laptop.Service.State);
+        // The laptop changed its settings after the move and the cloud copy changed too: it asks, never picks silently.
+        var worker = laptop.Service.Workers.Single();
+        Assert.NotNull(worker.State.Conflict);
+        Assert.Equal(SyncOutcome.Pulled, laptop.Service.Resolve(worker, KeepChoice.Cloud));
+        Assert.Equal("home, latest", File.ReadAllText(laptop.Setting));
     }
 
     [Fact]

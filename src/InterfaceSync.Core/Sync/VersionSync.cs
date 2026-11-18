@@ -127,6 +127,12 @@ public sealed class VersionSync
                 _closedAtUtc = now;
                 State.PendingPush = true; // survives a reboot during the wait
                 Save();
+                if (Paused)
+                {
+                    _log.Info($"{Name}: game closed. Syncing is paused, so nothing is uploaded until you resume.");
+                    SetStatus(SyncStatus.Paused, "Paused (upload waiting)");
+                    return SyncOutcome.NothingToDo;
+                }
                 _log.Info($"{Name}: game closed. Pushing in {_timing.WaitAfterClose.TotalSeconds:0} seconds.");
                 SetStatus(SyncStatus.WaitingAfterClose, "Game closed, waiting for it to finish writing");
                 return SyncOutcome.Waiting;
@@ -195,6 +201,8 @@ public sealed class VersionSync
             }
         }
 
+        if (cloud.Readiness == CloudReadiness.Stale) return Refuse(cloud.Problem!);
+
         if (cloud.Readiness == CloudReadiness.Ready && cloud.CommitId != State.LastCommitId)
         {
             var cloudNewest = cloud.Files!.NewestUtc;
@@ -257,8 +265,26 @@ public sealed class VersionSync
         switch (cloud.Readiness)
         {
             case CloudReadiness.Ready:
+            {
+                // A copy with newer settings than the cloud's may mean this PC's cloud folder is out of date, or that
+                // this PC was played last: never decide silently. Ask, with both dates and PC names.
+                var mine = FolderScanner.Scan(_fs, LocalAccount);
+                var localNewest = mine.Manifest.NewestUtc;
+                var cloudNewest = cloud.Files!.NewestUtc;
+                if (localNewest != null && (cloudNewest == null || localNewest.Value > cloudNewest.Value + Manifest.TimeTolerance))
+                {
+                    var from = cloud.Commit?.PushedBy is { Length: > 0 } by ? by : "an older version (no PC recorded)";
+                    return RaiseConflict(mine, cloud,
+                        $"First sync on this PC: its settings (last changed {localNewest.Value.ToLocalTime():g}) are newer than the cloud's " +
+                        $"(from {from}, last changed {cloudNewest?.ToLocalTime().ToString("g") ?? "never"}). If {Cloud.ProviderName} on this PC " +
+                        "isn't fully synced, the cloud copy shown here may be out of date.");
+                }
                 LogOnce($"{Name}: first sync on this PC. The cloud already has settings, so they replace this PC's (backed up first).");
                 return Pull(cloud, force: true, reason: "first-join");
+            }
+
+            case CloudReadiness.Stale:
+                return Refuse(cloud.Problem!);
 
             case CloudReadiness.Writing:
             case CloudReadiness.Incomplete:
@@ -311,6 +337,10 @@ public sealed class VersionSync
                             && cloud.Readiness != CloudReadiness.Writing;
         if (!force && cloudMovedOn)
             return RaiseConflict(local, cloud, "Settings changed on this PC and on another PC since the last sync.");
+
+        if (cloud.Readiness == CloudReadiness.Stale) return Refuse(cloud.Problem!);
+        if (!Cloud.IsSafeWriteTarget(out var unsafeReason))
+            return Refuse($"Refused to upload to {Cloud.Account}: {unsafeReason}. Nothing was written.");
 
         SetStatus(SyncStatus.Syncing, "Uploading settings");
         foreach (var link in local.Links) _log.Warn($"{Name}: skipped folder link '{link}' (links are never synced).");
@@ -470,7 +500,7 @@ public sealed class VersionSync
         }
         if (hadLocal) RemoveLeftover(old); // already in the backup store; failing to delete it is not a failed sync
 
-        if (cloud.Commit == null)
+        if (cloud.Commit == null && Cloud.IsSafeWriteTarget(out _))
         {
             // Adopted data InterfaceSync 2.0 didn't write (v1.1): describe it with a commit file so every PC
             // reads it the same way from now on. The id is the same content hash other PCs already hold.
@@ -512,6 +542,7 @@ public sealed class VersionSync
             LocalNewestUtc = local.Manifest.NewestUtc,
             CloudNewestUtc = cloud.Files?.NewestUtc,
             CloudPushedBy = cloud.Commit?.PushedBy,
+            LocalMachine = _machineName,
             CloudCommitId = cloud.CommitId,
             CloudBackupPath = backup?.Path,
         };
@@ -573,7 +604,7 @@ public sealed class VersionSync
 
     // ------------------------------------------------------------------ cloud state
 
-    internal enum CloudReadiness { Missing, Empty, Writing, Incomplete, OnlineOnly, Ready }
+    internal enum CloudReadiness { Missing, Empty, Writing, Incomplete, OnlineOnly, Ready, Stale }
 
     internal sealed class CloudSnapshot
     {
@@ -592,6 +623,14 @@ public sealed class VersionSync
         if (commit == null)
         {
             // Legacy (v1.1) data or a cloud folder never written by 2.0.
+            if (scan.Exists && OtherPcsCommit() is { } elsewhere)
+                return new CloudSnapshot
+                {
+                    Readiness = CloudReadiness.Stale,
+                    Problem = $"This PC's copy of the {Cloud.ProviderName} folder looks out of date: {Cloud.Account} has no sync record, " +
+                              $"but {elsewhere.PushedBy} has synced into {elsewhere.Where}. Make sure {Cloud.ProviderName} is running and fully " +
+                              "synced on this PC, then sync again. Nothing was changed.",
+                };
             if (!scan.Exists) return new CloudSnapshot { Readiness = CloudReadiness.Missing };
             if (scan.Manifest.IsEmpty)
             {
@@ -648,6 +687,23 @@ public sealed class VersionSync
         }
 
         return new CloudSnapshot { Readiness = CloudReadiness.Ready, Commit = commit, CommitId = commit.CommitId, Files = files };
+    }
+
+    /// <summary>Another PC's commit file anywhere in the app's cloud folders (current or earlier name), if any.</summary>
+    private (string PushedBy, string Where)? OtherPcsCommit()
+    {
+        var roots = new[] { Cloud.AppRoot }
+            .Concat(ProductInfo.Legacy.CloudFolderNames.Select(n => PathUtil.Join(Cloud.MyDrive, n)))
+            .Where(_fs.DirectoryExists);
+        foreach (var root in roots)
+            foreach (var versionDir in _fs.EnumerateDirectories(root))
+                foreach (var name in new[] { CloudLayout.CommitFileName, ProductInfo.Legacy.CommitFileName })
+                {
+                    var c = CommitFile.TryRead(_fs, PathUtil.Join(versionDir, name));
+                    if (c != null && c.PushedBy.Length > 0 && !c.PushedBy.StartsWith(_machineName, StringComparison.OrdinalIgnoreCase))
+                        return (c.PushedBy, versionDir);
+                }
+        return null;
     }
 
     private CloudSnapshot OnlineOnly(int count) => new()

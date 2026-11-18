@@ -79,54 +79,6 @@ public sealed class LegacyCommitFileTests : IDisposable
     }
 }
 
-public sealed class CloudFolderMigrationTests : IDisposable
-{
-    private readonly SimWorld _world = new();
-    public void Dispose() => _world.Dispose();
-
-    [Theory]
-    [InlineData("WoWSync")]
-    [InlineData("WoW Sync")]
-    public void Old_cloud_folder_is_renamed_once_with_commit_files_backed_up_and_syncing_carries_on(string oldName)
-    {
-        // A PC that synced with an earlier build into <cloud>\WoWSync.
-        var a = _world.Pc("HomePC");
-        a.WriteSetting(@"PLAYER#1\macros-cache.txt", "M1");
-        Assert.Equal(SyncOutcome.Pushed, a.Sync.Tick());
-        var newRoot = Path.Combine(_world.MyDrive, "InterfaceSync");
-        var oldRoot = Path.Combine(_world.MyDrive, oldName);
-        Directory.Move(newRoot, oldRoot);
-        File.Move(Path.Combine(oldRoot, "_retail_", "WTF-Account.interfacesync.json"), Path.Combine(oldRoot, "_retail_", "WTF-Account.wowsync.json"));
-
-        var log = new InterfaceSync.Core.Logging.MemoryLog();
-        CloudFolderMigration.Run(new PhysicalFileSystem(), _world.MyDrive, a.Backups, log);
-
-        Assert.True(Directory.Exists(newRoot));
-        Assert.False(Directory.Exists(oldRoot));
-        Assert.Contains(log.Lines, l => l.Message.StartsWith("Renamed the cloud folder"));
-        var backup = Assert.Single(a.Backups.List("_retail_"), b => b.Reason == "cloud-folder-rename");
-        Assert.True(File.Exists(Path.Combine(backup.Path, "WTF-Account.wowsync.json")));
-
-        // Same commit, so the PC carries on without a re-download.
-        a.Restart();
-        Assert.Equal(SyncOutcome.NothingToDo, a.Sync.SyncNow());
-        Assert.Equal(SyncOutcome.Pushed, a.PlaySession((@"PLAYER#1\macros-cache.txt", "M2")));
-        Assert.Equal("M2", File.ReadAllText(Path.Combine(newRoot, "_retail_", "WTF-Account", "PLAYER#1", "macros-cache.txt")));
-    }
-
-    [Fact]
-    public void When_both_old_and_new_folders_exist_nothing_is_moved()
-    {
-        Directory.CreateDirectory(Path.Combine(_world.MyDrive, "InterfaceSync"));
-        Directory.CreateDirectory(Path.Combine(_world.MyDrive, "WoWSync", "_retail_"));
-        var log = new InterfaceSync.Core.Logging.MemoryLog();
-        var a = _world.Pc("HomePC");
-        CloudFolderMigration.Run(new PhysicalFileSystem(), _world.MyDrive, a.Backups, log);
-        Assert.True(Directory.Exists(Path.Combine(_world.MyDrive, "WoWSync", "_retail_")));
-        Assert.Contains(log.Lines, l => l.Level == InterfaceSync.Core.Logging.LogLevel.Warning && l.Message.Contains("left untouched"));
-    }
-}
-
 public class TrademarkHygieneTests
 {
     private static string RepoRoot()

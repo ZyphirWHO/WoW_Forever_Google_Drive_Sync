@@ -72,7 +72,7 @@ internal static class Dialogs
         var panel = new StackPanel();
         panel.Children.Add(Text($"{version}: settings changed in two places", 15, FontWeight.SemiBold));
         panel.Children.Add(Text(c.Reason));
-        panel.Children.Add(Text($"This Mac: last changed {Format(c.LocalNewestUtc)}\n" +
+        panel.Children.Add(Text($"This Mac{(c.LocalMachine != null ? $" ({c.LocalMachine})" : "")}: last changed {Format(c.LocalNewestUtc)}\n" +
                                 $"Cloud{(c.CloudPushedBy != null ? $" (from {c.CloudPushedBy})" : "")}: last changed {Format(c.CloudNewestUtc)}"));
         panel.Children.Add(Text("The copy you don't keep is saved as a backup."));
         panel.Children.Add(Buttons(

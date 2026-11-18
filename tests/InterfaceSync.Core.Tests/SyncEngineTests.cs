@@ -259,14 +259,14 @@ public sealed class SyncEngineTests : IDisposable
     [Fact]
     public void First_sync_on_a_new_pc_cloud_wins_and_local_is_backed_up()
     {
+        var b = _world.Pc("WorkLaptop");
+        b.WriteSetting(@"PLAYER#1\macros-cache.txt", "laptop's own");      // older than the cloud copy
+        b.WriteSetting(@"PLAYER#1\only-on-laptop.txt", "x");
+        _world.Clock.Advance(FiveMinutes);
+
         var a = _world.Pc("HomePC");
         a.WriteSetting(@"PLAYER#1\macros-cache.txt", "from cloud");
         a.Sync.Tick();
-
-        var b = _world.Pc("WorkLaptop");
-        b.WriteSetting(@"PLAYER#1\macros-cache.txt", "laptop's own");
-        b.WriteSetting(@"PLAYER#1\only-on-laptop.txt", "x");
-        _world.Clock.Advance(FiveMinutes);                       // even when local is newer
 
         Assert.Equal(SyncOutcome.Pulled, b.Sync.Tick());
         Assert.Equal("from cloud", b.ReadSetting(@"PLAYER#1\macros-cache.txt"));
@@ -301,13 +301,13 @@ public sealed class SyncEngineTests : IDisposable
     [Fact]
     public void Legacy_cloud_folder_with_files_but_no_commit_file_is_pulled_on_first_sync_not_pushed_over()
     {
-        // v1.1 data: files in WTF-Account, no WTF-Account.interfacesync.json.
+        // v1.1 data: files in WTF-Account, no commit file; newer than this PC's own settings.
+        var laptop = _world.Pc("WorkLaptop");
+        laptop.WriteSetting(@"PLAYER#1\macros-cache.txt", "laptop macros (older)");
+        laptop.WriteSetting(@"PLAYER#1\only-local.txt", "x");
+        _world.Clock.Advance(FiveMinutes);
         WriteLegacyCloud(@"PLAYER#1\macros-cache.txt", "v1.1 macros");
         WriteLegacyCloud(@"PLAYER#1\SavedVariables\Addon.lua", "v1.1 addon settings");
-        _world.Clock.Advance(FiveMinutes);
-        var laptop = _world.Pc("WorkLaptop");
-        laptop.WriteSetting(@"PLAYER#1\macros-cache.txt", "laptop macros (newer)");
-        laptop.WriteSetting(@"PLAYER#1\only-local.txt", "x");
 
         Assert.Equal(SyncOutcome.Pulled, laptop.Sync.Tick());
 
@@ -320,7 +320,7 @@ public sealed class SyncEngineTests : IDisposable
 
         // This PC's settings were backed up first.
         var backup = Assert.Single(laptop.Backups.List("_retail_"), b => b.Reason == "first-join");
-        Assert.Equal("laptop macros (newer)", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
+        Assert.Equal("laptop macros (older)", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
 
         // A commit file now describes the adopted data, with the same id as the legacy content.
         var commit = CommitFile.TryRead(new InterfaceSync.Core.Platform.PhysicalFileSystem(), _world.CommitFilePath())!;

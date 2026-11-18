@@ -153,7 +153,7 @@ internal sealed class StatusForm : Form
         {
             Caption = ProductInfo.Name,
             Heading = $"{w.Version.FolderName}: settings changed in two places",
-            Text = $"{c.Reason}\n\nThis PC: last changed {Format(c.LocalNewestUtc)}\n" +
+            Text = $"{c.Reason}\n\nThis PC{(c.LocalMachine != null ? $" ({c.LocalMachine})" : "")}: last changed {Format(c.LocalNewestUtc)}\n" +
                    $"Cloud{(c.CloudPushedBy != null ? $" (from {c.CloudPushedBy})" : "")}: last changed {Format(c.CloudNewestUtc)}\n\n" +
                    "The copy you don't keep is saved as a backup." +
                    (c.CloudBackupPath != null ? $"\nCloud copy saved to: {c.CloudBackupPath}" : ""),

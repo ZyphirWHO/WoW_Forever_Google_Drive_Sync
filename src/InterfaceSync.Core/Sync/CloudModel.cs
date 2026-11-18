@@ -21,6 +21,8 @@ public sealed class CloudLayout
         KeepOfflineHint = provider.KeepOfflineHint(OperatingSystem.IsMacOS() ? HostOs.MacOS : HostOs.Windows);
         MyDrive = myDrivePath;
         Provider = provider;
+        VersionName = cloudVersionFolderName;
+        AppRoot = PathUtil.Join(myDrivePath, AppFolderName);
         VersionRoot = PathUtil.Join(myDrivePath, AppFolderName, cloudVersionFolderName);
         Account = PathUtil.Join(VersionRoot, AccountFolderName);
         CommitFile = PathUtil.Join(VersionRoot, CommitFileName);
@@ -30,6 +32,32 @@ public sealed class CloudLayout
     /// <summary>The cloud folder root on this PC (Google Drive's "My Drive", the OneDrive or the Dropbox folder).</summary>
     public string MyDrive { get; }
     public CloudProvider Provider { get; }
+
+    /// <summary>&lt;cloud root&gt;\InterfaceSync: the only folder Interface Sync writes in.</summary>
+    public string AppRoot { get; }
+    public string VersionName { get; }
+
+    /// <summary>
+    /// True only when writes go inside &lt;cloud root&gt;\InterfaceSync\&lt;version&gt;\: a real cloud root, a plain version
+    /// folder name (no separators, "." or ".."), and never the cloud root or the app folder itself. Checked before
+    /// every write to the cloud; a failed check refuses the sync and flags it instead of writing anywhere else.
+    /// </summary>
+    public bool IsSafeWriteTarget(out string reason)
+    {
+        reason = "";
+        bool rooted = MyDrive.StartsWith('/') || MyDrive.StartsWith(@"\\", StringComparison.Ordinal)
+                      || (MyDrive.Length >= 3 && char.IsAsciiLetter(MyDrive[0]) && MyDrive[1] == ':' && MyDrive[2] is '\\' or '/');
+        if (string.IsNullOrWhiteSpace(MyDrive) || !rooted) reason = $"the cloud folder '{MyDrive}' is not a full path";
+        else if (string.IsNullOrWhiteSpace(VersionName) || VersionName.IndexOfAny(['\\', '/']) >= 0 || VersionName.Trim('.').Length == 0
+                 || VersionName.Equals(AppFolderName, StringComparison.OrdinalIgnoreCase))
+            reason = $"'{VersionName}' is not a game version folder name";
+        else if (PathUtil.SamePath(Account, MyDrive) || PathUtil.SamePath(VersionRoot, MyDrive) || PathUtil.SamePath(AppRoot, MyDrive))
+            reason = "it is the cloud folder's root";
+        else if (!PathUtil.IsUnder(Account, VersionRoot) || !PathUtil.IsUnder(VersionRoot, AppRoot) || !PathUtil.IsUnder(AppRoot, MyDrive)
+                 || PathUtil.SamePath(VersionRoot, AppRoot))
+            reason = $"it is not inside {AppRoot}";
+        return reason.Length == 0;
+    }
     public string KeepOfflineHint { get; }
     public string ProviderName => Provider.DisplayName();
     public string VersionRoot { get; }
@@ -121,6 +149,7 @@ public sealed class ConflictInfo
     public DateTime? LocalNewestUtc { get; set; }
     public DateTime? CloudNewestUtc { get; set; }
     public string? CloudPushedBy { get; set; }
+    public string? LocalMachine { get; set; }
     public string? CloudCommitId { get; set; }
     public string? CloudBackupPath { get; set; }
 
