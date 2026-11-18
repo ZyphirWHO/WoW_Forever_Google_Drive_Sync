@@ -192,7 +192,8 @@ public sealed class DriveDetector
         if (_fs.FileExists(wal) && _fs.GetFileInfo(wal).Size > 0)
             attempts.Add("Drive database has recent changes in its -wal file that may not be included yet");
 
-        var paths = new List<string>();
+        // Preferred: the roots table's "My Drive" rows (is_my_drive = 1), the current Drive account's first.
+        var paths = MyDriveRoots(tables, attempts);
         foreach (var t in tables)
         {
             var pathColumns = t.Columns.Select((c, i) => (c, i))
@@ -233,6 +234,62 @@ public sealed class DriveDetector
         (p.Length >= 3 && char.IsAsciiLetter(p[0]) && p[1] == ':' && (p[2] == '\\' || p[2] == '/'))
         || p.StartsWith(@"\\", StringComparison.Ordinal)
         || (!OperatingSystem.IsWindows() && p.StartsWith('/'));
+
+    /// <summary>
+    /// Rows flagged is_my_drive = 1, ordered so the account in CurrentAccountToken comes first.
+    /// The token is read from DriveFS's registry key or a key/value row in the database; it is never logged.
+    /// </summary>
+    private List<string> MyDriveRoots(IReadOnlyList<SqliteReader.Table> tables, List<string> attempts)
+    {
+        var current = _registry.GetString(RegistryHive.CurrentUser, DriveFsUserKey, "CurrentAccountToken")
+                      ?? CurrentAccountTokenFromTables(tables);
+        var result = new List<(bool currentAccount, string path)>();
+        foreach (var t in tables)
+        {
+            int flag = IndexOf(t.Columns, "is_my_drive");
+            if (flag < 0) continue;
+            int token = IndexOf(t.Columns, "account_token");
+            var pathColumns = t.Columns.Select((c, i) => (c, i))
+                .Where(x => x.c.Contains("path", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.c.Contains("absolute", StringComparison.OrdinalIgnoreCase) ? 0 : 1) // last_seen_absolute_path first
+                .Select(x => x.i).ToList();
+            foreach (var row in t.Rows)
+            {
+                if (flag >= row.Length || row[flag] is not long and not double || Convert.ToInt64(row[flag]) != 1) continue;
+                bool isCurrent = current != null && token >= 0 && token < row.Length && row[token] as string == current;
+                foreach (var i in pathColumns)
+                    if (i < row.Length && row[i] is string s && !string.IsNullOrWhiteSpace(s))
+                        result.Add((isCurrent, CleanPath(s)));
+            }
+        }
+        if (result.Count == 0) return [];
+        var ordered = result.OrderByDescending(r => r.currentAccount).Select(r => r.path).ToList();
+        attempts.Add(current == null
+            ? $"Drive database: My Drive root(s) from is_my_drive: {string.Join(", ", ordered.Distinct(StringComparer.OrdinalIgnoreCase))} (current account not recorded)"
+            : $"Drive database: My Drive root(s) from is_my_drive: {string.Join(", ", ordered.Distinct(StringComparer.OrdinalIgnoreCase))}" +
+              (result.Any(r => r.currentAccount) ? " (current account's first)" : " (none matched the current account)"));
+        return ordered;
+    }
+
+    private static string? CurrentAccountTokenFromTables(IReadOnlyList<SqliteReader.Table> tables)
+    {
+        foreach (var t in tables)
+        {
+            if (t.Columns.Count < 2) continue;
+            foreach (var row in t.Rows)
+                for (int i = 0; i + 1 < row.Length; i++)
+                    if (row[i] is string k && k.Equals("CurrentAccountToken", StringComparison.OrdinalIgnoreCase) && row[i + 1] is string v)
+                        return v;
+        }
+        return null;
+    }
+
+    private static int IndexOf(IReadOnlyList<string> columns, string name)
+    {
+        for (int i = 0; i < columns.Count; i++)
+            if (columns[i].Equals(name, StringComparison.OrdinalIgnoreCase)) return i;
+        return -1;
+    }
 
     private static string CleanPath(string s)
     {

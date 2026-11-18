@@ -100,6 +100,30 @@ public class DriveDatabaseDetectionTests
     }
 
     [Fact]
+    public void The_current_accounts_my_drive_row_wins_over_other_accounts_and_other_roots()
+    {
+        // Two accounts each with a My Drive root; CurrentAccountToken names the second one.
+        var fs = new InMemoryFileSystem().Bytes(Db, Fixture("drivefs-roots-two-accounts.db"))
+            .Dir(@"D:\Old Account\My Drive").Dir(@"C:\Users\Player\My Drive").Dir(@"C:\Users\Player\Desktop");
+
+        var result = new DriveDetector(fs, new FakeRegistry(), new FakeEnvironment()).Detect(null);
+
+        Assert.Equal(@"C:\Users\Player\My Drive", result.MyDrivePath);
+        Assert.Contains(result.Attempts, a => a.Contains("from is_my_drive") && a.Contains("(current account's first)"));
+        Assert.DoesNotContain(result.Attempts, a => a.Contains("tokenA"));          // tokens are never logged
+    }
+
+    [Fact]
+    public void Current_account_token_can_also_come_from_the_registry()
+    {
+        var reg = new FakeRegistry().Set(RegistryHive.CurrentUser, DriveDetector.DriveFsUserKey, "CurrentAccountToken", "tokenOld");
+        var fs = new InMemoryFileSystem().Bytes(Db, Fixture("drivefs-roots-two-accounts.db"))
+            .Dir(@"D:\Old Account\My Drive").Dir(@"C:\Users\Player\My Drive");
+        var result = new DriveDetector(fs, reg, new FakeEnvironment()).Detect(null);
+        Assert.Equal(@"D:\Old Account\My Drive", result.MyDrivePath);
+    }
+
+    [Fact]
     public void Missing_database_is_reported_and_probing_still_finds_the_folder()
     {
         var fs = new InMemoryFileSystem().Dir(@"C:\Users\Player\My Drive");
