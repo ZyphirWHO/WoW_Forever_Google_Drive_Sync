@@ -17,7 +17,8 @@ public sealed record BattleNetProduct(
 /// <summary>
 /// Reads Battle.net's install database (C:\ProgramData\Battle.net\Agent\product.db), a protobuf file.
 ///
-/// Field numbers follow the community ProductDb.proto schema:
+/// Field numbers follow the community ProductDb.proto schema, verified against a real product.db
+/// (Battle.net 2.53, Nov 2026):
 /// <code>
 ///   Database        { repeated ProductInstall product_installs = 1; ... }
 ///   ProductInstall  { string uid = 1; string product_code = 2; UserSettings settings = 3; CachedProductState cached_product_state = 4; ... }

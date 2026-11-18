@@ -36,9 +36,9 @@ public class WowDetectionTests
         Assert.Equal(DetectionSource.BattleNetProductDb, result.Source);
         var install = Assert.Single(result.Installs);
         Assert.Equal(Root, install.Root);
-        Assert.Equal(["wowf", "wow_classic_beta"], install.Products.Select(p => p.Uid));
+        Assert.Equal(["wow_classic_beta", "wowf"], install.Products.Select(p => p.Uid));
+        Assert.Contains(result.Attempts, a => a.Contains("'agent' skipped"));
         Assert.Contains(result.Attempts, a => a.Contains("'battle.net' skipped"));
-        Assert.Contains(result.Attempts, a => a.Contains("'bdko' skipped"));
 
         var versions = detector.ScanVersions(result);
         var forever = versions.Single(v => v.FolderName == "_forever_");
@@ -52,16 +52,19 @@ public class WowDetectionTests
     }
 
     [Fact]
-    public void Parses_the_laptop_fixture_exactly()
+    public void Parses_the_real_laptop_product_db_exactly()
     {
         var products = ProductDb.Parse(ProductDbFixtures.Laptop());
 
-        Assert.Equal(["battle.net", "wowf", "bdko", "wow_classic_beta"], products.Select(p => p.Uid));
-        var wowf = products.Single(p => p.Uid == "wowf");
-        Assert.Equal(@"C:\Program Files (x86)\World of Warcraft", wowf.InstallPath);
-        Assert.Equal("_forever_", wowf.GameFolder);
-        Assert.Equal("1.60.1.70959", wowf.Version);
-        Assert.Equal("_classic_beta_", products.Single(p => p.Uid == "wow_classic_beta").GameFolder);
+        // bdko lives in a different top-level section (field 8) and is never read as an install.
+        Assert.Equal(
+            [
+                new BattleNetProduct("agent", "agent", @"C:\ProgramData\Battle.net\Agent", null, "2.42.1.9886"),
+                new BattleNetProduct("battle.net", "bna", @"C:\Program Files (x86)\Battle.net", null, "2.53.8.17986"),
+                new BattleNetProduct("wow_classic_beta", "wow_classic_beta", @"C:\Program Files (x86)\World of Warcraft", "_classic_beta_", "1.60.1.70532"),
+                new BattleNetProduct("wowf", "wowf", @"C:\Program Files (x86)\World of Warcraft", "_forever_", "1.60.1.70959"),
+            ],
+            products);
     }
 
     [Fact]

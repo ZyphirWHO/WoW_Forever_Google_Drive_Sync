@@ -3,17 +3,14 @@ using System.Text;
 namespace WoWSync.Core.Tests.Fakes;
 
 /// <summary>
-/// Builds product.db bytes (protobuf) using the community ProductDb.proto field numbers.
-/// Laptop() reproduces the products verified on the real laptop.
-/// Replace with a byte-level copy of a real product.db when available.
+/// product.db fixtures. Laptop() is the real file from the laptop, byte for byte, except the
+/// account/geo country strings, replaced with same-length "ZZZ"/"ZZ". The builders below make
+/// synthetic files with the same (verified) field numbers for other scenarios.
 /// </summary>
 public static class ProductDbFixtures
 {
-    public static byte[] Laptop() => Database(
-        Product("battle.net", "C:/Program Files (x86)/Battle.net", null, "2.40.0.16000"),
-        Product("wowf", "C:/Program Files (x86)/World of Warcraft", "_forever_", "1.60.1.70959"),
-        Product("bdko", "C:/Program Files (x86)/Battle.net/bdko", null, null),
-        Product("wow_classic_beta", "C:/Program Files (x86)/World of Warcraft", "_classic_beta_", "1.60.1.70532"));
+    public static byte[] Laptop() =>
+        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "laptop-product.db"));
 
     public static byte[] Database(params byte[][] products)
     {
