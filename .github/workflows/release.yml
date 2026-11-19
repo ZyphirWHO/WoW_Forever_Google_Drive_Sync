@@ -103,6 +103,7 @@ jobs:
           New-Item -ItemType Directory $stage -Force | Out-Null
           Copy-Item "publish/$id.exe", README.md, LICENSE "$stage/"
           Copy-Item docs/ANTIVIRUS.md "$stage/ANTIVIRUS.md"
+          Copy-Item packaging/guides/windows.html "$stage/How to open $name.html"
           Copy-Item "publish/$id.exe" "out/$id.exe"
           Compress-Archive -Path "$stage/*" -DestinationPath "out/$id-$v.zip"
           $exeHash = (Get-FileHash "out/$id.exe" -Algorithm SHA256).Hash
@@ -118,7 +119,7 @@ jobs:
           | $id-$v.zip | ``$zipHash`` |
 
           Check the file before running it: in PowerShell, ``Get-FileHash .\$id.exe`` must show the SHA-256 above.
-          If Windows or your antivirus warns about it, see ANTIVIRUS.md in the zip.
+          If Windows or your browser warns about it, open "How to open $name.html" in the zip; for antivirus warnings see ANTIVIRUS.md.
 
           World of Warcraft and Warcraft are trademarks or registered trademarks of Blizzard Entertainment, Inc., in the U.S. and/or other countries. $name is not affiliated with or endorsed by Blizzard Entertainment.
           "@ -replace '(?m)^          ', '' | Set-Content out/release-notes.md -Encoding utf8

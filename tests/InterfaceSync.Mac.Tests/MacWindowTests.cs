@@ -92,6 +92,29 @@ public sealed class MacWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void Setup_offers_the_choice_when_the_cloud_already_has_settings_and_uses_it()
+    {
+        var (service, myDrive) = MakeService(setupComplete: false);
+        var cloud = Path.Combine(myDrive, "InterfaceSync", "_retail_", "WTF-Account", "PLAYER#1");
+        Directory.CreateDirectory(cloud);
+        File.WriteAllText(Path.Combine(cloud, "macros-cache.txt"), "from the PC");
+        File.SetLastWriteTimeUtc(Path.Combine(cloud, "macros-cache.txt"), DateTime.UtcNow.AddDays(-1));   // older than this Mac's
+        service.Reload();
+        var window = new SetupWindow(new Host(service));
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(["_retail_"], window.ChoiceVersions);
+        Assert.Contains("Quit the game on one computer", SetupWindow.HowItWorks);
+        window.ClickStart();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.IsFinished);
+        Assert.Equal("mac settings", File.ReadAllText(Path.Combine(cloud, "macros-cache.txt")));    // newer one preselected: this Mac's
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void Status_window_lists_each_version()
     {
         var (service, _) = MakeService(setupComplete: true);

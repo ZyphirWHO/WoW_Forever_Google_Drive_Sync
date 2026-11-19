@@ -13,10 +13,13 @@ OneDrive or Dropbox account.
    **Actions → build → macos**):
    - `InterfaceSync-…-macos-arm64.zip` for Apple silicon (M1 and later),
    - `InterfaceSync-…-macos-x64.zip` for Intel Macs.
-2. Unzip it and move **Interface Sync.app** to your **Applications** folder (not into a cloud folder).
+2. Unzip it. The folder holds **Interface Sync.app** and **How to open Interface Sync.html**, an illustrated
+   copy of the steps below. Move the app to your **Applications** folder (not into a cloud folder).
 3. Open it. The first time, macOS will stop it (see below). After that, a window shows what was found:
    your World of Warcraft folder, the game versions, and your cloud folder. Check them and click
-   **Start syncing**, then **Finish**.
+   **Start syncing**, then **Finish**. If your cloud folder already has settings from another computer, the
+   window asks for each game version whether to use the cloud's settings or this Mac's (the newer is
+   preselected; the other copy is backed up).
 4. Interface Sync then runs in the menu bar, at the top right of the screen.
 
 ## "Interface Sync can't be opened" / "Apple could not verify…"
@@ -28,6 +31,11 @@ blocks it the first time:
 2. Open **System Settings → Privacy & Security**, scroll down to the message about Interface Sync, and click
    **Open Anyway**. Confirm with your password or Touch ID.
 3. Open Interface Sync again. macOS remembers your choice for this version.
+
+On macOS 14 or older: Control-click the app in Applications, choose **Open**, then **Open** again.
+
+When it first reads your cloud folder, macOS asks whether Interface Sync may access files in Google Drive,
+OneDrive or Dropbox: click **Allow**. (Changed later in System Settings → Privacy & Security → Files and Folders.)
 
 Check the file first: the release notes list the SHA-256 of each zip; in Terminal, `shasum -a 256` followed by
 the zip's path must show the same value.

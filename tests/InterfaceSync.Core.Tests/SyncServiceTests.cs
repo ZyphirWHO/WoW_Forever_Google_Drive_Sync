@@ -285,6 +285,29 @@ public sealed class SyncServiceTests : IDisposable
     }
 
     [Fact]
+    public void Setup_choice_is_applied_once_and_then_forgotten()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var cloud = Path.Combine(MirrorDrive, "InterfaceSync", "_forever_", "WTF-Account", "PLAYER#1");
+        Directory.CreateDirectory(cloud);
+        File.WriteAllText(Path.Combine(cloud, "macros-cache.txt"), "already in the cloud");
+        File.SetLastWriteTimeUtc(Path.Combine(cloud, "macros-cache.txt"), _clock.UtcNow.AddDays(1));   // cloud newer
+        var s = Service(c =>
+        {
+            c.EnabledVersions["_retail_"] = false;
+            c.FirstSyncChoices["_forever_"] = FirstSyncChoice.UseThisComputer;
+        });
+        s.Start();
+        var preview = Assert.Single(s.PreviewFirstSync(), p => p.Version == "_forever_");
+        Assert.True(preview.NeedsChoice);
+
+        s.Poll();
+
+        Assert.Equal("_forever_", File.ReadAllText(Path.Combine(cloud, "macros-cache.txt")));            // this PC's uploaded
+        Assert.False(new SettingsStore(_fs, s.Paths.Data).Load().FirstSyncChoices.ContainsKey("_forever_"));
+    }
+
+    [Fact]
     public void Diagnostics_include_paths_versions_and_log_lines()
     {
         Directory.CreateDirectory(MirrorDrive);

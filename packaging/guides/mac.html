@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Open Interface Sync on a Mac</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--muted:#555;--box:#f2f4f7;--accent:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--fg:#f2f2f7;--muted:#aaa;--box:#2c2c2e;--accent:#60a5fa}}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:28px 0 8px}
+p.lead{color:var(--muted);margin-top:0}
+ol li{margin:6px 0}.box{background:var(--box);border-radius:10px;padding:12px 16px;margin:12px 0}
+b.ui{color:var(--accent)}code{background:var(--box);padding:1px 5px;border-radius:4px}
+</style></head><body>
+<h1>Opening Interface Sync on a Mac</h1>
+<p class="lead">Interface Sync isn't from the App Store and isn't notarised by Apple yet, so the first time you open it macOS blocks it. You only have to do this once.</p>
+
+<h2>1. Put the app in Applications</h2>
+<ol><li>Drag <b>Interface Sync.app</b> into your <b>Applications</b> folder.</li>
+<li>Double-click it there.</li></ol>
+
+<h2>2. macOS says it "can't be opened" &mdash; allow it (macOS 15 Sequoia and newer)</h2>
+<ol>
+<li>In the warning, click <b class="ui">Done</b> (not "Move to Trash").</li>
+<li>Open <b class="ui">System Settings</b> (Apple menu &rarr; System Settings).</li>
+<li>Click <b class="ui">Privacy &amp; Security</b> in the sidebar.</li>
+<li>Scroll down to the <b>Security</b> section. You'll see <i>"Interface Sync" was blocked to protect your Mac.</i></li>
+<li>Click <b class="ui">Open Anyway</b>, then enter your Mac password (or use Touch ID).</li>
+<li>In the next box, click <b class="ui">Open Anyway</b> again.</li>
+</ol>
+<div class="box">The <b>Open Anyway</b> button only appears for about an hour after the blocked attempt. If it's gone, double-click the app again, then go back to Privacy &amp; Security.</div>
+
+<h2>On macOS 14 Sonoma or older</h2>
+<ol><li>In Finder, <b>Control-click</b> (or right-click) Interface Sync in Applications and choose <b class="ui">Open</b>.</li>
+<li>Click <b class="ui">Open</b> in the box that appears.</li></ol>
+
+<h2>3. Allow access to your cloud folder</h2>
+<p>The first time Interface Sync reads your Google Drive, OneDrive or Dropbox folder, macOS asks whether it may access files in that app. Click <b class="ui">Allow</b>. If you clicked "Don't Allow" by mistake: System Settings &rarr; Privacy &amp; Security &rarr; <b>Files and Folders</b> &rarr; Interface Sync, and turn the folder back on.</p>
+
+<h2>4. First setup</h2>
+<p>A setup window explains how syncing works. If your cloud folder already has settings from another computer, it asks, for each game version, whether to <b>use the settings already in the cloud</b> or <b>use this Mac's settings</b>. The newer one is picked for you; the other copy is backed up either way. Click <b>Start syncing</b>.</p>
+<p>After that, Interface Sync lives in the menu bar (top right). To start it with your Mac: System Settings &rarr; General &rarr; <b>Login Items</b> &rarr; add Interface Sync.</p>
+
+<h2>Is this safe?</h2>
+<p>The app is built in public by GitHub Actions from the project's source code. It reads and writes only your World of Warcraft <code>WTF/Account</code> folder and its own folder in your cloud drive. It never touches the game itself, your addons or <code>Config.wtf</code>.</p>
+<p style="color:var(--muted);font-size:13px;margin-top:32px">World of Warcraft and Warcraft are trademarks or registered trademarks of Blizzard Entertainment, Inc., in the U.S. and/or other countries. Interface Sync is not affiliated with or endorsed by Blizzard Entertainment.</p>
+</body></html>

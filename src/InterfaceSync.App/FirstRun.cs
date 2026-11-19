@@ -2,6 +2,7 @@ using InterfaceSync.Core;
 using InterfaceSync.Core.Abstractions;
 using InterfaceSync.Core.Detection;
 using InterfaceSync.Core.Service;
+using InterfaceSync.Core.Settings;
 using InterfaceSync.Core.Sync;
 
 namespace InterfaceSync.App;
@@ -24,6 +25,13 @@ internal sealed class FirstRun : Form
     private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
     private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0), ForeColor = Color.FromArgb(140, 70, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
+    private readonly FlowLayoutPanel _choicesPanel = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 8) };
+    private readonly List<(string version, RadioButton useCloud, RadioButton useMine)> _choices = [];
+
+    internal static readonly string HowItWorks =
+        "• When you quit the game, this PC's interface settings (keybindings, macros, addon settings) are copied to your cloud folder.\n" +
+        "• When you start up another computer, it copies in the newer settings before you play.\n" +
+        "• Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs.";
     private readonly TableLayoutPanel _setupGrid = new() { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill };
 
     // First-sync progress page
@@ -55,8 +63,12 @@ internal sealed class FirstRun : Form
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 420));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        grid.Controls.Add(new Label { Text = $"{ProductInfo.Name} found these on this PC. Check them, then start syncing.", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) }, 0, 0);
-        grid.SetColumnSpan(grid.GetControlFromPosition(0, 0)!, 3);
+        var top = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        top.Controls.Add(new Label { Text = $"Welcome to {ProductInfo.Name}", AutoSize = true, Font = new Font(Font.FontFamily, Font.Size + 3, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) });
+        top.Controls.Add(new Label { Text = HowItWorks, AutoSize = true, MaximumSize = new Size(600, 0), Margin = new Padding(0, 0, 0, 10) });
+        top.Controls.Add(new Label { Text = "It found these on this PC. Check them, then start syncing.", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) });
+        grid.Controls.Add(top, 0, 0);
+        grid.SetColumnSpan(top, 3);
 
         AddRow(grid, 1, "World of Warcraft:", _wowPath, ChangeButton(ChooseWow));
         grid.Controls.Add(new Label { Text = "Sync these game versions:", AutoSize = true, Margin = new Padding(0, 8, 8, 0) }, 0, 2);
@@ -68,8 +80,11 @@ internal sealed class FirstRun : Form
         AddRow(grid, 3, "Cloud folder:", cloudCell, ChangeButton(ChooseDrive));
         _provider.SelectedIndexChanged += (_, _) => { if (!_filling) ProviderChanged(); };
         AddRow(grid, 4, "Settings are kept in:", _cloudPath, null);
-        grid.Controls.Add(_notes, 0, 5);
-        grid.SetColumnSpan(_notes, 3);
+        var lower = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        lower.Controls.Add(_choicesPanel);
+        lower.Controls.Add(_notes);
+        grid.Controls.Add(lower, 0, 5);
+        grid.SetColumnSpan(lower, 3);
 
         var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
         _start.Click += (_, _) => StartSyncing();
@@ -146,9 +161,38 @@ internal sealed class FirstRun : Form
             notes.Add($"{drive.Provider.DisplayName()} can keep files online-only. {drive.Provider.KeepOfflineHint()}");
         if (LegacyV11.FindRunEntries(_registry) is { Count: > 0 } legacy)
             notes.Add($"The previous version (WoWSync 1.1) is still set to start at login ({string.Join(", ", legacy)}). Stop its agent before syncing with {ProductInfo.Name}.");
-        notes.Add($"On this PC's first sync, if {provider.DisplayName()} already has settings for a game version, they replace this PC's. A backup of this PC's settings is kept and can be restored.");
         _notes.Text = string.Join(Environment.NewLine + Environment.NewLine, notes);
+        FillChoices();
         UpdateStartButton();
+    }
+
+    /// <summary>
+    /// For each game version whose cloud copy already has settings: download them, or upload this PC's instead.
+    /// Shows where the cloud copy came from and when each was last changed; the newer one is preselected.
+    /// </summary>
+    private void FillChoices()
+    {
+        _choicesPanel.Controls.Clear();
+        _choices.Clear();
+        var previews = _service.PreviewFirstSync().Where(p => p.NeedsChoice).ToList();
+        if (previews.Count == 0) { _choicesPanel.Visible = false; return; }
+        _choicesPanel.Visible = true;
+        _choicesPanel.Controls.Add(new Label
+        {
+            Text = $"{previews[0].ProviderName} already has settings from another computer. For each game version, choose which to keep:",
+            AutoSize = true, MaximumSize = new Size(600, 0), Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 4),
+        });
+        foreach (var p in previews)
+        {
+            var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(8, 2, 0, 6) };
+            box.Controls.Add(new Label { Text = p.Version, AutoSize = true, Font = new Font(Font, FontStyle.Bold) });
+            var useCloud = new RadioButton { Text = p.CloudOptionText(), AutoSize = true, MaximumSize = new Size(590, 0), Checked = p.Suggested == FirstSyncChoice.UseCloud };
+            var useMine = new RadioButton { Text = p.LocalOptionText(), AutoSize = true, MaximumSize = new Size(590, 0), Checked = p.Suggested == FirstSyncChoice.UseThisComputer };
+            box.Controls.Add(useCloud);
+            box.Controls.Add(useMine);
+            _choicesPanel.Controls.Add(box);
+            _choices.Add((p.Version, useCloud, useMine));
+        }
     }
 
     private void UpdateStartButton() => UpdateStartButton(_versions.CheckedItems.Count);
@@ -161,6 +205,8 @@ internal sealed class FirstRun : Form
     internal int VersionCount => _versions.Items.Count;
     internal int CheckedCount => _versions.CheckedItems.Count;
     internal void SetChecked(int index, bool value) => _versions.SetItemChecked(index, value);
+    internal IReadOnlyList<string> ChoiceVersions => _choices.Select(c => c.version).ToList();
+    internal void ChooseThisComputer(string version) => _choices.First(c => c.version == version).useMine.Checked = true;
 
     private void ChooseWow()
     {
@@ -221,6 +267,9 @@ internal sealed class FirstRun : Form
             var item = (VersionItem)_versions.Items[i];
             settings.EnabledVersions[item.Version.FolderName] = _versions.GetItemChecked(i);
         }
+        foreach (var (version, useCloud, useMine) in _choices)
+            if (settings.EnabledVersions.TryGetValue(version, out var on) && on)
+                settings.FirstSyncChoices[version] = useMine.Checked ? FirstSyncChoice.UseThisComputer : FirstSyncChoice.UseCloud;
         settings.SetupComplete = true;
         settings.CloudProvider ??= _service.EffectiveProvider();
         _service.SaveSettings(settings);
@@ -255,7 +304,12 @@ internal sealed class FirstRun : Form
         CancelButton = null;
         ControlBox = false; // no closing mid-copy
         _progressHeading.Text = "Running the first sync...";
-        _afterword.Text = "";
+        _afterword.Text =
+            $"{ProductInfo.Name} keeps running in the system tray: its icon by the clock (it may be under the ^ arrow).\n\n" +
+            "What to do now: just play. When you quit the game, your settings are copied to the cloud within a minute. " +
+            "On your other computer, open Interface Sync with the game closed and it copies them in. " +
+            "Click the tray icon any time to see what it did, change cloud folder, or open your backups.\n\n" +
+            "Start Interface Sync again after restarting this PC (starting it automatically is coming soon).";
 
         var workers = _service.Workers;
         _results.Items.Clear();

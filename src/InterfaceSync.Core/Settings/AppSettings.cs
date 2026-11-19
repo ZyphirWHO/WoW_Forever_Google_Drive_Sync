@@ -4,6 +4,17 @@ using InterfaceSync.Core.Abstractions;
 
 namespace InterfaceSync.Core.Settings;
 
+/// <summary>What the player chose in setup for a version whose cloud copy already has settings.</summary>
+public enum FirstSyncChoice
+{
+    /// <summary>The safe rules: the cloud's settings win, unless this computer's are newer, then ask.</summary>
+    Automatic,
+    /// <summary>Download the settings already in the cloud (this computer's are backed up first).</summary>
+    UseCloud,
+    /// <summary>Upload this computer's settings, replacing the cloud's (the cloud's are backed up first).</summary>
+    UseThisComputer,
+}
+
 public enum AddonMode { Off /*, CopyWhenClosed — planned for 2.1 */ }
 
 /// <summary>%LOCALAPPDATA%\InterfaceSync\settings.json: user overrides and choices. Detected paths are re-detected every start.</summary>
@@ -22,6 +33,9 @@ public sealed class AppSettings
 
     /// <summary>Game version folder name (e.g. "_retail_") → sync on/off.</summary>
     public Dictionary<string, bool> EnabledVersions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Setup's answer per version for its first sync; removed once that sync is done.</summary>
+    public Dictionary<string, FirstSyncChoice> FirstSyncChoices { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Optional mapping game version folder → cloud folder name, for data written by v1.1.</summary>
     public Dictionary<string, string> CloudFolderNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -67,6 +81,7 @@ public sealed class SettingsStore
             // Dictionaries come back case-sensitive; restore comparer.
             s.EnabledVersions = new(s.EnabledVersions, StringComparer.OrdinalIgnoreCase);
             s.CloudFolderNames = new(s.CloudFolderNames, StringComparer.OrdinalIgnoreCase);
+            s.FirstSyncChoices = new(s.FirstSyncChoices ?? [], StringComparer.OrdinalIgnoreCase);
             return s;
         }
         catch (JsonException)

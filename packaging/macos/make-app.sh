@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds "<ProductDisplayName>.app" for one macOS architecture and zips it.
+# Builds "<ProductDisplayName>.app" for one macOS architecture and zips it with the "How to open" guide.
 #   packaging/macos/make-app.sh osx-arm64 2.0.0 out
 # Names, bundle id and version come from Directory.Build.props; the result is ad-hoc signed
 # (Apple silicon won't run unsigned code) but not notarised.
@@ -37,7 +37,13 @@ plutil -lint "$APP/Contents/Info.plist"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 
+# The zip holds a folder with the app and a guide to getting past Gatekeeper on first open
+# (an app macOS has blocked can't show anything itself).
+PKG="$OUT/pkg-$RID/$NAME"
+rm -rf "$OUT/pkg-$RID"; mkdir -p "$PKG"
+ditto "$APP" "$PKG/$NAME.app"
+cp "$ROOT/packaging/guides/mac.html" "$PKG/How to open $NAME.html"
 ZIP="$OUT/$ID-$VERSION-macos-${RID#osx-}.zip"
-(cd "$OUT/$RID" && ditto -c -k --sequesterRsrc --keepParent "$NAME.app" "../$(basename "$ZIP")")
+(cd "$OUT/pkg-$RID" && ditto -c -k --sequesterRsrc --keepParent "$NAME" "$ZIP")
 echo "Built $ZIP"
 shasum -a 256 "$ZIP"

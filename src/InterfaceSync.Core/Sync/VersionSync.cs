@@ -98,6 +98,25 @@ public sealed class VersionSync
     public string StatusText { get; private set; } = "";
     public bool Paused { get; set; }
 
+    /// <summary>The player's setup choice for this version's first sync (only used while not yet joined).</summary>
+    public Settings.FirstSyncChoice FirstSyncChoice { get; set; }
+
+    /// <summary>What the first sync would find, for the setup window. Reads only; never writes anything.</summary>
+    public FirstSyncPreview Preview()
+    {
+        lock (_gate)
+        {
+            var cloud = ReadCloud();
+            var local = FolderScanner.Scan(_fs, LocalAccount).Manifest;
+            bool cloudHasData = cloud.Readiness is CloudReadiness.Ready or CloudReadiness.Incomplete or CloudReadiness.OnlineOnly or CloudReadiness.Writing;
+            return new FirstSyncPreview(
+                Version.FolderName, Cloud.ProviderName, State.Joined, cloudHasData,
+                cloud.Commit?.PushedBy is { Length: > 0 } by ? by : null,
+                cloud.Files?.NewestUtc, local.IsEmpty ? null : local.NewestUtc,
+                cloud.Readiness == CloudReadiness.Stale ? cloud.Problem : null);
+        }
+    }
+
     private string Name => Version.FolderName;
     private string LocalAccount => Version.AccountPath;
 
@@ -264,6 +283,16 @@ public sealed class VersionSync
         var cloud = ReadCloud();
         switch (cloud.Readiness)
         {
+            case CloudReadiness.Ready when FirstSyncChoice == Settings.FirstSyncChoice.UseCloud:
+                LogOnce($"{Name}: first sync on this computer. As chosen in setup, the settings already in {Cloud.ProviderName} replace this computer's (backed up first).");
+                return Pull(cloud, force: true, reason: "first-join");
+
+            case CloudReadiness.Ready when FirstSyncChoice == Settings.FirstSyncChoice.UseThisComputer:
+            {
+                LogOnce($"{Name}: first sync on this computer. As chosen in setup, this computer's settings replace the ones in {Cloud.ProviderName} (backed up first).");
+                return Push(FolderScanner.Scan(_fs, LocalAccount), cloud, force: true);
+            }
+
             case CloudReadiness.Ready:
             {
                 // A copy with newer settings than the cloud's may mean this PC's cloud folder is out of date, or that

@@ -37,11 +37,19 @@ jobs:
         shell: pwsh
         run: ./.github/check-product-name.ps1 publish
 
+      # The download holds the exe and the "How to open" guide (SmartScreen / browser warnings).
+      - name: Add the guide
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory artifact | Out-Null
+          Copy-Item publish/* artifact/
+          Copy-Item packaging/guides/windows.html "artifact/How to open Interface Sync.html"
+
       - name: Upload development build
         uses: actions/upload-artifact@v4
         with:
           name: InterfaceSync-dev-${{ github.sha }}
-          path: publish/
+          path: artifact/
           retention-days: 14
 
   # macOS: Core and Mac app tests on a real Mac, then the menu-bar app for Apple silicon and Intel.

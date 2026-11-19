@@ -179,6 +179,8 @@ public class DriveDatabaseDetectionTests
         var fs = new InMemoryFileSystem().Bytes(Db, Fixture("drivefs-roots.db")).Dir(@"D:\Elsewhere\My Drive");
         var result = new DriveDetector(fs, new FakeRegistry(), new FakeEnvironment(), @"C:\Temp").Detect(null);
         Assert.False(result.Found);
-        Assert.Contains(result.Attempts, a => a.Contains("none of those is, or contains, an existing 'My Drive' folder"));
+        // Drive names its My Drive root, so that is what's reported, not the generic "none of those" line.
+        Assert.Contains(result.Attempts, a => a.Contains("which isn't on this computer"));
+        Assert.DoesNotContain(result.Attempts, a => a.Contains("none of those is, or contains"));
     }
 }

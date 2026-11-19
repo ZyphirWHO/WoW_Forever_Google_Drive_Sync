@@ -325,7 +325,7 @@ public sealed class DriveDetector
         attempts.Add(paths.Count == 0
             ? $"Drive database {source}: no folder paths recorded. Tables: {described}"
             : $"Drive database {source}: folder paths {string.Join(", ", paths)}");
-        if (paths.Count > 0 && !paths.Any(p => MyDriveUnder(PathUtil.ExpandUserVars(p, _env.UserProfile, _env.LocalAppData)) != null))
+        if (paths.Count > 0 && _myDriveRoots.Count == 0 && !paths.Any(p => MyDriveUnder(PathUtil.ExpandUserVars(p, _env.UserProfile, _env.LocalAppData)) != null))
             attempts.Add($"Drive database: none of those is, or contains, an existing '{MyDriveFolderName}' folder");
         return paths.Select(p => PathUtil.ExpandUserVars(p, _env.UserProfile, _env.LocalAppData));
     }

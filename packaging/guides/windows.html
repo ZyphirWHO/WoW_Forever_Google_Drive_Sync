@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Open Interface Sync on Windows</title>
+<style>
+:root{--bg:#fff;--fg:#1b1b1b;--muted:#555;--box:#f2f4f7;--accent:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e1e;--fg:#f0f0f0;--muted:#aaa;--box:#2d2d2d;--accent:#60a5fa}}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 "Segoe UI",system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:28px 0 8px}
+p.lead{color:var(--muted);margin-top:0}
+ol li{margin:6px 0}.box{background:var(--box);border-radius:10px;padding:12px 16px;margin:12px 0}
+b.ui{color:var(--accent)}code{background:var(--box);padding:1px 5px;border-radius:4px}
+</style></head><body>
+<h1>Opening Interface Sync on Windows</h1>
+<p class="lead">Interface Sync isn't code-signed yet, so your browser and Windows may warn about it the first time. You only have to do this once. No administrator rights are needed.</p>
+
+<h2>1. The browser says it's "not commonly downloaded"</h2>
+<ol><li><b>Edge:</b> click <b class="ui">&hellip;</b> next to the download &rarr; <b class="ui">Keep</b> &rarr; <b class="ui">Show more</b> &rarr; <b class="ui">Keep anyway</b>.</li>
+<li><b>Chrome:</b> in the downloads list, click <b class="ui">Keep</b> (or the arrow &rarr; <b class="ui">Download suspicious file</b>).</li></ol>
+
+<h2>2. "Windows protected your PC"</h2>
+<ol><li>Click <b class="ui">More info</b>.</li>
+<li>Click <b class="ui">Run anyway</b>.</li></ol>
+<div class="box">Put <b>InterfaceSync.exe</b> somewhere it will stay, for example a folder in Documents, before running it. Don't run it from inside the zip.</div>
+
+<h2>3. First setup</h2>
+<p>A setup window explains how syncing works. If your cloud folder already has settings from another computer, it asks, for each game version, whether to <b>use the settings already in the cloud</b> or <b>use this PC's settings</b>. The newer one is picked for you; the other copy is backed up either way. Click <b>Start syncing</b>.</p>
+<p>After that, Interface Sync sits in the system tray (bottom right; click the <b>^</b> arrow if you don't see it). Right-click the icon for the status window, backups and settings.</p>
+
+<h2>Check the file (optional)</h2>
+<p>In PowerShell, run <code>Get-FileHash .\InterfaceSync.exe</code> in the folder you saved it to. The SHA-256 must match the one on the download page.</p>
+
+<h2>Antivirus warnings</h2>
+<p>Unsigned new apps sometimes get flagged by reputation alone. See <b>ANTIVIRUS.md</b> on the project page for how to check the file and report a false positive.</p>
+
+<h2>Is this safe?</h2>
+<p>The app is built in public by GitHub Actions from the project's source code. It reads and writes only your World of Warcraft <code>WTF\Account</code> folder and its own folder in your cloud drive. It never touches the game itself, your addons or <code>Config.wtf</code>.</p>
+<p style="color:var(--muted);font-size:13px;margin-top:32px">World of Warcraft and Warcraft are trademarks or registered trademarks of Blizzard Entertainment, Inc., in the U.S. and/or other countries. Interface Sync is not affiliated with or endorsed by Blizzard Entertainment.</p>
+</body></html>

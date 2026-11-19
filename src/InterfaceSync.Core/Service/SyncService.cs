@@ -146,6 +146,7 @@ public sealed class SyncService
                 w.Tick();
                 NotifyFor(w);
             }
+            ApplyFirstSyncChoices();
         }
         CheckLog();
         UpdateOverall();
@@ -174,6 +175,7 @@ public sealed class SyncService
         {
             outcome = worker.SyncNow();
             NotifyFor(worker);
+            ApplyFirstSyncChoices();
         }
         UpdateOverall();
         return outcome;
@@ -209,6 +211,43 @@ public sealed class SyncService
         lock (_gate) outcome = worker.RestoreBackup(backup);
         UpdateOverall();
         return outcome;
+    }
+
+    // ------------------------------------------------------------------ setup: first-sync choices
+
+    /// <summary>
+    /// What each switched-on version's first sync would find (reads only), so setup can show the player a
+    /// choice where the cloud already has settings. Versions not switched on are previewed too, as if they were.
+    /// </summary>
+    public IReadOnlyList<FirstSyncPreview> PreviewFirstSync()
+    {
+        lock (_gate)
+        {
+            if (Drive?.MyDrivePath is not { } myDrive) return [];
+            var result = new List<FirstSyncPreview>();
+            foreach (var v in Versions.Where(v => v.CanEnable))
+            {
+                var worker = _workers.FirstOrDefault(w => PathUtil.SamePath(w.Version.FolderPath, v.FolderPath))
+                             ?? new VersionSync(v, new CloudLayout(myDrive, CloudLayout.ResolveFolderName(_fs, myDrive, v.FolderName, Settings, out _, out _), Drive.Provider),
+                                 _fs, _clock, _backups, _states, _log, _machineName, () => Watcher.IsRunning(v), _timing);
+                result.Add(worker.Preview());
+            }
+            return result;
+        }
+    }
+
+    private void ApplyFirstSyncChoices()
+    {
+        bool changed = false;
+        foreach (var w in _workers)
+        {
+            if (Settings.FirstSyncChoices.TryGetValue(w.Version.FolderName, out var choice))
+            {
+                if (w.State.Joined) { Settings.FirstSyncChoices.Remove(w.Version.FolderName); changed = true; } // done
+                else w.FirstSyncChoice = choice;
+            }
+        }
+        if (changed) TrySaveSettings();
     }
 
     // ------------------------------------------------------------------ changing cloud app
@@ -393,7 +432,7 @@ public sealed class SyncService
                 ? $"World of Warcraft: {string.Join("; ", Wow.Installs.Select(i => i.Root))} (from {Wow.Source}). Versions: {DescribeVersions()}"
                 : "World of Warcraft was not found. Choose its folder in the status window.");
             _log.Info(Drive.Found
-                ? $"{ProviderName}: {Drive.MyDrivePath} ({Drive.Mode}, from {Drive.Source})."
+                ? $"{ProviderName}: {Drive.MyDrivePath} ({DescribeDrive()})."
                 : $"{ProviderName} was not found. Is the {ProviderName} app running and signed in?");
             if (oldDrive != null && Drive.MyDrivePath != null && !PathUtil.SamePath(oldDrive, Drive.MyDrivePath))
                 _log.Warn($"The cloud folder moved from {oldDrive} to {Drive.MyDrivePath}. Following it.");
@@ -436,6 +475,25 @@ public sealed class SyncService
         CloudProviders.All.ToDictionary(p => p,
             p => CloudDetector.Detect(p, _fs, _registry, _env, Paths.Temp, p == EffectiveProvider() ? Settings.DriveOverride : null));
 
+    /// <summary>"files streamed, from Google Drive's own settings" — plain words instead of enum names.</summary>
+    private string DescribeDrive()
+    {
+        var mode = Drive?.Mode switch
+        {
+            DriveMode.Streaming => "files streamed on demand",
+            DriveMode.Mirror => "files mirrored",
+            _ => null,
+        };
+        var source = Drive?.Source switch
+        {
+            DetectionSource.UserOverride => "the folder you chose",
+            DetectionSource.DriveFsSettings => $"{ProviderName}'s own settings",
+            DetectionSource.Probe or DetectionSource.CommonLocation => "the usual location",
+            var other => other?.ToString() ?? "unknown",
+        };
+        return mode == null ? $"from {source}" : $"{mode}, from {source}";
+    }
+
     private string DescribeVersions() => Versions.Count == 0
         ? "none"
         : string.Join(", ", Versions.Select(v =>
@@ -469,6 +527,7 @@ public sealed class SyncService
             }
         }
         _workers = workers;
+        ApplyFirstSyncChoices();
     }
 
     // ------------------------------------------------------------------ status and notices
@@ -575,7 +634,7 @@ public sealed class SyncService
         sb.AppendLine($"World of Warcraft ({Wow?.Source}):");
         foreach (var i in Wow?.Installs ?? []) sb.AppendLine($"  {i.Root} [{string.Join(", ", i.Products.Select(p => $"{p.Uid}:{p.GameFolder}:{p.Version}"))}]");
         foreach (var a in Wow?.Attempts ?? []) sb.AppendLine($"  - {a}");
-        sb.AppendLine($"{ProviderName} ({Drive?.Source}, {Drive?.Mode}): {Drive?.MyDrivePath ?? "not found"}");
+        sb.AppendLine($"{ProviderName} ({(Drive == null ? "not checked" : DescribeDrive())}): {Drive?.MyDrivePath ?? "not found"}");
         foreach (var a in Drive?.Attempts ?? []) sb.AppendLine($"  - {a}");
         sb.AppendLine();
         sb.AppendLine("Game versions:");

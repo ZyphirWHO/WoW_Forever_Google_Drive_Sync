@@ -183,6 +183,33 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
+    public void First_run_explains_how_it_works_and_offers_the_choice_when_the_cloud_already_has_settings()
+    {
+        // Another computer already uploaded _forever_ settings, newer than this PC's.
+        var cloud = Path.Combine(_root, "Users", "Player", "My Drive", "InterfaceSync", "_forever_", "WTF-Account");
+        Directory.CreateDirectory(cloud);
+        File.WriteAllText(Path.Combine(cloud, "macros-cache.txt"), "from the other computer");
+        File.SetLastWriteTimeUtc(Path.Combine(cloud, "macros-cache.txt"), DateTime.UtcNow.AddDays(1));
+        var service = Service(setupComplete: false, ("_forever_", true));
+        OnSta(() =>
+        {
+            using var form = new FirstRun(service, new FakeRegistry());
+            form.Show();
+            Application.DoEvents();
+            Assert.Contains("Quit the game on one computer before playing on another", FirstRun.HowItWorks);
+            Assert.Equal(["_forever_"], form.ChoiceVersions);
+
+            form.ChooseThisComputer("_forever_");
+            form.ClickStart();
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (!form.IsFinished && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+            Assert.True(form.IsFinished);
+            form.Close();
+        });
+        Assert.Equal("_forever_", File.ReadAllText(Path.Combine(cloud, "macros-cache.txt")));   // this PC's uploaded, as chosen
+    }
+
+    [Fact]
     public void First_run_window_opens_when_nothing_is_found()
     {
         var service = Service(setupComplete: false);

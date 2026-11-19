@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using InterfaceSync.Core;
 using InterfaceSync.Core.Detection;
 using InterfaceSync.Core.Service;
+using InterfaceSync.Core.Settings;
 using InterfaceSync.Core.Sync;
 
 namespace InterfaceSync.Mac;
@@ -34,6 +35,13 @@ internal sealed class SetupWindow : Window
     private readonly TextBlock _afterword = Dialogs.Text("");
     private readonly Button _finish;
     private bool _filling;
+    private readonly StackPanel _choicesPanel = new() { Margin = new Thickness(0, 4, 0, 8) };
+    private readonly List<(string version, RadioButton useCloud, RadioButton useMine)> _choicesMade = [];
+
+    internal static readonly string HowItWorks =
+        "• When you quit the game, this Mac's interface settings (keybindings, macros, addon settings) are copied to your cloud folder.\n" +
+        "• When you open another computer, it copies in the newer settings before you play.\n" +
+        "• Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs.";
     private bool _syncing;
 
     public SetupWindow(IMacHost host)
@@ -49,13 +57,16 @@ internal sealed class SetupWindow : Window
         _finish = Dialogs.Button("Finish", () => { Started = true; Close(); }, isDefault: true);
         _finish.IsEnabled = false;
 
-        _setupPage.Children.Add(Dialogs.Text($"{ProductInfo.Name} found these on this Mac. Check them, then start syncing.", 15, FontWeight.SemiBold));
+        _setupPage.Children.Add(Dialogs.Text($"Welcome to {ProductInfo.Name}", 17, FontWeight.SemiBold));
+        _setupPage.Children.Add(Dialogs.Text(HowItWorks, 12));
+        _setupPage.Children.Add(Dialogs.Text("It found these on this Mac. Check them, then start syncing.", 14, FontWeight.SemiBold));
         _setupPage.Children.Add(Row("World of Warcraft:", _wowPath, Dialogs.Button("Change...", () => _ = ChooseWow())));
         _setupPage.Children.Add(Dialogs.Text("Sync these game versions:"));
         _setupPage.Children.Add(_versions);
         _setupPage.Children.Add(Dialogs.Text("Cloud folder:"));
         _setupPage.Children.Add(_provider);
         _setupPage.Children.Add(Row("", _cloudPath, Dialogs.Button("Change...", () => _ = ChooseCloud())));
+        _setupPage.Children.Add(_choicesPanel);
         _setupPage.Children.Add(_notes);
         _setupPage.Children.Add(Dialogs.Buttons(Dialogs.Button("Cancel", Close), _start));
 
@@ -129,9 +140,30 @@ internal sealed class SetupWindow : Window
             notes.Add($"Not shown because they haven't been played on this Mac yet: {string.Join(", ", notLaunched)}.");
         if (drive is { Found: true })
             notes.Add($"{drive.Provider.DisplayName()} can keep files online-only. {drive.Provider.KeepOfflineHint(Core.Abstractions.HostOs.MacOS)}");
-        notes.Add($"On this Mac's first sync, if {provider.DisplayName()} already has settings for a game version, they replace this Mac's. A backup of this Mac's settings is kept.");
         _notes.Text = string.Join("\n\n", notes);
+        FillChoices();
         UpdateStart();
+    }
+
+    /// <summary>Per version whose cloud copy already has settings: download them, or upload this Mac's instead (newer preselected).</summary>
+    private void FillChoices()
+    {
+        _choicesPanel.Children.Clear();
+        _choicesMade.Clear();
+        var previews = Service.PreviewFirstSync().Where(p => p.NeedsChoice).ToList();
+        _choicesPanel.IsVisible = previews.Count > 0;
+        if (previews.Count == 0) return;
+        _choicesPanel.Children.Add(Dialogs.Text($"{previews[0].ProviderName} already has settings from another computer. For each game version, choose which to keep:", 13, FontWeight.SemiBold));
+        foreach (var p in previews)
+        {
+            var group = $"first-sync-{p.Version}";
+            var useCloud = new RadioButton { GroupName = group, Content = new TextBlock { Text = p.CloudOptionText("Mac"), TextWrapping = TextWrapping.Wrap }, IsChecked = p.Suggested == FirstSyncChoice.UseCloud };
+            var useMine = new RadioButton { GroupName = group, Content = new TextBlock { Text = p.LocalOptionText("Mac"), TextWrapping = TextWrapping.Wrap }, IsChecked = p.Suggested == FirstSyncChoice.UseThisComputer };
+            _choicesPanel.Children.Add(Dialogs.Text(p.Version, 12, FontWeight.SemiBold));
+            _choicesPanel.Children.Add(useCloud);
+            _choicesPanel.Children.Add(useMine);
+            _choicesMade.Add((p.Version, useCloud, useMine));
+        }
     }
 
     private void UpdateStart() =>
@@ -176,6 +208,9 @@ internal sealed class SetupWindow : Window
     {
         var settings = Service.Settings;
         foreach (var c in _choices) settings.EnabledVersions[c.Version.FolderName] = c.Box.IsChecked == true;
+        foreach (var (version, _, useMine) in _choicesMade)
+            if (settings.EnabledVersions.TryGetValue(version, out var on) && on)
+                settings.FirstSyncChoices[version] = useMine.IsChecked == true ? FirstSyncChoice.UseThisComputer : FirstSyncChoice.UseCloud;
         settings.SetupComplete = true;
         settings.CloudProvider ??= Service.EffectiveProvider();
         Service.SaveSettings(settings);
@@ -217,8 +252,11 @@ internal sealed class SetupWindow : Window
         _bar.IsVisible = false;
         _progressHeading.Text = versions == 0 ? "Setup complete. No game version is switched on."
             : problems == 0 ? "Setup complete." : "Setup complete, but something needs a look (shown in red).";
-        _afterword.Text = $"{ProductInfo.Name} keeps running in the menu bar (its icon at the top right of the screen). " +
-                          "It syncs on its own whenever you quit the game. Click the icon to see its status at any time.";
+        _afterword.Text = $"{ProductInfo.Name} keeps running in the menu bar: its icon at the top right of the screen.\n\n" +
+                          "What to do now: just play. When you quit the game, your settings are copied to the cloud within a minute. " +
+                          $"On your other computer, open {ProductInfo.Name} with the game closed and it copies them in. " +
+                          "Click the menu-bar icon any time to see what it did or change cloud folder.\n\n" +
+                          $"Open {ProductInfo.Name} again after restarting this Mac (or add it in System Settings → General → Login Items).";
         _finish.IsEnabled = true;
         _finish.Focus();
     }
@@ -232,6 +270,8 @@ internal sealed class SetupWindow : Window
 
     // For the headless UI tests.
     internal bool CanStart => _start.IsEnabled;
+    internal IReadOnlyList<string> ChoiceVersions => _choicesMade.Select(c => c.version).ToList();
+    internal void ChooseThisComputer(string version) => _choicesMade.First(c => c.version == version).useMine.IsChecked = true;
     internal int VersionCount => _choices.Count;
     internal IReadOnlyList<string> ProviderChoices => (_provider.ItemsSource as IEnumerable<string>)?.ToList() ?? [];
     internal void ClickStart() => StartSyncing();
