@@ -5,6 +5,7 @@
 # (Apple silicon won't run unsigned code) but not notarised.
 set -euo pipefail
 RID="$1"; VERSION="$2"; OUT="$3"
+mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 prop() { python3 - "$ROOT/Directory.Build.props" "$1" <<'PY'
 import sys, xml.etree.ElementTree as ET
