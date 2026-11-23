@@ -188,6 +188,33 @@ public sealed class MacWindowTests : IDisposable
         window.Close();
     }
 
+    private sealed class NewerRelease : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancel) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    { "tag_name": "v9.9.9", "html_url": "https://github.com/o/r/releases/tag/v9.9.9", "draft": false, "prerelease": false, "body": "",
+                      "assets": [ { "name": "InterfaceSync-9.9.9-macos-arm64.dmg", "browser_download_url": "https://github.com/o/r/releases/download/v9.9.9/InterfaceSync-9.9.9-macos-arm64.dmg", "size": 1 } ] }
+                    """),
+            });
+    }
+
+    [AvaloniaFact]
+    public void Status_window_offers_an_available_update_and_has_the_theme_switch()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        var updater = new InterfaceSync.Core.Updates.Updater(service, new HttpClient(new NewerRelease()), new FakeClock(DateTime.UtcNow), "3.0.0");
+        updater.CheckAsync().GetAwaiter().GetResult();
+        var window = new StatusWindow(new Host(service), null, updater);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.UpdateOffered);
+        Assert.Equal("9.9.9", updater.Available!.Version);
+        Assert.NotNull(updater.Available.MacImage(appleSilicon: true));
+        window.AllowClose();
+    }
+
     [AvaloniaFact]
     public void Status_window_lists_each_version()
     {

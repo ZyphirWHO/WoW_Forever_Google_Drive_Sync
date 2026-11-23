@@ -9,6 +9,9 @@ internal static class Program
     private static readonly string MutexName = $@"Local\{ProductInfo.Id}";
     internal static readonly string ShowEventName = $@"Local\{ProductInfo.Id}-ShowStatus";
 
+    /// <summary>Set when the player chose Update now: the checked installer to run after quitting.</summary>
+    internal static string? PendingInstaller { get; set; }
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -42,8 +45,26 @@ internal static class Program
         }
 
         bool startInTray = args.Any(a => a.Equals("--tray", StringComparison.OrdinalIgnoreCase));
-        using var app = new TrayApp(env, startInTray);
-        Application.Run(app);
+        bool updated = args.Any(a => a.Equals("--updated", StringComparison.OrdinalIgnoreCase));
+        using (var app = new TrayApp(env, startInTray, updated))
+            Application.Run(app);
+
+        // An update was downloaded and checked: let go of the single-instance lock (the installer waits for it),
+        // then hand over to the installer, which updates this copy and opens Interface Sync again.
+        if (PendingInstaller is { } installer)
+        {
+            mutex.ReleaseMutex();
+            mutex.Dispose();
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(installer, "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS")
+                { UseShellExecute = true });
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show($"The update couldn't be started: {e.Message}\n\nThe installer is at {installer}.", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
         return 0;
     }
 }

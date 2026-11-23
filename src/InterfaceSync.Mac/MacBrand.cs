@@ -24,7 +24,7 @@ internal static class MacBrand
     public static IBrush Brush(string hex) => new SolidColorBrush(C(hex));
 
     /// <summary>The banner: crest, product name in Cinzel, a subtitle, gold rule with a centre diamond.</summary>
-    public static (Control banner, TextBlock subtitle) Banner(string subtitleText)
+    public static (Control banner, TextBlock subtitle) Banner(string subtitleText, Action? toggleTheme = null)
     {
         var subtitle = new TextBlock { Text = subtitleText, FontSize = 13, Foreground = Brush(B.Subtitle), TextTrimming = TextTrimming.CharacterEllipsis };
         var title = new TextBlock { Text = ProductInfo.Name, FontFamily = Heading, FontWeight = FontWeight.Bold, FontSize = 24, Foreground = Brush(B.Title) };
@@ -65,7 +65,7 @@ internal static class MacBrand
         diamond.Margin = new Thickness(0, 0, 0, -3.75);
         var filigree = new Path
         {
-            Data = Geometry.Parse("M 0,1 L 120,1 M 120,1 L 120,24"),
+            Data = Geometry.Parse("M 0,1 L 120,1"),
             Stroke = new SolidColorBrush(Color.FromArgb(90, 0xC9, 0xA2, 0x4E)), StrokeThickness = 1,
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 10, 14, 0),
         };
@@ -74,7 +74,71 @@ internal static class MacBrand
             Height = 86, ClipToBounds = false,
             Children = { new Border { Background = gradient }, new Border { Background = glow }, filigree, row, rule, diamond },
         };
+        if (toggleTheme != null)
+        {
+            filigree.Margin = new Thickness(0, 10, 110, 0);
+            banner.Children.Add(ThemeToggle(toggleTheme));
+        }
         return (banner, subtitle);
+    }
+
+    // 24x24 icons for the light/dark switch (original).
+    internal const string SunIcon = "M12,8 A4,4 0 1 1 11.99,8 Z M12,2 V4 M12,20 V22 M2,12 H4 M20,12 H22 M4.9,4.9 L6.3,6.3 M17.7,17.7 L19.1,19.1 M4.9,19.1 L6.3,17.7 M17.7,6.3 L19.1,4.9";
+    internal const string MoonIcon = "M15.5,3 A9,9 0 1 0 21,15.5 A7.2,7.2 0 0 1 15.5,3 Z";
+
+    /// <summary>
+    /// The light/dark switch at the top right of the banner: a pill with a sun on the left and a crescent moon on
+    /// the right; a gold knob sits behind the current one.
+    /// </summary>
+    public static Button ThemeToggle(Action toggle)
+    {
+        var knob = new Avalonia.Controls.Shapes.Ellipse { Width = 26, Height = 26, Fill = Brush(B.Gold), VerticalAlignment = VerticalAlignment.Center };
+        Path Icon(string data, bool filled)
+        {
+            var p = new Path { Data = Geometry.Parse(data), Width = 15, Height = 15, Stretch = Stretch.Uniform, StrokeThickness = 1.8, StrokeLineCap = PenLineCap.Round, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+            if (filled) p.Fill = Brush(B.Subtitle); else p.Stroke = Brush(B.Subtitle);
+            return p;
+        }
+        var sun = Icon(SunIcon, false);
+        var moon = Icon(MoonIcon, true);
+        var sunSlot = new Grid { Width = 26, Height = 26, Children = { sun } };
+        var moonSlot = new Grid { Width = 26, Height = 26, Children = { moon } };
+        var slots = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(3), Children = { knob, sunSlot, moonSlot } };
+        Grid.SetColumn(moonSlot, 2);
+        var pill = new Border
+        {
+            Width = 72, Height = 34, CornerRadius = new CornerRadius(17), BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(150, 0xC9, 0xA2, 0x4E)), Background = new SolidColorBrush(Color.FromArgb(60, 0, 0, 0)),
+            Child = slots,
+        };
+        var button = new Button
+        {
+            Content = pill, Padding = new Thickness(0), Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 20, 2),
+        };
+        button.Resources["ButtonBackground"] = Brushes.Transparent;
+        button.Resources["ButtonBackgroundPointerOver"] = Brushes.Transparent;
+        button.Resources["ButtonBackgroundPressed"] = Brushes.Transparent;
+        button.Resources["ButtonBorderBrushPointerOver"] = Brushes.Transparent;
+        void Show()
+        {
+            bool dark = MacTheme.IsDark;
+            Grid.SetColumn(knob, dark ? 2 : 0);
+            var onGold = Brush(B.OnGold);
+            var idle = Brush(B.Subtitle);
+            sun.Stroke = dark ? idle : onGold;
+            moon.Fill = dark ? onGold : idle;
+            ToolTip.SetTip(button, dark ? "Switch to light mode" : "Switch to dark mode");
+            Avalonia.Automation.AutomationProperties.SetName(button, dark ? "Switch to light mode" : "Switch to dark mode");
+        }
+        button.Click += (_, _) => toggle();
+        Action changed = () => Avalonia.Threading.Dispatcher.UIThread.Post(Show);
+        button.AttachedToVisualTree += (_, _) => { MacTheme.Changed += changed; Show(); };
+        button.DetachedFromVisualTree += (_, _) => MacTheme.Changed -= changed;
+        button.PointerEntered += (_, _) => pill.BorderBrush = Brush(B.GoldLight);
+        button.PointerExited += (_, _) => pill.BorderBrush = new SolidColorBrush(Color.FromArgb(150, 0xC9, 0xA2, 0x4E));
+        Show();
+        return button;
     }
 
     public static Path Diamond(double r, Color fill) => new()

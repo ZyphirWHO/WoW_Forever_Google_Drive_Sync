@@ -50,14 +50,14 @@ internal static class Dialogs
     }
 
     internal static string AboutText =>
-        $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\nVersion {ProductInfo.Version}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
+        $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\nVersion {ProductInfo.DisplayVersion}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
 
     public static Window About()
     {
         Window? w = null;
         var panel = new StackPanel();
         panel.Children.Add(new Image { Source = new Avalonia.Media.Imaging.Bitmap(typeof(Dialogs).Assembly.GetManifestResourceStream("app.png")!), Width = 64, Height = 64, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 10) });
-        panel.Children.Add(Text($"{ProductInfo.Name} {ProductInfo.Version}", 16, FontWeight.SemiBold));
+        panel.Children.Add(Text($"{ProductInfo.Name} {ProductInfo.DisplayVersion}", 16, FontWeight.SemiBold));
         panel.Children.Add(Text(AboutText));
         panel.Children.Add(Buttons(Button("OK", () => w!.Close(), isDefault: true)));
         return w = Small($"About {ProductInfo.Name}", panel);

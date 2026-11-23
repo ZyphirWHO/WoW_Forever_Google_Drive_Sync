@@ -10,6 +10,8 @@
     <ProductId>InterfaceSync</ProductId>
     <!-- macOS bundle identifier (reverse-DNS of the project's home). -->
     <ProductBundleId>io.github.zyphirwho.interfacesync</ProductBundleId>
+    <!-- GitHub owner/repo whose Releases the app checks for updates (GitHub redirects it if the repo is renamed). -->
+    <ProductRepository>ZyphirWHO/WoW_Forever_Google_Drive_Sync</ProductRepository>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -17,7 +19,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <Version>2.0.0</Version>
+    <!-- Release version. CI development builds carry "-dev.<run>" in their informational version, so any real
+         release of this version counts as newer for the updater. -->
+    <Version>3.0.0</Version>
     <Product>$(ProductDisplayName)</Product>
     <Description>$(ProductDisplayName)</Description>
     <Company>$(ProductDisplayName) contributors</Company>
@@ -27,5 +31,6 @@
   <ItemGroup>
     <AssemblyMetadata Include="ProductId" Value="$(ProductId)" />
     <AssemblyMetadata Include="ProductBundleId" Value="$(ProductBundleId)" />
+    <AssemblyMetadata Include="ProductRepository" Value="$(ProductRepository)" />
   </ItemGroup>
 </Project>

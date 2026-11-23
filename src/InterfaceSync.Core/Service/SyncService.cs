@@ -108,7 +108,7 @@ public sealed class SyncService
     public void Start()
     {
         _startedUtc = _clock.UtcNow;
-        _log.Info($"{ProductInfo.Name} {ProductInfo.Version} started on {_machineName} as {_env.UserName}.");
+        _log.Info($"{ProductInfo.Name} {ProductInfo.DisplayVersion} started on {_machineName} as {_env.UserName}.");
         lock (_gate) Redetect(reason: null);
         UpdateOverall();
     }
@@ -191,6 +191,16 @@ public sealed class SyncService
         }
         _log.Info(paused ? "Syncing paused." : "Syncing resumed.");
         UpdateOverall();
+    }
+
+    /// <summary>Saves a preference that needs no re-detection (update checks and the like).</summary>
+    public void SavePreference(Action<AppSettings> change)
+    {
+        lock (_gate)
+        {
+            change(Settings);
+            _settingsStore.Save(Settings);
+        }
     }
 
     /// <summary>Saves the window colour choice (the windows apply it themselves).</summary>
@@ -642,7 +652,7 @@ public sealed class SyncService
     public string Diagnostics()
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"{ProductInfo.Name} {ProductInfo.Version} on {_machineName} ({Environment.OSVersion}), user {_env.UserName}, elevated: {_env.IsElevated}");
+        sb.AppendLine($"{ProductInfo.Name} {ProductInfo.DisplayVersion} on {_machineName} ({Environment.OSVersion}), user {_env.UserName}, elevated: {_env.IsElevated}");
         sb.AppendLine($"Data folder: {Paths.Data}");
         sb.AppendLine($"State: {State} - {StateText}; paused: {Settings.Paused}");
         sb.AppendLine();

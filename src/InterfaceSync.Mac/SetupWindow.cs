@@ -31,7 +31,6 @@ internal sealed class SetupWindow : Window
     private readonly IStartAtLogin? _startup;
     private readonly ToggleSwitch _startAtLogin = new() { OnContent = null, OffContent = null, MinWidth = 0 };
     private readonly TextBlock _startAtLoginNote = Ui.Text("", 12, brush: "InterfaceSyncMuted");
-    private readonly ComboBox _appearance = new() { MinWidth = 170 };
     private readonly TextBlock _summary = Ui.Text("", 13);
     private readonly TextBlock _choicesIntro = Ui.Text("", 13, brush: "InterfaceSyncMuted", bottom: 12);
     private readonly StackPanel _choicesPanel = new();
@@ -75,7 +74,7 @@ internal sealed class SetupWindow : Window
         _finish = Ui.Button("Finish", () => { Started = true; Close(); }, ButtonKind.Primary);
         _finish.IsVisible = false;
         _finish.IsEnabled = false;
-        (var banner, _bannerSubtitle) = MacBrand.Banner($"Welcome! Let's set up {ProductInfo.Name} on this Mac.");
+        (var banner, _bannerSubtitle) = MacBrand.Banner($"Welcome! Let's set up {ProductInfo.Name} on this Mac.", () => MacApp.ToggleTheme(_host));
 
         BuildPages();
         var pages = new StackPanel { Margin = new Thickness(28, 8, 28, 16) };
@@ -166,15 +165,6 @@ internal sealed class SetupWindow : Window
             _startAtLoginNote.Text = why ?? $"Open {ProductInfo.Name} when you log in (recommended), so your settings are always synced when you quit the game.";
             _finalPage.Children.Add(Ui.Card(Ui.Header(Ui.Power, "Start automatically", _startAtLogin), _startAtLoginNote));
         }
-        _appearance.ItemsSource = MacApp.ThemeChoices.Select(c => c.Label).ToList();
-        _appearance.SelectedIndex = Array.FindIndex(MacApp.ThemeChoices, c => c.Theme == MacTheme.Mode);
-        _appearance.SelectionChanged += (_, _) =>
-        {
-            if (_appearance.SelectedIndex < 0) return;
-            var chosen = MacApp.ThemeChoices[_appearance.SelectedIndex].Theme;
-            if (chosen != MacTheme.Mode) MacApp.ChooseTheme(_host, chosen);
-        };
-        _finalPage.Children.Add(Ui.Card(Ui.Header(Ui.Paint, "Appearance", _appearance)));
         _finalPage.Children.Add(Ui.Card(Ui.Header(Ui.Check, "Ready to sync"), _summary));
 
         _progressPage.Children.Add(_progressHeading);

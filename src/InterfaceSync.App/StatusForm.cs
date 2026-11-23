@@ -6,6 +6,7 @@ using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Sync;
 using InterfaceSync.Core.Settings;
 using InterfaceSync.Core.Platform;
+using InterfaceSync.Core.Updates;
 
 namespace InterfaceSync.App;
 
@@ -44,7 +45,16 @@ internal sealed class StatusForm : Form
     // settings
     private readonly Label _cloudPath = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
     private readonly ToggleSwitch _startAtLogin = new("Start with Windows") { Visible = false };
-    private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170 };
+    private readonly BrandBanner _banner = new("Your interface settings, on every computer");
+
+    // updates
+    private readonly Card _updateBar = new() { Height = 76, Padding = new Padding(18, 12, 16, 12), Visible = false };
+    private readonly Label _updateTitle = new() { AutoSize = true, UseMnemonic = false, Margin = new Padding(0, 0, 0, 2) };
+    private readonly Label _updateDetail = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
+    private readonly ModernButton _updateNow = new("Update now", ButtonKind.Primary) { Icon = Draw.Download };
+    private readonly ModernButton _whatsNew = new("What's new", ButtonKind.Ghost);
+    private readonly ToggleSwitch _autoUpdate = new("Check for updates automatically");
+    private readonly Label _updateStatus = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
     private readonly IStartAtLogin? _startup;
     private Control _startIcon = null!;
 
@@ -57,6 +67,12 @@ internal sealed class StatusForm : Form
 
     private bool _allowClose;
 
+    /// <summary>The GitHub update checker; the update parts are hidden when not set (tests).</summary>
+    internal Updater? Updater { get; init; }
+
+    /// <summary>Downloads and installs the available update (the tray app quits and the installer reopens it).</summary>
+    internal Action<IWin32Window?>? InstallUpdate { get; init; }
+
     /// <summary>Start with Windows; the switch is hidden when not set (tests).</summary>
     internal IStartAtLogin? StartAtLogin
     {
@@ -67,7 +83,7 @@ internal sealed class StatusForm : Form
     public StatusForm(IStatusHost app)
     {
         _app = app;
-        Text = $"{ProductInfo.Name} {ProductInfo.Version}";
+        Text = $"{ProductInfo.Name} {ProductInfo.DisplayVersion}";
         StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(860, 760);
         MinimumSize = new Size(680, 520);
@@ -81,6 +97,8 @@ internal sealed class StatusForm : Form
         _pause.Click += (_, _) => _app.Run(() => Service.SetPaused(!Service.Settings.Paused));
         BuildHero();
 
+        BuildUpdateBar();
+        _stack.Controls.Add(_updateBar);
         _stack.Controls.Add(_hero);
         _stack.Controls.Add(new SectionHeader("Game versions"));
         _stack.Controls.Add(_versionRows);
@@ -93,7 +111,8 @@ internal sealed class StatusForm : Form
         _content.Resize += (_, _) => FitWidths();
 
         Controls.Add(_content);
-        Controls.Add(new BrandBanner("Your interface settings, on every computer"));   // docks above the content
+        _banner.EnableThemeToggle(() => TrayApp.ToggleTheme(Service));
+        Controls.Add(_banner);   // docks above the content
         Theme.Apply(this);
         Theme.Changed += OnThemeChanged;
         FitWidths();
@@ -136,7 +155,7 @@ internal sealed class StatusForm : Form
 
     private Card BuildSettings()
     {
-        var card = new Card { Height = 172, Padding = new Padding(16, 8, 16, 8) };
+        var card = new Card { Height = 196, Padding = new Padding(16, 8, 16, 8) };
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, Margin = Padding.Empty };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 36));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -164,19 +183,27 @@ internal sealed class StatusForm : Form
         grid.Controls.Add(_startIcon, 0, 1);
         grid.Controls.Add(_startAtLogin, 1, 1);
 
-        foreach (var (_, label) in TrayApp.ThemeChoices) _appearance.Items.Add(label);
-        SelectAppearance();
-        _appearance.SelectedIndexChanged += (_, _) =>
+        // updates: automatic checks on/off, what the last check found, and Check now
+        var updates = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Left, Margin = Padding.Empty };
+        _autoUpdate.AutoCheck = false;
+        _autoUpdate.Click += (_, _) =>
         {
-            var chosen = TrayApp.ThemeChoices[Math.Max(0, _appearance.SelectedIndex)].Theme;
-            if (chosen != Theme.Mode) TrayApp.ChooseTheme(Service, chosen);
+            var on = !Service.Settings.CheckForUpdates;
+            Service.SavePreference(s => s.CheckForUpdates = on);
+            if (on && Updater != null) _ = Updater.CheckAsync();
+            RefreshView();
         };
-        _appearance.Anchor = AnchorStyles.Right;
-        var appearance = Bold("Appearance");
-        appearance.Anchor = AnchorStyles.Left;
-        grid.Controls.Add(Icon(Draw.Paint), 0, 2);
-        grid.Controls.Add(appearance, 1, 2);
-        grid.Controls.Add(_appearance, 2, 2);
+        Theme.SetRole(_updateStatus, TextRole.Muted);
+        _updateStatus.Margin = new Padding(50, 0, 0, 0);
+        updates.Controls.Add(_autoUpdate);
+        updates.Controls.Add(_updateStatus);
+        var checkNow = new ModernButton("Check now") { Height = 30, Anchor = AnchorStyles.Right };
+        checkNow.Click += (_, _) => { if (Updater != null) _ = Updater.CheckAsync(); };
+        _updateIcon = Icon(Draw.Download);
+        grid.Controls.Add(_updateIcon, 0, 2);
+        grid.Controls.Add(updates, 1, 2);
+        grid.Controls.Add(checkNow, 2, 2);
+        _updateRow = [_updateIcon, updates, checkNow];
         card.Controls.Add(grid);
         return card;
     }
@@ -237,24 +264,51 @@ internal sealed class StatusForm : Form
         _startAtLogin.Checked = _startup.IsEnabled;
     }
 
+    private Control _updateIcon = null!;
+    private Control[] _updateRow = [];
+
+    private void BuildUpdateBar()
+    {
+        _updateTitle.Font = new Font(Font, FontStyle.Bold);
+        Theme.SetRole(_updateDetail, TextRole.Muted);
+        _updateBar.Highlight = Brand.C(ThemePalette.Banner.Gold);
+        _updateNow.Click += (_, _) => InstallUpdate?.Invoke(this);
+        _whatsNew.Click += (_, _) => { if (Updater?.Available is { } r) TrayApp.OpenPage(r.Page); };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2, Margin = Padding.Empty };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        var icon = new Glyph(Draw.Download, 18f) { Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 12, 0) };
+        Theme.SetRole(icon, TextRole.Accent);
+        grid.Controls.Add(icon, 0, 0);
+        grid.SetRowSpan(icon, 2);
+        _updateTitle.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+        _updateDetail.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+        grid.Controls.Add(_updateTitle, 1, 0);
+        grid.Controls.Add(_updateDetail, 1, 1);
+        _whatsNew.Anchor = _updateNow.Anchor = AnchorStyles.Right;
+        _whatsNew.Margin = new Padding(8, 0, 0, 0);
+        _updateNow.Margin = new Padding(8, 0, 0, 0);
+        grid.Controls.Add(_whatsNew, 2, 0);
+        grid.Controls.Add(_updateNow, 3, 0);
+        grid.SetRowSpan(_whatsNew, 2);
+        grid.SetRowSpan(_updateNow, 2);
+        _updateBar.Controls.Add(grid);
+    }
+
     private void OnThemeChanged()
     {
         if (IsDisposed) return;
-        SelectAppearance();
         RefreshView();
     }
 
-    private void SelectAppearance()
-    {
-        var index = Array.FindIndex(TrayApp.ThemeChoices, c => c.Theme == Theme.Mode);
-        if (_appearance.SelectedIndex != index) _appearance.SelectedIndex = index;
-    }
-
-    /// <summary>The selected appearance (for tests).</summary>
-    internal AppTheme SelectedAppearance => TrayApp.ThemeChoices[_appearance.SelectedIndex].Theme;
-
-    internal void ChooseAppearance(AppTheme theme) =>
-        _appearance.SelectedIndex = Array.FindIndex(TrayApp.ThemeChoices, c => c.Theme == theme);
+    /// <summary>For tests: what the sun/moon switch does.</summary>
+    internal void ChooseAppearance(AppTheme theme) => TrayApp.ChooseTheme(Service, theme);
+    internal BrandBanner Banner => _banner;
+    internal bool UpdateOffered => _updateBar.Visible;
 
     /// <summary>For tests: the version cards' titles, and the headline card.</summary>
     internal IReadOnlyList<string> VersionTitles => _versionRows.Controls.OfType<VersionRow>().Select(r => r.Title).ToList();
@@ -314,6 +368,27 @@ internal sealed class StatusForm : Form
         _hero.Highlight = tone == StatusTone.Attention ? Theme.Error : null;
         _hero.Invalidate();
         _pause.Text = Service.Settings.Paused ? "Resume" : "Pause";
+
+        // updates
+        foreach (var c in _updateRow) c.Visible = Updater != null;
+        if (Updater != null)
+        {
+            _autoUpdate.Checked = Service.Settings.CheckForUpdates;
+            _updateStatus.Text = Updater.Describe() + (Service.Settings.LastUpdateCheckUtc is { } checkedAt && Updater.State != UpdateState.Checking
+                ? $" Last checked {StatusWords.Ago(checkedAt, now)}." : "");
+            var release = Updater.Available;
+            bool show = release != null && Updater.State is UpdateState.Available or UpdateState.Downloading;
+            if (show != _updateBar.Visible) { _updateBar.Visible = show; FitWidths(); }
+            if (show)
+            {
+                _updateTitle.Text = $"{ProductInfo.Name} {release!.Version} is available";
+                _updateDetail.Text = Updater.State == UpdateState.Downloading
+                    ? "Downloading and checking the installer…"
+                    : $"You have {Updater.CurrentVersion}. Updating takes a few seconds and keeps all your settings.";
+                _updateNow.Enabled = Updater.State != UpdateState.Downloading;
+                _updateNow.Text = release.WindowsInstaller != null ? "Update now" : "Download";
+            }
+        }
         _pause.Icon = Service.Settings.Paused ? Draw.Sync : Draw.Pause;
 
         // one card per game version, updated in place
@@ -372,14 +447,14 @@ internal sealed class StatusForm : Form
 
     internal static string AboutText =>
         $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\n" +
-        $"Version {ProductInfo.Version}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
+        $"Version {ProductInfo.DisplayVersion}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
 
     internal static void ShowAbout(IWin32Window? owner)
     {
         var page = new TaskDialogPage
         {
             Caption = $"About {ProductInfo.Name}",
-            Heading = $"{ProductInfo.Name} {ProductInfo.Version}",
+            Heading = $"{ProductInfo.Name} {ProductInfo.DisplayVersion}",
             Text = AboutText,
             Icon = new TaskDialogIcon(TrayIcons.AppIcon),
             Buttons = { TaskDialogButton.OK },

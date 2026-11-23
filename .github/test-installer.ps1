@@ -18,6 +18,12 @@ $data = Join-Path $env:LOCALAPPDATA $id
 $p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$PWD\install.log" -Wait -PassThru
 if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 40; throw "Setup exit code $($p.ExitCode)" }
 foreach ($path in $exe, $shortcut, (Join-Path $dir "unins000.exe")) { if (-not (Test-Path $path)) { throw "Missing after install: $path" } }
+# A silent install opens the app again (that's how in-app updates finish): close it before going on.
+Start-Sleep -Seconds 3
+$opened = Get-Process -Name $id -ErrorAction SilentlyContinue
+if (-not $opened) { throw "A silent install should reopen $name (the in-app update relies on it)" }
+$opened | Stop-Process -Force
+Start-Sleep -Seconds 1
 $entry = Get-ItemProperty $uninstallKey
 "Installed: $($entry.DisplayName) $($entry.DisplayVersion) in $($entry.InstallLocation)"
 if ($entry.DisplayName -ne $name) { throw "Apps & features shows '$($entry.DisplayName)'" }

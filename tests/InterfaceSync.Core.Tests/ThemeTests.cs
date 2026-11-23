@@ -37,14 +37,26 @@ public sealed class ThemeTests
     }
 
     [Fact]
-    public void Theme_defaults_to_matching_the_computer_and_is_saved()
+    public void Settings_from_before_3_0_that_followed_the_computer_start_in_dark_mode()
     {
         var fs = new InMemoryFileSystem();
         var store = new SettingsStore(fs, "/data");
-        Assert.Equal(AppTheme.System, store.Load().Theme);
+        fs.WriteAllText(store.FilePath, "{ \"schemaVersion\": 1, \"theme\": \"System\", \"setupComplete\": true }");
         var s = store.Load();
-        s.Theme = AppTheme.Dark;
-        store.Save(s);
+        Assert.Equal((AppTheme.Dark, 2, true), (s.Theme, s.SchemaVersion, s.SetupComplete));
+        fs.WriteAllText(store.FilePath, "{ \"schemaVersion\": 1, \"theme\": \"Light\" }");
+        Assert.Equal(AppTheme.Light, store.Load().Theme);           // a choice the player made is kept
+    }
+
+    [Fact]
+    public void Theme_defaults_to_dark_and_is_saved()
+    {
+        var fs = new InMemoryFileSystem();
+        var store = new SettingsStore(fs, "/data");
         Assert.Equal(AppTheme.Dark, store.Load().Theme);
+        var s = store.Load();
+        s.Theme = AppTheme.Light;
+        store.Save(s);
+        Assert.Equal(AppTheme.Light, store.Load().Theme);
     }
 }

@@ -344,6 +344,13 @@ public sealed class WindowSmokeTests : IDisposable
                 Assert.Equal(lightBack, form.BackColor);
                 Assert.Equal(Theme.Surface, form.Headline.BackColor);
                 Assert.True(Brand.HasCinzel);                             // the heading font loaded from the exe
+                Assert.NotNull(form.Banner.Toggle);                       // the sun/moon switch in the banner
+                form.Banner.Toggle!.PerformClick();
+                Application.DoEvents();
+                Assert.True(Theme.IsDark);                                // light → dark
+                form.Banner.Toggle.PerformClick();
+                Application.DoEvents();
+                Assert.False(Theme.IsDark);
                 Assert.Single(AllControls(form).OfType<BrandBanner>());
                 form.AllowClose();
                 form.Close();
@@ -400,7 +407,7 @@ public sealed class WindowSmokeTests : IDisposable
                 foreach (var theme in shots)
                 {
                     Theme.Set(theme);
-                    using var form = new StatusForm(new TestHost(status));
+                    using var form = new StatusForm(new TestHost(status)) { Updater = UpdaterWithNewerRelease(status), InstallUpdate = _ => { } };
                     form.Show();
                     form.RefreshView();
                     Application.DoEvents();
@@ -418,6 +425,48 @@ public sealed class WindowSmokeTests : IDisposable
             form.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
             bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
         }
+    }
+
+    /// <summary>GitHub answering "latest release: 9.9.9".</summary>
+    private sealed class NewerRelease : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancel) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    { "tag_name": "v9.9.9", "html_url": "https://github.com/o/r/releases/tag/v9.9.9", "draft": false, "prerelease": false, "body": "",
+                      "assets": [ { "name": "InterfaceSync-Setup-9.9.9.exe", "browser_download_url": "https://github.com/o/r/releases/download/v9.9.9/InterfaceSync-Setup-9.9.9.exe", "size": 1, "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } ] }
+                    """),
+            });
+    }
+
+    private static InterfaceSync.Core.Updates.Updater UpdaterWithNewerRelease(SyncService service)
+    {
+        var u = new InterfaceSync.Core.Updates.Updater(service, new HttpClient(new NewerRelease()), new FakeClock(DateTime.UtcNow), "3.0.0");
+        u.CheckAsync().GetAwaiter().GetResult();
+        return u;
+    }
+
+    [Fact]
+    public void Status_window_offers_an_available_update()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true));
+        service.Poll();
+        var updater = UpdaterWithNewerRelease(service);
+        OnSta(() =>
+        {
+            IWin32Window? asked = null;
+            using var form = new StatusForm(new TestHost(service)) { Updater = updater, InstallUpdate = owner => asked = owner };
+            form.Show();
+            form.RefreshView();
+            Application.DoEvents();
+            Assert.True(form.UpdateOffered);
+            var button = AllControls(form).OfType<ModernButton>().Single(b => b.Text == "Update now");
+            button.PerformClick();
+            Assert.Same(form, asked);
+            form.AllowClose();
+            form.Close();
+        });
     }
 
     private static IEnumerable<Control> AllControls(Control c) =>

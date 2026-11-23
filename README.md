@@ -6,7 +6,7 @@ and addon settings) through your own Google Drive, OneDrive or Dropbox.
 Interface Sync is an independent, free, open-source tool. It is not affiliated with, endorsed by or
 sponsored by Blizzard Entertainment, Inc.
 
-> **Status: 2.0 in development.** Detection, the sync engine and the tray app are built and tested.
+> **Status: 3.0 in development.** Detection, the sync engine and the tray app are built and tested.
 > There is no release yet.
 
 ## How it works
@@ -19,7 +19,11 @@ sponsored by Blizzard Entertainment, Inc.
 - Every overwrite, on your PC or in the cloud, is preceded by a backup in `%LOCALAPPDATA%\InterfaceSync\Backups`.
 - `WTF\Config.wtf` (graphics and machine settings) is never synced. Addon files themselves are not synced:
   keep them the same with CurseForge (or your addon manager); their settings sync with `WTF\Account`.
-- It never asks for administrator rights, runs no scripts and starts no other programs.
+- It never asks for administrator rights and runs no scripts.
+- Updates: once a day (and when it starts) it asks GitHub whether a newer release of this project is out. That
+  request is anonymous. On Windows, **Update now** downloads the new installer, checks its SHA-256 against the one
+  GitHub publishes for the release, then quits and lets the installer update it in place and reopen it. On a Mac,
+  it downloads the new disk image in your browser. Switch the daily check off in Settings.
 
 ## Repository layout
 

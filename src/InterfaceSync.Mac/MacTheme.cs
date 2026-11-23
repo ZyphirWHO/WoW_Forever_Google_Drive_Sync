@@ -118,7 +118,12 @@ internal static class MacTheme
         _ => ThemeVariant.Default,   // follow macOS
     };
 
-    public static bool IsDark => Application.Current?.ActualThemeVariant == ThemeVariant.Dark;
+    public static bool IsDark => Mode switch
+    {
+        AppTheme.Dark => true,
+        AppTheme.Light => false,
+        _ => Application.Current?.ActualThemeVariant == ThemeVariant.Dark,
+    };
 
     public static IBrush Error => new SolidColorBrush(C(IsDark ? P.Dark.Error : P.Light.Error));
     public static IBrush Muted => new SolidColorBrush(C(IsDark ? P.Dark.Muted : P.Light.Muted));

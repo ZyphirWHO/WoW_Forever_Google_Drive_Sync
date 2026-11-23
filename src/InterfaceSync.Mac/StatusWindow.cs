@@ -10,6 +10,7 @@ using InterfaceSync.Core.Platform;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Settings;
 using InterfaceSync.Core.Sync;
+using InterfaceSync.Core.Updates;
 
 namespace InterfaceSync.Mac;
 
@@ -31,18 +32,26 @@ internal sealed class StatusWindow : Window
     private readonly List<string> _rowTexts = [];
     private readonly TextBlock _cloudPath = Ui.Text("", 12, brush: "InterfaceSyncMuted");
     private readonly ComboBox _moveTo = new() { MinWidth = 150, PlaceholderText = "Move to..." };
-    private readonly ComboBox _appearance = new() { MinWidth = 150 };
+    private readonly Updater? _updater;
+    private readonly Border _updateBar;
+    private readonly TextBlock _updateTitle = Ui.Text("", 14, FontWeight.SemiBold);
+    private readonly TextBlock _updateDetail = Ui.Text("", 12, brush: "InterfaceSyncMuted");
+    private readonly Button _updateNow;
+    private readonly ToggleSwitch _autoUpdate = new() { OnContent = null, OffContent = null, MinWidth = 0 };
+    private readonly TextBlock _updateStatus = Ui.Text("", 12, brush: "InterfaceSyncMuted");
+    private bool _refreshingUpdate;
     private readonly ToggleSwitch _startAtLogin = new() { OnContent = null, OffContent = null, MinWidth = 0 };
     private readonly TextBlock _lastLine = Ui.Text("", 12, brush: "InterfaceSyncMuted");
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, Height = 220, FontFamily = new FontFamily("Menlo, monospace"), FontSize = 11, IsVisible = false, Margin = new Thickness(0, 8, 0, 0) };
     private readonly Button _toggleLog;
     private bool _allowClose, _refreshingSwitch;
 
-    public StatusWindow(IMacHost host, IStartAtLogin? startAtLogin = null)
+    public StatusWindow(IMacHost host, IStartAtLogin? startAtLogin = null, Updater? updater = null)
     {
         _host = host;
         _startup = startAtLogin;
-        Title = $"{ProductInfo.Name} {ProductInfo.Version}";
+        _updater = updater;
+        Title = $"{ProductInfo.Name} {ProductInfo.DisplayVersion}";
         Icon = MacIcons.App;
         Width = 780;
         Height = 760;
@@ -63,19 +72,36 @@ internal sealed class StatusWindow : Window
         // settings
         _moveTo.ItemsSource = CloudProviders.All.Select(p => p.DisplayName()).ToList();
         var move = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _moveTo, Ui.Button("Move", Move) } };
-        _appearance.ItemsSource = MacApp.ThemeChoices.Select(c => c.Label).ToList();
-        _appearance.SelectionChanged += (_, _) =>
+        // updates: a gold-edged card when a newer release is out, and the automatic-check switch in Settings
+        _updateNow = Ui.Button("Download update", () => _ = DownloadUpdate(), ButtonKind.Primary, Ui.Sync);
+        var whatsNew = Ui.Button("What's new", () => { if (_updater?.Available is { } r) _ = OpenUri(r.Page); }, ButtonKind.Ghost);
+        var updateText = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center, Children = { _updateTitle, _updateDetail } };
+        var updateButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { whatsNew, _updateNow } };
+        var updateIcon = Ui.Icon(Ui.Sync, 22);
+        updateIcon.Margin = new Thickness(0, 0, 14, 0);
+        var updateGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Children = { updateIcon, updateText, updateButtons } };
+        Grid.SetColumn(updateText, 1);
+        Grid.SetColumn(updateButtons, 2);
+        _updateBar = Ui.CardOf(updateGrid);
+        Ui.Res(_updateBar, Border.BorderBrushProperty, "InterfaceSyncAccent");
+        _updateBar.BorderThickness = new Thickness(1.5);
+        _updateBar.IsVisible = false;
+        _autoUpdate.IsCheckedChanged += (_, _) =>
         {
-            if (_appearance.SelectedIndex < 0) return;
-            var chosen = MacApp.ThemeChoices[_appearance.SelectedIndex].Theme;
-            if (chosen != MacTheme.Mode) MacApp.ChooseTheme(_host, chosen);
+            if (_refreshingUpdate || _updater == null) return;
+            var on = _autoUpdate.IsChecked == true;
+            Service.SavePreference(s => s.CheckForUpdates = on);
+            if (on) _ = _updater.CheckAsync();
+            Refresh();
         };
         _startAtLogin.IsVisible = _startup != null;
         _startAtLogin.IsCheckedChanged += (_, _) => { if (!_refreshingSwitch) ToggleStartAtLogin(); };
         var settings = Ui.Card(
             SettingRow(Ui.Cloud, new StackPanel { Children = { Ui.Text("Cloud folder", 13, FontWeight.SemiBold), _cloudPath } }, move),
             SettingRow(Ui.Power, new StackPanel { Children = { Ui.Text("Open at Login", 13, FontWeight.SemiBold), Ui.Text($"Start {ProductInfo.Name} when you log in to this Mac", 12, brush: "InterfaceSyncMuted") } }, _startAtLogin),
-            SettingRow(Ui.Paint, Ui.Text("Appearance", 13, FontWeight.SemiBold), _appearance));
+            SettingRow(Ui.Sync, new StackPanel { Children = { Ui.Text("Check for updates automatically", 13, FontWeight.SemiBold), _updateStatus } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { Ui.Button("Check now", () => { if (_updater != null) _ = _updater.CheckAsync(); }), _autoUpdate } }));
+        if (_updater == null) ((StackPanel)settings.Child!).Children.RemoveAt(((StackPanel)settings.Child!).Children.Count - 1);
         if (_startup == null) ((StackPanel)settings.Child!).Children.RemoveAt(1);
 
         // activity
@@ -94,6 +120,7 @@ internal sealed class StatusWindow : Window
         tools.Children.Add(Ui.Button("About", () => Dialogs.About().Show(), ButtonKind.Ghost, Ui.Info));
 
         var root = new StackPanel { Margin = new Thickness(24, 16, 24, 20) };
+        root.Children.Add(_updateBar);
         root.Children.Add(heroCard);
         root.Children.Add(MacBrand.Section("Game versions"));
         root.Children.Add(_rows);
@@ -103,7 +130,7 @@ internal sealed class StatusWindow : Window
         root.Children.Add(activity);
         root.Children.Add(tools);
 
-        var (banner, _) = MacBrand.Banner("Your interface settings, on every computer");
+        var (banner, _) = MacBrand.Banner("Your interface settings, on every computer", () => MacApp.ToggleTheme(_host));
         var dock = new DockPanel();
         DockPanel.SetDock(banner, Dock.Top);
         dock.Children.Add(banner);
@@ -149,14 +176,42 @@ internal sealed class StatusWindow : Window
         base.OnClosing(e);
     }
 
-    /// <summary>For tests: pick an appearance as the player would.</summary>
-    internal void ChooseAppearance(AppTheme theme) => _appearance.SelectedIndex = Array.FindIndex(MacApp.ThemeChoices, c => c.Theme == theme);
+    /// <summary>For tests: what the sun/moon switch does.</summary>
+    internal void ChooseAppearance(AppTheme theme) => MacApp.ChooseTheme(_host, theme);
+    internal bool UpdateOffered => _updateBar.IsVisible;
+
+    /// <summary>Opens this Mac's disk image (or the release page) in the browser: an unsigned app can't replace itself.</summary>
+    private async Task DownloadUpdate()
+    {
+        if (_updater?.Available is not { } r) return;
+        var dmg = r.MacImage(System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64);
+        await OpenUri(dmg?.Url ?? r.Page);
+        Dialogs.Message($"Your browser is downloading {ProductInfo.Name} {r.Version}. When it's done: quit {ProductInfo.Name} from the menu bar, " +
+                        "open the downloaded disk image and drag the app onto Applications (choose Replace). Your settings are kept.").Show();
+    }
+
+    private async Task OpenUri(Uri uri)
+    {
+        if (GetTopLevel(this)?.Launcher is { } launcher) await launcher.LaunchUriAsync(uri);
+    }
 
     public void Refresh()
     {
         var now = DateTime.UtcNow;
-        var index = Array.FindIndex(MacApp.ThemeChoices, c => c.Theme == MacTheme.Mode);
-        if (_appearance.SelectedIndex != index) _appearance.SelectedIndex = index;
+        if (_updater != null)
+        {
+            _refreshingUpdate = true;
+            _autoUpdate.IsChecked = Service.Settings.CheckForUpdates;
+            _refreshingUpdate = false;
+            _updateStatus.Text = _updater.Describe();
+            var release = _updater.Available;
+            _updateBar.IsVisible = release != null && _updater.State is UpdateState.Available or UpdateState.Downloading;
+            if (release != null)
+            {
+                _updateTitle.Text = $"{ProductInfo.Name} {release.Version} is available";
+                _updateDetail.Text = $"You have {_updater.CurrentVersion}. Your settings are kept when you update.";
+            }
+        }
 
         var tone = StatusWords.Tone(Service.State);
         _headline.Text = StatusWords.Headline(Service.State);

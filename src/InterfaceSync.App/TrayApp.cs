@@ -4,7 +4,9 @@ using InterfaceSync.Core.Logging;
 using InterfaceSync.Core.Platform;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Settings;
+using InterfaceSync.Core.Updates;
 using Microsoft.Win32;
+using System.Diagnostics;
 
 namespace InterfaceSync.App;
 
@@ -18,7 +20,9 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private readonly ContextMenuStrip _menu;
     private readonly IStartAtLogin _startup;
     private readonly ToolStripMenuItem _startupItem;
-    private readonly Dictionary<AppTheme, ToolStripMenuItem> _themeItems = [];
+    private readonly ToolStripMenuItem _darkItem;
+    private static readonly HttpClient Http = new();
+    private string? _announcedUpdate;
     private readonly FileLog _log;
     private readonly IRegistry _registry = new WindowsRegistry();
     private readonly EventWaitHandle _showEvent;
@@ -28,9 +32,12 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private int _busy;
     private volatile bool _exiting;
 
-    public TrayApp(WindowsUserEnvironment env, bool startInTray)
+    private readonly bool _justUpdated;
+
+    public TrayApp(WindowsUserEnvironment env, bool startInTray, bool justUpdated = false)
     {
         _startInTray = startInTray;
+        _justUpdated = justUpdated;
         _ = _ui.Handle; // force the window handle now: background events are marshalled through it
 
         var fs = new PhysicalFileSystem();
@@ -43,6 +50,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         AppDomain.CurrentDomain.UnhandledException += (_, e) => _log.Error($"Unexpected error: {e.ExceptionObject}");
         Service = new SyncService(fs, _registry, new WindowsProcessList(), env, clock, _log, paths, Environment.MachineName);
         Service.Changed += () => OnUi(RefreshTray);
+        Updater = new Updater(Service, Http, clock);
+        Updater.Changed += () => OnUi(OnUpdateChanged);
         Service.NoticeRaised += notice => OnUi(() => ShowNotice(notice));
 
         _pauseItem = new ToolStripMenuItem("Pause syncing", null, (_, _) => TogglePause());
@@ -50,18 +59,13 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         _startupItem = new ToolStripMenuItem(_startup.Label, null, (_, _) => ToggleStartAtLogin(_startup, _log, null));
         var menu = _menu = new ContextMenuStrip();
         menu.Opening += (_, _) => _startupItem.Checked = _startup.IsEnabled;
-        var appearance = new ToolStripMenuItem("Appearance");
-        foreach (var (theme, label) in ThemeChoices)
-        {
-            var item = new ToolStripMenuItem(label, null, (_, _) => ChooseTheme(theme));
-            _themeItems[theme] = item;
-            appearance.DropDownItems.Add(item);
-        }
+        _darkItem = new ToolStripMenuItem("Dark mode", null, (_, _) => ToggleTheme(Service));
         menu.Items.Add(new ToolStripMenuItem("Open status", null, (_, _) => ShowStatus()) { Font = new Font(menu.Font, FontStyle.Bold) });
         menu.Items.Add(new ToolStripMenuItem("Sync now", null, (_, _) => RunInBackground(Service.SyncNow)));
         menu.Items.Add(_pauseItem);
         menu.Items.Add(_startupItem);
-        menu.Items.Add(appearance);
+        menu.Items.Add(_darkItem);
+        menu.Items.Add(new ToolStripMenuItem("Check for updates", null, (_, _) => { ShowStatus(); _ = Updater.CheckAsync(); }));
         menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => StatusForm.ShowAbout(null)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
@@ -86,6 +90,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     }
 
     public SyncService Service { get; }
+    public Updater Updater { get; }
 
     // ------------------------------------------------------------------ start-up
 
@@ -110,13 +115,15 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             ShowStatus();
         }
 
+        if (_justUpdated)
+            _tray.ShowBalloonTip(6_000, $"{ProductInfo.Name} was updated", $"You now have version {ProductInfo.DisplayVersion}.", ToolTipIcon.Info);
         _timer = new System.Threading.Timer(_ => Poll(), null, TimeSpan.Zero, SyncService.PollInterval);
     }
 
     private void Poll()
     {
         if (_exiting || Interlocked.Exchange(ref _busy, 1) == 1) return;
-        try { Service.Poll(); }
+        try { Service.Poll(); _ = Updater.CheckIfDueAsync(); }
         catch (Exception e) { _log.Error($"Unexpected error while syncing: {e}"); }
         finally { Interlocked.Exchange(ref _busy, 0); }
     }
@@ -154,15 +161,15 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private void ShowStatus()
     {
         if (_status == null || _status.IsDisposed)
-            _status = new StatusForm(this) { StartAtLogin = _startup };
+            _status = new StatusForm(this) { StartAtLogin = _startup, Updater = Updater, InstallUpdate = InstallUpdate };
         _status.Show();
         if (_status.WindowState == FormWindowState.Minimized) _status.WindowState = FormWindowState.Normal;
         _status.Activate();
         _status.RefreshView();
     }
 
-    internal static readonly (AppTheme Theme, string Label)[] ThemeChoices =
-        [(AppTheme.System, "Match Windows"), (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark")];
+    /// <summary>The sun/moon switch: light ⇄ dark.</summary>
+    internal static void ToggleTheme(SyncService service) => ChooseTheme(service, Theme.IsDark ? AppTheme.Light : AppTheme.Dark);
 
     /// <summary>Applies at once and saves the choice for next time.</summary>
     internal static void ChooseTheme(SyncService service, AppTheme theme)
@@ -175,7 +182,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
 
     private void ApplyThemeToMenu()
     {
-        foreach (var (theme, item) in _themeItems) item.Checked = theme == Theme.Mode;
+        _darkItem.Checked = Theme.IsDark;
         Theme.Apply(_menu);
     }
 
@@ -211,6 +218,59 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             log.Warn($"Couldn't change {startup.Label}: {e.Message}");
             MessageBox.Show(owner, $"Couldn't change {startup.Label}: {e.Message}", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+    // ------------------------------------------------------------------ updates
+
+    private void OnUpdateChanged()
+    {
+        _status?.RefreshView();
+        if (Updater.State == UpdateState.Available && Updater.Available is { } r && _announcedUpdate != r.Version)
+        {
+            _announcedUpdate = r.Version;
+            _tray.ShowBalloonTip(10_000, $"{ProductInfo.Name} {r.Version} is available",
+                "Open Interface Sync and click Update now. Your settings are kept.", ToolTipIcon.Info);
+        }
+    }
+
+    /// <summary>
+    /// Downloads the installer (SHA-256 checked), then quits and lets it update this copy; the installer opens
+    /// Interface Sync again when it's done. Anything mid-sync finishes first (Exit waits for it).
+    /// </summary>
+    private void InstallUpdate(IWin32Window? owner)
+    {
+        if (Updater.Available?.WindowsInstaller is not { } asset)
+        {
+            if (Updater.Available is { } release) OpenPage(release.Page);
+            return;
+        }
+        Task.Run(async () =>
+        {
+            try
+            {
+                var path = await Updater.DownloadAsync(asset, Path.Combine(Service.Paths.Data, "Updates"));
+                var info = FileVersionInfo.GetVersionInfo(path);
+                if (info.ProductName != ProductInfo.Name)
+                    throw new InvalidDataException($"The downloaded installer says it is \"{info.ProductName}\", not {ProductInfo.Name}.");
+                OnUi(() =>
+                {
+                    _log.Info($"Installing {asset.Name}; {ProductInfo.Name} will reopen when it's done.");
+                    Program.PendingInstaller = path;
+                    Exit();
+                });
+            }
+            catch (Exception e) when (e is HttpRequestException or InvalidDataException or IOException or TaskCanceledException or UnauthorizedAccessException)
+            {
+                _log.Warn($"Update failed: {e.Message}");
+                OnUi(() => MessageBox.Show(owner, $"The update couldn't be installed: {e.Message}\n\nNothing was changed. You can download it from the project's Releases page instead.",
+                    ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning));
+            }
+        });
+    }
+
+    internal static void OpenPage(Uri page)
+    {
+        try { Process.Start(new ProcessStartInfo(page.ToString()) { UseShellExecute = true }); } catch (Exception) { }
     }
 
     private void TogglePause() => RunInBackground(() => Service.SetPaused(!Service.Settings.Paused));

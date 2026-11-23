@@ -9,6 +9,7 @@ using InterfaceSync.Core.Logging;
 using InterfaceSync.Core.Platform;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Settings;
+using InterfaceSync.Core.Updates;
 
 namespace InterfaceSync.Mac;
 
@@ -29,7 +30,10 @@ internal sealed class MacApp : Application, IMacHost
     private NativeMenuItem? _pause;
     private NativeMenuItem? _startupItem;
     private IStartAtLogin? _startup;
-    private readonly Dictionary<AppTheme, NativeMenuItem> _themeItems = [];
+    private NativeMenuItem? _darkItem;
+    private static readonly HttpClient Http = new();
+    private string? _announcedUpdate;
+    public Updater Updater { get; private set; } = null!;
     private StatusWindow? _status;
     private Timer? _timer;
     private FileLog? _log;
@@ -73,6 +77,8 @@ internal sealed class MacApp : Application, IMacHost
         MacTheme.Changed += OnThemeChanged;
         MacTheme.Apply(Service.Settings.Theme);
         Service.Changed += () => Dispatcher.UIThread.Post(RefreshTray);
+        Updater = new Updater(Service, Http, clock);
+        Updater.Changed += () => Dispatcher.UIThread.Post(OnUpdateChanged);
         Service.NoticeRaised += notice => Dispatcher.UIThread.Post(() => ShowNotice(notice));
 
         BuildTray(desktop);
@@ -92,14 +98,10 @@ internal sealed class MacApp : Application, IMacHost
         _startupItem = new NativeMenuItem(_startup!.Label) { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = _startup.IsEnabled };
         _startupItem.Click += (_, _) => ToggleStartAtLogin();
         menu.Opening += (_, _) => { if (_startupItem != null) _startupItem.IsChecked = _startup.IsEnabled; };
-        var appearance = new NativeMenuItem("Appearance") { Menu = new NativeMenu() };
-        foreach (var (theme, label) in ThemeChoices)
-        {
-            var item = new NativeMenuItem(label) { ToggleType = NativeMenuItemToggleType.Radio, IsChecked = theme == Service.Settings.Theme };
-            item.Click += (_, _) => ChooseTheme(theme);
-            _themeItems[theme] = item;
-            appearance.Menu.Items.Add(item);
-        }
+        _darkItem = new NativeMenuItem("Dark Mode") { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = MacTheme.IsDark };
+        _darkItem.Click += (_, _) => ToggleTheme(this);
+        var updates = new NativeMenuItem("Check for Updates...");
+        updates.Click += (_, _) => { ShowStatus(); _ = Updater.CheckAsync(); };
         var about = new NativeMenuItem($"About {ProductInfo.Name}");
         about.Click += (_, _) => Dialogs.About().Show();
         var quit = new NativeMenuItem($"Quit {ProductInfo.Name}");
@@ -110,7 +112,8 @@ internal sealed class MacApp : Application, IMacHost
         menu.Items.Add(sync);
         menu.Items.Add(_pause);
         menu.Items.Add(_startupItem);
-        menu.Items.Add(appearance);
+        menu.Items.Add(_darkItem);
+        menu.Items.Add(updates);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(about);
         menu.Items.Add(quit);
@@ -141,8 +144,8 @@ internal sealed class MacApp : Application, IMacHost
         StartPolling();
     }
 
-    internal static readonly (AppTheme Theme, string Label)[] ThemeChoices =
-        [(AppTheme.System, "Match macOS"), (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark")];
+    /// <summary>The sun/moon switch: light ⇄ dark.</summary>
+    internal static void ToggleTheme(IMacHost host) => ChooseTheme(host, MacTheme.IsDark ? AppTheme.Light : AppTheme.Dark);
 
     /// <summary>Applies at once and saves the choice for next time.</summary>
     internal static void ChooseTheme(IMacHost host, AppTheme theme)
@@ -151,12 +154,20 @@ internal sealed class MacApp : Application, IMacHost
         host.Run(() => host.Service.SetTheme(theme));
     }
 
-    private void ChooseTheme(AppTheme theme) => ChooseTheme(this, theme);
-
     private void OnThemeChanged()
     {
-        foreach (var (t, item) in _themeItems) item.IsChecked = t == MacTheme.Mode;
+        if (_darkItem != null) _darkItem.IsChecked = MacTheme.IsDark;
         _status?.Refresh();
+    }
+
+    private void OnUpdateChanged()
+    {
+        _status?.Refresh();
+        if (Updater.State == UpdateState.Available && Updater.Available is { } r && _announcedUpdate != r.Version)
+        {
+            _announcedUpdate = r.Version;
+            if (_headline != null) _headline.Header = $"{ProductInfo.Name} {r.Version} is available";
+        }
     }
 
     private void ToggleStartAtLogin()
@@ -181,7 +192,7 @@ internal sealed class MacApp : Application, IMacHost
     private void Poll()
     {
         if (Interlocked.Exchange(ref _busy, 1) == 1) return;
-        try { Service.Poll(); }
+        try { Service.Poll(); _ = Updater.CheckIfDueAsync(); }
         catch (Exception e) { _log?.Error($"Unexpected error while syncing: {e}"); }
         finally { Interlocked.Exchange(ref _busy, 0); }
     }
@@ -220,7 +231,7 @@ internal sealed class MacApp : Application, IMacHost
 
     private void ShowStatus()
     {
-        if (_status == null) _status = new StatusWindow(this, _startup);
+        if (_status == null) _status = new StatusWindow(this, _startup, Updater);
         _status.Show();
         _status.Activate();
         _status.Refresh();

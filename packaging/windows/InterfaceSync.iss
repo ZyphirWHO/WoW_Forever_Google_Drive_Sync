@@ -2,7 +2,7 @@
 ; %LOCALAPPDATA%\Programs\Interface Sync, adds a Start menu entry and an uninstaller in Apps & features.
 ; Your settings, backups and logs (%LOCALAPPDATA%\InterfaceSync) are kept on uninstall.
 ;
-; Built by CI:  ISCC /DAppName="Interface Sync" /DAppId=InterfaceSync /DAppVersion=2.0.0 /DSourceDir=<publish> /O<out> InterfaceSync.iss
+; Built by CI:  ISCC /DAppName="Interface Sync" /DAppId=InterfaceSync /DAppVersion=3.0.0 /DSourceDir=<publish> /O<out> InterfaceSync.iss
 ; Names and version come from Directory.Build.props.
 
 #ifndef AppName
@@ -82,3 +82,5 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupA
 
 [Run]
 Filename: "{app}\{#AppId}.exe"; Description: "Open {#AppName} now"; Flags: nowait postinstall skipifsilent
+; An update started from the app runs silently: open the app again afterwards, quietly in the tray.
+Filename: "{app}\{#AppId}.exe"; Parameters: "--tray --updated"; Flags: nowait skipifnotsilent

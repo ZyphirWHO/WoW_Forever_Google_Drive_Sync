@@ -27,8 +27,17 @@ public static class ProductInfo
 
     public static string Version => Self.GetName().Version?.ToString(3) ?? "0.0.0";
 
+    /// <summary>The version shown to people and compared with releases: "3.0.0", or "3.0.0-dev.42" for a CI build.</summary>
+    public static string DisplayVersion { get; } =
+        (Self.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? Version).Split('+')[0];
+
+    /// <summary>GitHub "owner/repo" checked for updates.</summary>
+    public static string Repository { get; } =
+        Self.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "ProductRepository")?.Value
+        ?? throw new InvalidOperationException("ProductRepository metadata is not set; check Directory.Build.props.");
+
     /// <summary>Descriptive use only: the game's name describes what the program works with.</summary>
-    public const string Tagline = "Syncs your World of Warcraft® interface settings between your Windows PCs.";
+    public const string Tagline = "Syncs your World of Warcraft® interface settings between your computers (Windows and Mac).";
 
     public const string NotAffiliated =
         "An independent, free, open-source tool. Not affiliated with, endorsed by or sponsored by Blizzard Entertainment, Inc.";

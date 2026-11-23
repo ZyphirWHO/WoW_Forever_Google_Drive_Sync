@@ -11,7 +11,7 @@ namespace InterfaceSync.App;
 
 /// <summary>
 /// First run, as a short wizard: Welcome, Your setup (what was found; change anything), Your settings (only when the
-/// cloud already has settings: which copy this PC uses), Finish (start with Windows, appearance), then the first
+/// cloud already has settings: which copy this PC uses), Finish (start with Windows), then the first
 /// sync with each version's result and a Finish button. No typing needed when detection works.
 /// </summary>
 internal sealed class FirstRun : Form
@@ -59,7 +59,6 @@ internal sealed class FirstRun : Form
     // "Finish"
     private readonly ToggleSwitch _startAtLogin = new($"Start {ProductInfo.Name} when I sign in to Windows (recommended)");
     private readonly Label _startAtLoginNote = new() { AutoSize = true, MaximumSize = new Size(PageWidth - 40, 0), Margin = new Padding(50, 0, 0, 4), Visible = false };
-    private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, Margin = new Padding(0, 2, 0, 2) };
     private readonly Label _summary = new() { AutoSize = true, MaximumSize = new Size(PageWidth - 34, 0), Margin = new Padding(0, 2, 0, 2) };
 
     // first sync
@@ -109,6 +108,7 @@ internal sealed class FirstRun : Form
         Controls.Add(_content);
         Controls.Add(footer);
         Controls.Add(_steps);
+        _banner.EnableThemeToggle(() => TrayApp.ToggleTheme(_service));
         Controls.Add(_banner);   // docked last = on top
 
         _next.Click += (_, _) => Next();
@@ -245,14 +245,6 @@ internal sealed class FirstRun : Form
             _finalPage.Controls.Add(MakeCard(CardHeader(Draw.Power, "Start automatically"), _startAtLogin, _startAtLoginNote));
         }
 
-        foreach (var (_, label) in TrayApp.ThemeChoices) _appearance.Items.Add(label);
-        _appearance.SelectedIndex = Array.FindIndex(TrayApp.ThemeChoices, c => c.Theme == Theme.Mode);
-        _appearance.SelectedIndexChanged += (_, _) =>
-        {
-            var chosen = TrayApp.ThemeChoices[Math.Max(0, _appearance.SelectedIndex)].Theme;
-            if (chosen != Theme.Mode) TrayApp.ChooseTheme(_service, chosen);
-        };
-        _finalPage.Controls.Add(MakeCard(CardHeader(Draw.Paint, "Appearance", _appearance)));
         _finalPage.Controls.Add(MakeCard(CardHeader(Draw.Check, "Ready to sync"), _summary));
     }
 

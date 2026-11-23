@@ -73,6 +73,27 @@ internal sealed class BrandBanner : Control
     private readonly Font _subtitle;
     private string _sub;
 
+    private ThemeToggle? _toggle;
+
+    /// <summary>Shows the sun/moon switch at the top right; <paramref name="toggle"/> flips light and dark.</summary>
+    public void EnableThemeToggle(Action toggle)
+    {
+        if (_toggle != null) return;
+        _toggle = new ThemeToggle(toggle);
+        Controls.Add(_toggle);
+        PlaceToggle();
+    }
+
+    internal ThemeToggle? Toggle => _toggle;
+
+    protected override void OnResize(EventArgs e) { base.OnResize(e); PlaceToggle(); }
+
+    private void PlaceToggle()
+    {
+        if (_toggle == null) return;
+        _toggle.Location = new Point(Width - _toggle.Width - 20, (int)((Height - 2.5f - _toggle.Height) / 2));
+    }
+
     public BrandBanner(string subtitle)
     {
         _sub = subtitle;
@@ -105,14 +126,11 @@ internal sealed class BrandBanner : Control
             using var pgb = new PathGradientBrush(glow) { CenterColor = Color.FromArgb(70, Brand.C(B.Gold)), SurroundColors = [Color.FromArgb(0, Brand.C(B.Gold))] };
             g.FillPath(pgb, glow);
         }
-        // fine gold filigree along the top-right corner
+        // fine gold filigree along the top edge
         using (var pen = new Pen(Color.FromArgb(90, Brand.C(B.Rule)), 1f))
-        {
-            g.DrawLine(pen, r.Right - 150, 10, r.Right - 14, 10);
-            g.DrawLine(pen, r.Right - 14, 10, r.Right - 14, 34);
-            g.DrawArc(pen, r.Right - 40, 10, 26, 26, 270, 90);
-        }
-        Brand.Diamond(g, r.Right - 150, 10, 2.5f, Color.FromArgb(140, Brand.C(B.Rule)));
+            g.DrawLine(pen, r.Right - 250, 10, r.Right - 120, 10);
+        Brand.Diamond(g, r.Right - 250, 10, 2.5f, Color.FromArgb(140, Brand.C(B.Rule)));
+        Brand.Diamond(g, r.Right - 120, 10, 2.5f, Color.FromArgb(140, Brand.C(B.Rule)));
 
         int crest = Height - 22;
         g.DrawImage(Brand.Crest, new Rectangle(16, 9, crest, crest));
@@ -177,6 +195,110 @@ internal sealed class SectionHeader : Control
     protected override void Dispose(bool disposing)
     {
         if (disposing) _font.Dispose();
+        base.Dispose(disposing);
+    }
+}
+
+/// <summary>
+/// The light/dark switch in the banner: a pill with a sun on the left and a crescent moon on the right; a gold knob
+/// sits behind the current one. Click, Space or Enter flips it.
+/// </summary>
+internal sealed class ThemeToggle : Button
+{
+    private readonly Action _toggle;
+    private readonly ToolTip _tip = new();
+    private bool _hover;
+
+    public ThemeToggle(Action toggle)
+    {
+        _toggle = toggle;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        FlatStyle = FlatStyle.Flat;
+        FlatAppearance.BorderSize = 0;
+        Size = new Size(70, 34);
+        Cursor = Cursors.Hand;
+        Theme.Changed += Refresh;
+        Refresh();
+    }
+
+    private new void Refresh()
+    {
+        var text = Theme.IsDark ? "Switch to light mode" : "Switch to dark mode";
+        AccessibleName = text;
+        AccessibleDescription = Theme.IsDark ? "Dark mode is on" : "Light mode is on";
+        _tip.SetToolTip(this, text);
+        Invalidate();
+    }
+
+    protected override void OnClick(EventArgs e) { base.OnClick(e); _toggle(); }
+    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        // the banner's gradient behind us, so the pill sits on it seamlessly
+        int top = Parent is { } p ? Top : 0, height = Parent?.Height ?? Height;
+        using (var bg = new LinearGradientBrush(new Rectangle(0, -top, Width, Math.Max(1, height)), Brand.C(B.Top), Brand.C(B.Bottom), LinearGradientMode.Vertical))
+            g.FillRectangle(bg, ClientRectangle);
+
+        var pill = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+        using (var path = Draw.Rounded(pill, pill.Height / 2))
+        {
+            using var fill = new SolidBrush(Color.FromArgb(_hover ? 70 : 45, 0, 0, 0));
+            g.FillPath(fill, path);
+            using var pen = new Pen(Color.FromArgb(_hover ? 200 : 130, Brand.C(B.Rule)));
+            g.DrawPath(pen, path);
+        }
+        float d = Height - 8, y = 4;
+        var sunSlot = new RectangleF(4, y, d, d);
+        var moonSlot = new RectangleF(Width - 4 - d, y, d, d);
+        var knob = Theme.IsDark ? moonSlot : sunSlot;
+        using (var k = new SolidBrush(Brand.C(B.Gold))) g.FillEllipse(k, knob);
+
+        var onGold = Brand.C(B.OnGold);
+        var idle = Color.FromArgb(200, Brand.C(B.Subtitle));
+        DrawSun(g, sunSlot, Theme.IsDark ? idle : onGold);
+        DrawMoon(g, moonSlot, Theme.IsDark ? onGold : idle);
+        if (Focused && ShowFocusCues)
+        {
+            using var focus = Draw.Rounded(RectangleF.Inflate(pill, -2, -2), pill.Height / 2 - 2);
+            using var pen = new Pen(Brand.C(B.GoldLight)) { DashStyle = DashStyle.Dot };
+            g.DrawPath(pen, focus);
+        }
+    }
+
+    internal static void DrawSun(Graphics g, RectangleF slot, Color color)
+    {
+        float cx = slot.X + slot.Width / 2, cy = slot.Y + slot.Height / 2, r = slot.Width * 0.17f;
+        using var brush = new SolidBrush(color);
+        g.FillEllipse(brush, cx - r, cy - r, 2 * r, 2 * r);
+        using var pen = new Pen(color, 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        for (int i = 0; i < 8; i++)
+        {
+            double a = i * Math.PI / 4;
+            float r1 = r + 2.6f, r2 = r + 5.2f;
+            g.DrawLine(pen, cx + (float)Math.Cos(a) * r1, cy + (float)Math.Sin(a) * r1, cx + (float)Math.Cos(a) * r2, cy + (float)Math.Sin(a) * r2);
+        }
+    }
+
+    internal static void DrawMoon(Graphics g, RectangleF slot, Color color)
+    {
+        float cx = slot.X + slot.Width / 2, cy = slot.Y + slot.Height / 2, r = slot.Width * 0.3f;
+        using var moon = new GraphicsPath();
+        moon.AddEllipse(cx - r, cy - r, 2 * r, 2 * r);
+        using var bite = new GraphicsPath();
+        bite.AddEllipse(cx - r + r * 0.75f, cy - r - r * 0.35f, 2 * r, 2 * r);
+        using var region = new Region(moon);
+        region.Exclude(bite);
+        using var brush = new SolidBrush(color);
+        g.FillRegion(brush, region);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { Theme.Changed -= Refresh; _tip.Dispose(); }
         base.Dispose(disposing);
     }
 }

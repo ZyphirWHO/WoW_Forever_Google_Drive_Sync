@@ -127,7 +127,7 @@ internal static class Theme
                 f.ForeColor = Text;
                 break;
 
-            case ModernButton or ToggleSwitch or StepIndicator or StatusPill:
+            case ModernButton or ToggleSwitch or StepIndicator or StatusPill or ThemeToggle:
                 c.ResetBackColor();
                 c.ResetForeColor();
                 c.Invalidate();

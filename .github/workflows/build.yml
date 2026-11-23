@@ -50,6 +50,7 @@ jobs:
           dotnet publish src/InterfaceSync.App/InterfaceSync.App.csproj -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
             -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:DebugType=none `
+            "-p:InformationalVersion=$((([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1))-dev.${{ github.run_number }}" `
             -o publish
           Get-ChildItem publish | Format-Table Name, Length
 
@@ -117,8 +118,8 @@ jobs:
       - name: Build the .app (arm64 and x64)
         run: |
           VERSION=$(python3 -c "import xml.etree.ElementTree as E; print(next(e.text for e in E.parse('Directory.Build.props').getroot().iter('Version')))")
-          packaging/macos/make-app.sh osx-arm64 "$VERSION" out
-          packaging/macos/make-app.sh osx-x64 "$VERSION" out
+          packaging/macos/make-app.sh osx-arm64 "$VERSION" out "$VERSION-dev.${{ github.run_number }}"
+          packaging/macos/make-app.sh osx-x64 "$VERSION" out "$VERSION-dev.${{ github.run_number }}"
       - name: Upload macOS development build
         uses: actions/upload-artifact@v4
         with:

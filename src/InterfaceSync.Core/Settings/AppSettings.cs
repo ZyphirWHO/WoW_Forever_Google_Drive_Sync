@@ -23,7 +23,9 @@ public enum AddonMode { Off /*, CopyWhenClosed — planned for 2.1 */ }
 /// <summary>%LOCALAPPDATA%\InterfaceSync\settings.json: user overrides and choices. Detected paths are re-detected every start.</summary>
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 1;
+    /// <summary>2: dark theme by default (3.0). Older files are upgraded on load.</summary>
+    public int SchemaVersion { get; set; } = CurrentSchema;
+    public const int CurrentSchema = 2;
 
     /// <summary>User-chosen WoW install folder; null = auto-detect.</summary>
     public string? WowInstallOverride { get; set; }
@@ -44,7 +46,11 @@ public sealed class AppSettings
     public Dictionary<string, string> CloudFolderNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public bool Paused { get; set; }
-    public AppTheme Theme { get; set; } = AppTheme.System;
+    /// <summary>Dark unless the player switched to light (the sun/moon button).</summary>
+    public AppTheme Theme { get; set; } = AppTheme.Dark;
+
+    /// <summary>Look for a newer release on GitHub once a day.</summary>
+    public bool CheckForUpdates { get; set; } = true;
     public bool SetupComplete { get; set; }
     public AddonMode AddonMode { get; set; } = AddonMode.Off;
     public DateTime? LastUpdateCheckUtc { get; set; }
@@ -86,6 +92,12 @@ public sealed class SettingsStore
             s.EnabledVersions = new(s.EnabledVersions, StringComparer.OrdinalIgnoreCase);
             s.CloudFolderNames = new(s.CloudFolderNames, StringComparer.OrdinalIgnoreCase);
             s.FirstSyncChoices = new(s.FirstSyncChoices ?? [], StringComparer.OrdinalIgnoreCase);
+            if (s.SchemaVersion < 2)
+            {
+                // 3.0 starts in dark mode; earlier builds defaulted to "match the computer".
+                if (s.Theme == AppTheme.System) s.Theme = AppTheme.Dark;
+                s.SchemaVersion = 2;
+            }
             return s;
         }
         catch (JsonException)
