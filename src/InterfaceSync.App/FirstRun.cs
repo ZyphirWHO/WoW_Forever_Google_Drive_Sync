@@ -440,7 +440,7 @@ internal sealed class FirstRun : Form
     private RadioButton WrappedRadio(string text, bool chosen)
     {
         const int width = 590;
-        var height = TextRenderer.MeasureText(text, Font, new Size(width - 24, 0), TextFormatFlags.WordBreak).Height;
+        var height = TextRenderer.MeasureText(text, Font, new Size(width - 44, 0), TextFormatFlags.WordBreak).Height;   // room for the round button and its gap
         return new RadioButton { Text = text, AutoSize = false, Size = new Size(width, height + 8), Checked = chosen, TextAlign = ContentAlignment.TopLeft, CheckAlign = ContentAlignment.TopLeft };
     }
 
