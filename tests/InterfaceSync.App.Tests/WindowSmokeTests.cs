@@ -1,3 +1,4 @@
+using InterfaceSync.Core.Abstractions;
 using InterfaceSync.App;
 using InterfaceSync.Core.Logging;
 using InterfaceSync.Core.Platform;
@@ -244,6 +245,41 @@ public sealed class WindowSmokeTests : IDisposable
             Application.DoEvents();
             form.AllowClose();
             form.Close();
+        });
+    }
+
+    [Fact]
+    public void Setup_switches_on_start_with_Windows_by_default_and_the_status_window_can_switch_it_off()
+    {
+        var service = Service(setupComplete: false, ("_forever_", true));
+        var registry = new FakeRegistry();
+        var exe = Path.Combine(_root, "Programs", "InterfaceSync.exe");
+        var startup = new WindowsStartAtLogin(registry, exe, Path.Combine(_root, "Temp"));
+        OnSta(() =>
+        {
+            using (var form = new FirstRun(service, registry, startup))
+            {
+                form.Show();
+                Application.DoEvents();
+                Assert.True(form.StartAtLoginChecked);
+                form.ClickStart();
+                var deadline = DateTime.UtcNow.AddSeconds(30);
+                while (!form.IsFinished && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+                form.Close();
+            }
+            Assert.Equal($"\"{exe}\" --tray", registry.GetString(RegistryHive.CurrentUser, WindowsStartAtLogin.RunKey, "InterfaceSync"));
+
+            using var status = new StatusForm(new TestHost(service)) { StartAtLogin = startup };
+            status.Show();
+            Application.DoEvents();
+            var box = AllControls(status).OfType<CheckBox>().Single(c => c.Text == "Start with Windows");
+            Assert.True(box.Checked);
+            status.ToggleStartAtLogin();
+            Application.DoEvents();
+            Assert.False(box.Checked);
+            Assert.False(startup.IsEnabled);
+            status.AllowClose();
+            status.Close();
         });
     }
 

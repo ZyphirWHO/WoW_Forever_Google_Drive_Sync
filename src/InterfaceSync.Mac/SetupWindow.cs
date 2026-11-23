@@ -6,6 +6,8 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using InterfaceSync.Core;
 using InterfaceSync.Core.Detection;
+using InterfaceSync.Core.Logging;
+using InterfaceSync.Core.Platform;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Settings;
 using InterfaceSync.Core.Sync;
@@ -26,6 +28,9 @@ internal sealed class SetupWindow : Window
     private readonly ComboBox _provider = new() { MinWidth = 260, Margin = new Thickness(0, 0, 0, 6) };
     private readonly TextBlock _cloudPath = Dialogs.Text("");
     private readonly TextBlock _notes = Dialogs.Text("", 12);
+    private readonly IStartAtLogin? _startup;
+    private readonly CheckBox _startAtLogin = new() { Content = new TextBlock { Text = $"Open {ProductInfo.Name} when I log in to this Mac (recommended)" }, Margin = new Thickness(0, 4, 0, 4) };
+    private readonly TextBlock _startAtLoginNote = Dialogs.Text("", 12);
     private readonly Button _start;
     private readonly StackPanel _setupPage = new();
     private readonly StackPanel _progressPage = new() { IsVisible = false };
@@ -44,8 +49,9 @@ internal sealed class SetupWindow : Window
         "• Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs.";
     private bool _syncing;
 
-    public SetupWindow(IMacHost host)
+    public SetupWindow(IMacHost host, IStartAtLogin? startAtLogin = null)
     {
+        _startup = startAtLogin;
         _host = host;
         Title = $"{ProductInfo.Name} setup";
         Icon = MacIcons.App;
@@ -68,6 +74,17 @@ internal sealed class SetupWindow : Window
         _setupPage.Children.Add(Row("", _cloudPath, Dialogs.Button("Change...", () => _ = ChooseCloud())));
         _setupPage.Children.Add(_choicesPanel);
         _setupPage.Children.Add(_notes);
+        if (_startup != null)
+        {
+            var why = _startup.CannotEnableReason;
+            _startAtLogin.IsChecked = why == null;
+            _startAtLogin.IsEnabled = why == null;
+            _startAtLoginNote.Text = why ?? "";
+            _startAtLoginNote.IsVisible = why != null;
+            _startAtLoginNote.Foreground = MacTheme.Muted;
+            _setupPage.Children.Add(_startAtLogin);
+            _setupPage.Children.Add(_startAtLoginNote);
+        }
         _setupPage.Children.Add(Dialogs.Buttons(Dialogs.Button("Cancel", Close), _start));
 
         _progressPage.Children.Add(_progressHeading);
@@ -214,6 +231,7 @@ internal sealed class SetupWindow : Window
         settings.SetupComplete = true;
         settings.CloudProvider ??= Service.EffectiveProvider();
         Service.SaveSettings(settings);
+        ApplyStartAtLogin();
 
         _syncing = true;
         _setupPage.IsVisible = false;
@@ -256,7 +274,7 @@ internal sealed class SetupWindow : Window
                           "What to do now: just play. When you quit the game, your settings are copied to the cloud within a minute. " +
                           $"On your other computer, open {ProductInfo.Name} with the game closed and it copies them in. " +
                           "Click the menu-bar icon any time to see what it did or change cloud folder.\n\n" +
-                          $"Open {ProductInfo.Name} again after restarting this Mac (or add it in System Settings → General → Login Items).";
+                          RestartLine;
         _finish.IsEnabled = true;
         _finish.Focus();
     }
@@ -274,6 +292,24 @@ internal sealed class SetupWindow : Window
     internal void ChooseThisComputer(string version) => _choicesMade.First(c => c.version == version).useMine.IsChecked = true;
     internal int VersionCount => _choices.Count;
     internal IReadOnlyList<string> ProviderChoices => (_provider.ItemsSource as IEnumerable<string>)?.ToList() ?? [];
+    private void ApplyStartAtLogin()
+    {
+        if (_startup == null || !_startAtLogin.IsEnabled) return;
+        try
+        {
+            if (_startAtLogin.IsChecked == true) _startup.Enable();
+            else if (_startup.IsEnabled) _startup.Disable();
+            Service.Log.Info($"{_startup.Label}: {(_startAtLogin.IsChecked == true ? "on" : "off")}.");
+        }
+        catch (Exception e) { Service.Log.Warn($"Couldn't change {_startup.Label}: {e.Message}"); }
+    }
+
+    private string RestartLine => _startup?.IsEnabled == true
+        ? $"It opens by itself when you log in. macOS may show \"Background Items Added\": that's this. Switch it off in the menu-bar menu ({_startup.Label})."
+        : $"Open {ProductInfo.Name} again after restarting this Mac, or switch on Open at Login in the menu-bar menu.";
+
+    internal bool StartAtLoginChecked { get => _startAtLogin.IsChecked == true; set => _startAtLogin.IsChecked = value; }
+
     internal void ClickStart() => StartSyncing();
     internal bool IsFinished => _finish.IsEnabled;
     internal IReadOnlyList<string> Results => _results.Children.OfType<TextBlock>().Select(t => t.Text ?? "").ToList();

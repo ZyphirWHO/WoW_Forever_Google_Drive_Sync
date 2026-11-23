@@ -16,6 +16,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _pauseItem;
     private readonly ContextMenuStrip _menu;
+    private readonly IStartAtLogin _startup;
+    private readonly ToolStripMenuItem _startupItem;
     private readonly Dictionary<AppTheme, ToolStripMenuItem> _themeItems = [];
     private readonly FileLog _log;
     private readonly IRegistry _registry = new WindowsRegistry();
@@ -44,7 +46,10 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         Service.NoticeRaised += notice => OnUi(() => ShowNotice(notice));
 
         _pauseItem = new ToolStripMenuItem("Pause syncing", null, (_, _) => TogglePause());
+        _startup = new WindowsStartAtLogin(_registry, Environment.ProcessPath ?? Application.ExecutablePath, Path.GetTempPath());
+        _startupItem = new ToolStripMenuItem(_startup.Label, null, (_, _) => ToggleStartAtLogin(_startup, _log, null));
         var menu = _menu = new ContextMenuStrip();
+        menu.Opening += (_, _) => _startupItem.Checked = _startup.IsEnabled;
         var appearance = new ToolStripMenuItem("Appearance");
         foreach (var (theme, label) in ThemeChoices)
         {
@@ -55,6 +60,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         menu.Items.Add(new ToolStripMenuItem("Open status", null, (_, _) => ShowStatus()) { Font = new Font(menu.Font, FontStyle.Bold) });
         menu.Items.Add(new ToolStripMenuItem("Sync now", null, (_, _) => RunInBackground(Service.SyncNow)));
         menu.Items.Add(_pauseItem);
+        menu.Items.Add(_startupItem);
         menu.Items.Add(appearance);
         menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => StatusForm.ShowAbout(null)));
         menu.Items.Add(new ToolStripSeparator());
@@ -85,9 +91,12 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
 
     private void AfterStart()
     {
+        try { if (_startup.Repair() is { } repaired) _log.Info(repaired); }
+        catch (Exception e) { _log.Warn($"Couldn't update the start-with-Windows entry: {e.Message}"); }
+
         if (!Service.Settings.SetupComplete)
         {
-            if (!FirstRun.RunSetup(Service, _registry))
+            if (!FirstRun.RunSetup(Service, _registry, _startup))
             {
                 _log.Info("First-run setup was cancelled; nothing was synced.");
                 Exit();
@@ -145,7 +154,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private void ShowStatus()
     {
         if (_status == null || _status.IsDisposed)
-            _status = new StatusForm(this);
+            _status = new StatusForm(this) { StartAtLogin = _startup };
         _status.Show();
         if (_status.WindowState == FormWindowState.Minimized) _status.WindowState = FormWindowState.Normal;
         _status.Activate();
@@ -175,6 +184,33 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     {
         if (e.Category == UserPreferenceCategory.General && Theme.Mode == AppTheme.System)
             OnUi(() => { if (Theme.IsDark != Theme.WindowsAppsUseDark()) Theme.Refresh(); });
+    }
+
+    /// <summary>Switches start-with-Windows on or off, explaining when it can't be switched on from here.</summary>
+    internal static void ToggleStartAtLogin(IStartAtLogin startup, ILog log, IWin32Window? owner)
+    {
+        try
+        {
+            if (startup.IsEnabled)
+            {
+                startup.Disable();
+                log.Info($"{startup.Label}: off.");
+            }
+            else if (startup.CannotEnableReason is { } why)
+            {
+                MessageBox.Show(owner, why, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                startup.Enable();
+                log.Info($"{startup.Label}: on.");
+            }
+        }
+        catch (Exception e)
+        {
+            log.Warn($"Couldn't change {startup.Label}: {e.Message}");
+            MessageBox.Show(owner, $"Couldn't change {startup.Label}: {e.Message}", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void TogglePause() => RunInBackground(() => Service.SetPaused(!Service.Settings.Paused));

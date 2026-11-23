@@ -58,9 +58,16 @@ Available offline*; OneDrive: *Always Keep on This Device*; Dropbox: *Make avail
 
 macOS may ask once whether Interface Sync may access files in your cloud folder. Allow it, or it can't sync.
 
+## Open at Login
+
+Setup ticks **Open Interface Sync when I log in** by default; it can be switched later from the menu-bar menu
+(**Open at Login**). It is a per-user Login Item (`~/Library/LaunchAgents/io.github.zyphirwho.interfacesync.plist`),
+so macOS shows "Background Items Added" once, and lists it in System Settings → General → Login Items, where it can
+also be switched off. Open Interface Sync from Applications at least once: a copy run from Downloads or a disk image
+can't be registered. If you move the app, open it once from its new place and the Login Item follows it.
+
 ## Not done yet on the Mac
 
-- Start at login (for now, add it in **System Settings → General → Login Items**).
 - macOS notifications: needs a notarised app. Until then, anything that needs you shows in the menu-bar menu,
   the icon gets a warning badge, and a conflict opens the status window.
 - Notarisation, so Gatekeeper doesn't warn.

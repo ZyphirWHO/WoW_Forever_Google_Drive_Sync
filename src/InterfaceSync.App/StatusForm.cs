@@ -1,8 +1,10 @@
+using InterfaceSync.Core.Logging;
 using InterfaceSync.Core;
 using System.Diagnostics;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Sync;
 using InterfaceSync.Core.Settings;
+using InterfaceSync.Core.Platform;
 
 namespace InterfaceSync.App;
 
@@ -27,7 +29,16 @@ internal sealed class StatusForm : Form
     private readonly Button _pause = new() { Text = "Pause syncing", AutoSize = true };
     private readonly Button _resolve = new() { Text = "Choose settings to keep...", AutoSize = true, Enabled = false };
     private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, Margin = new Padding(3, 4, 3, 3) };
+    private readonly CheckBox _startAtLogin = new() { AutoSize = true, AutoCheck = false, Margin = new Padding(16, 8, 3, 3), Visible = false };
     private bool _allowClose;
+
+    /// <summary>Start with Windows; the checkbox is hidden when not set (tests).</summary>
+    internal IStartAtLogin? StartAtLogin
+    {
+        get => _startup;
+        init { _startup = value; _startAtLogin.Visible = value != null; if (value != null) _startAtLogin.Text = value.Label; }
+    }
+    private readonly IStartAtLogin? _startup;
 
     public StatusForm(IStatusHost app)
     {
@@ -73,10 +84,11 @@ internal sealed class StatusForm : Form
             var chosen = TrayApp.ThemeChoices[Math.Max(0, _appearance.SelectedIndex)].Theme;
             if (chosen != Theme.Mode) TrayApp.ChooseTheme(Service, chosen);
         };
+        _startAtLogin.Click += (_, _) => ToggleStartAtLogin();
         var appearanceLabel = new Label { Text = "Appearance:", AutoSize = true, Margin = new Padding(12, 8, 0, 0) };
 
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
-        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag, about, appearanceLabel, _appearance]);
+        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag, about, appearanceLabel, _appearance, _startAtLogin]);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -95,6 +107,14 @@ internal sealed class StatusForm : Form
 
         Theme.Apply(this);
         Theme.Changed += OnThemeChanged;
+    }
+
+    /// <summary>The Start with Windows checkbox (also used by tests).</summary>
+    internal void ToggleStartAtLogin()
+    {
+        if (_startup == null) return;
+        TrayApp.ToggleStartAtLogin(_startup, Service.Log, this);
+        _startAtLogin.Checked = _startup.IsEnabled;
     }
 
     private void OnThemeChanged()
@@ -173,6 +193,7 @@ internal sealed class StatusForm : Form
         _list.EndUpdate();
 
         _pause.Text = Service.Settings.Paused ? "Resume syncing" : "Pause syncing";
+        if (_startup != null) _startAtLogin.Checked = _startup.IsEnabled;
         // Newest first, so the latest action is visible without scrolling.
         _logBox.Text = string.Join(Environment.NewLine, Service.RecentLog(200).Reverse().Select(l => l.ToString()));
         UpdateButtons();

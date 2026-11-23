@@ -27,6 +27,8 @@ internal sealed class MacApp : Application, IMacHost
     private TrayIcon? _tray;
     private NativeMenuItem? _headline;
     private NativeMenuItem? _pause;
+    private NativeMenuItem? _startupItem;
+    private IStartAtLogin? _startup;
     private readonly Dictionary<AppTheme, NativeMenuItem> _themeItems = [];
     private StatusWindow? _status;
     private Timer? _timer;
@@ -61,6 +63,9 @@ internal sealed class MacApp : Application, IMacHost
         _log = new FileLog(fs, clock, paths.Logs);
         if (moved != null) _log.Info(moved);
         Service = new SyncService(fs, new NoRegistry(), new MacProcessList(), env, clock, _log, paths, Environment.MachineName);
+        _startup = new MacStartAtLogin(fs, env.UserProfile, Environment.ProcessPath ?? "", ProductInfo.BundleId);
+        try { if (_startup.Repair() is { } repaired) _log.Info(repaired); }
+        catch (Exception e) { _log.Warn($"Couldn't update Open at Login: {e.Message}"); }
         MacTheme.Changed += OnThemeChanged;
         MacTheme.Apply(Service.Settings.Theme);
         Service.Changed += () => Dispatcher.UIThread.Post(RefreshTray);
@@ -80,6 +85,9 @@ internal sealed class MacApp : Application, IMacHost
         sync.Click += (_, _) => Run(Service.SyncNow);
         _pause = new NativeMenuItem("Pause syncing") { ToggleType = NativeMenuItemToggleType.CheckBox };
         _pause.Click += (_, _) => Run(() => Service.SetPaused(!Service.Settings.Paused));
+        _startupItem = new NativeMenuItem(_startup!.Label) { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = _startup.IsEnabled };
+        _startupItem.Click += (_, _) => ToggleStartAtLogin();
+        menu.Opening += (_, _) => { if (_startupItem != null) _startupItem.IsChecked = _startup.IsEnabled; };
         var appearance = new NativeMenuItem("Appearance") { Menu = new NativeMenu() };
         foreach (var (theme, label) in ThemeChoices)
         {
@@ -97,6 +105,7 @@ internal sealed class MacApp : Application, IMacHost
         menu.Items.Add(open);
         menu.Items.Add(sync);
         menu.Items.Add(_pause);
+        menu.Items.Add(_startupItem);
         menu.Items.Add(appearance);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(about);
@@ -110,7 +119,7 @@ internal sealed class MacApp : Application, IMacHost
     {
         if (!Service.Settings.SetupComplete)
         {
-            var setup = new SetupWindow(this);
+            var setup = new SetupWindow(this, _startup);
             setup.Closed += (_, _) =>
             {
                 if (!setup.Started)
@@ -144,6 +153,23 @@ internal sealed class MacApp : Application, IMacHost
     {
         foreach (var (t, item) in _themeItems) item.IsChecked = t == MacTheme.Mode;
         _status?.Refresh();
+    }
+
+    private void ToggleStartAtLogin()
+    {
+        if (_startup == null || _log == null) return;
+        try
+        {
+            if (_startup.IsEnabled) { _startup.Disable(); _log.Info($"{_startup.Label}: off."); }
+            else if (_startup.CannotEnableReason is { } why) Dialogs.Message(why).Show();
+            else { _startup.Enable(); _log.Info($"{_startup.Label}: on."); }
+        }
+        catch (Exception e)
+        {
+            _log.Warn($"Couldn't change {_startup.Label}: {e.Message}");
+            Dialogs.Message($"Couldn't change {_startup.Label}: {e.Message}").Show();
+        }
+        if (_startupItem != null) _startupItem.IsChecked = _startup.IsEnabled;
     }
 
     private void StartPolling() => _timer ??= new Timer(_ => Poll(), null, TimeSpan.Zero, SyncService.PollInterval);

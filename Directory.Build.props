@@ -26,5 +26,6 @@
 
   <ItemGroup>
     <AssemblyMetadata Include="ProductId" Value="$(ProductId)" />
+    <AssemblyMetadata Include="ProductBundleId" Value="$(ProductBundleId)" />
   </ItemGroup>
 </Project>

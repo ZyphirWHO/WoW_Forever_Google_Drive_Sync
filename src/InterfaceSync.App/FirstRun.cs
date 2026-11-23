@@ -1,3 +1,5 @@
+using InterfaceSync.Core.Logging;
+using InterfaceSync.Core.Platform;
 using InterfaceSync.Core;
 using InterfaceSync.Core.Abstractions;
 using InterfaceSync.Core.Detection;
@@ -25,6 +27,9 @@ internal sealed class FirstRun : Form
     private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
     private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
+    private readonly IStartAtLogin? _startup;
+    private readonly CheckBox _startAtLogin = new() { AutoSize = true, Margin = new Padding(0, 8, 0, 2), Text = $"Start {ProductInfo.Name} when I sign in to Windows (recommended)" };
+    private readonly Label _startAtLoginNote = new() { AutoSize = true, MaximumSize = new Size(600, 0), Margin = new Padding(18, 0, 0, 6), Visible = false };
     private readonly FlowLayoutPanel _choicesPanel = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 8) };
     private readonly List<(string version, RadioButton useCloud, RadioButton useMine)> _choices = [];
 
@@ -44,10 +49,11 @@ internal sealed class FirstRun : Form
     private bool _syncStarted;
     private volatile bool _syncing;
 
-    internal FirstRun(SyncService service, IRegistry registry)
+    internal FirstRun(SyncService service, IRegistry registry, IStartAtLogin? startAtLogin = null)
     {
         _service = service;
         _registry = registry;
+        _startup = startAtLogin;
         Text = $"{ProductInfo.Name} setup";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = MinimizeBox = false;
@@ -83,6 +89,16 @@ internal sealed class FirstRun : Form
         var lower = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         lower.Controls.Add(_choicesPanel);
         lower.Controls.Add(_notes);
+        if (_startup != null)
+        {
+            var why = _startup.CannotEnableReason;
+            _startAtLogin.Checked = why == null;
+            _startAtLogin.Enabled = why == null;
+            _startAtLoginNote.Text = why ?? "";
+            _startAtLoginNote.Visible = why != null;
+            lower.Controls.Add(_startAtLogin);
+            lower.Controls.Add(_startAtLoginNote);
+        }
         grid.Controls.Add(lower, 0, 5);
         grid.SetColumnSpan(lower, 3);
 
@@ -107,13 +123,14 @@ internal sealed class FirstRun : Form
             - (e.CurrentValue == CheckState.Checked ? 1 : 0));
         Fill();
         Theme.SetRole(_notes, TextRole.Warning);
+        Theme.SetRole(_startAtLoginNote, TextRole.Muted);
         Theme.Apply(this);
     }
 
     /// <summary>Shows the window; true when the player started syncing.</summary>
-    public static bool RunSetup(SyncService service, IRegistry registry)
+    public static bool RunSetup(SyncService service, IRegistry registry, IStartAtLogin? startAtLogin = null)
     {
-        using var form = new FirstRun(service, registry);
+        using var form = new FirstRun(service, registry, startAtLogin);
         return form.ShowDialog() == DialogResult.OK;
     }
 
@@ -276,8 +293,28 @@ internal sealed class FirstRun : Form
         settings.CloudProvider ??= _service.EffectiveProvider();
         _service.SaveSettings(settings);
         if (_keepOnDevice.Visible && _keepOnDevice.Checked) _service.KeepCloudFolderOnDevice();
+        ApplyStartAtLogin();
         ShowProgressAndSync();
     }
+
+    private void ApplyStartAtLogin()
+    {
+        if (_startup == null || !_startAtLogin.Enabled) return;
+        try
+        {
+            if (_startAtLogin.Checked) _startup.Enable();
+            else if (_startup.IsEnabled) _startup.Disable();
+            _service.Log.Info($"{_startup.Label}: {(_startAtLogin.Checked ? "on" : "off")}.");
+        }
+        catch (Exception e) { _service.Log.Warn($"Couldn't change {_startup.Label}: {e.Message}"); }
+    }
+
+    /// <summary>For tests.</summary>
+    internal bool StartAtLoginChecked { get => _startAtLogin.Checked; set => _startAtLogin.Checked = value; }
+
+    private string RestartLine => _startup?.IsEnabled == true
+        ? $"It starts by itself when you sign in to Windows (switch that off in the tray menu: {_startup.Label})."
+        : $"Start {ProductInfo.Name} again after restarting this PC, or switch on {_startup?.Label ?? "Start with Windows"} in the tray menu.";
 
     // ------------------------------------------------------------------ first-sync progress
 
@@ -311,7 +348,7 @@ internal sealed class FirstRun : Form
             "What to do now: just play. When you quit the game, your settings are copied to the cloud within a minute. " +
             "On your other computer, open Interface Sync with the game closed and it copies them in. " +
             "Click the tray icon any time to see what it did, change cloud folder, or open your backups.\n\n" +
-            "Start Interface Sync again after restarting this PC (starting it automatically is coming soon).";
+            RestartLine;
 
         var workers = _service.Workers;
         _results.Items.Clear();
@@ -353,7 +390,7 @@ internal sealed class FirstRun : Form
             : problems == 0 ? "Setup complete." : "Setup complete, but something needs a look (shown in red).";
         _afterword.Text =
             $"{ProductInfo.Name} keeps running in the system tray: its icon by the clock (it may be under the ^ arrow). " +
-            "It syncs on its own whenever you close the game. Click the icon to see its status at any time.";
+            "It syncs on its own whenever you close the game. Click the icon to see its status at any time.\n\n" + RestartLine;
         _finish.Enabled = true;
         _finish.Focus();
     }

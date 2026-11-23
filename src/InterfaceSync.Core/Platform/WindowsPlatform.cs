@@ -26,6 +26,7 @@ public sealed class WindowsRegistry : IRegistry
             {
                 string s => s,
                 string[] arr => string.Join("\n", arr),
+                byte[] bytes => Convert.ToHexString(bytes),   // e.g. Task Manager's StartupApproved flags
                 null => null,
                 var other => other.ToString(),
             };

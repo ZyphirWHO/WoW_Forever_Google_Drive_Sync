@@ -140,6 +140,27 @@ public sealed class MacWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void Setup_switches_on_open_at_login_by_default()
+    {
+        var (service, _) = MakeService(setupComplete: false);
+        var home = Path.Combine(_root, "Users", "player");
+        var app = "/Applications/Interface Sync.app/Contents/MacOS/InterfaceSync";
+        var startup = new MacStartAtLogin(new PhysicalFileSystem(), home, app, "io.github.zyphirwho.interfacesync");
+        var window = new SetupWindow(new Host(service), startup);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.StartAtLoginChecked);
+        window.ClickStart();
+        Dispatcher.UIThread.RunJobs();
+
+        var plist = Path.Combine(home, "Library", "LaunchAgents", "io.github.zyphirwho.interfacesync.plist");
+        Assert.True(File.Exists(plist));
+        Assert.Contains($"<string>{app}</string>", File.ReadAllText(plist));
+        Assert.True(startup.IsEnabled);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void Status_window_lists_each_version()
     {
         var (service, _) = MakeService(setupComplete: true);

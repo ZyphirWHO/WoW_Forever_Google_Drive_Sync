@@ -635,6 +635,9 @@ public sealed class SyncService
 
     public IReadOnlyList<LogLine> RecentLog(int max = 200) => _log.Recent(max);
 
+    /// <summary>The app's log, for the windows' own messages (start at login and the like).</summary>
+    public ILog Log => _log;
+
     /// <summary>Paths, versions and the last 200 log lines, for "Copy diagnostics".</summary>
     public string Diagnostics()
     {

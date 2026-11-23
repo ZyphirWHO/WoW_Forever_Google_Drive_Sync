@@ -20,6 +20,11 @@ public static class ProductInfo
         Self.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "ProductId")?.Value
         ?? throw new InvalidOperationException("ProductId metadata is not set; check Directory.Build.props.");
 
+    /// <summary>macOS bundle id, e.g. "io.github.zyphirwho.interfacesync": also the Login Item's name.</summary>
+    public static string BundleId { get; } =
+        Self.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "ProductBundleId")?.Value
+        ?? throw new InvalidOperationException("ProductBundleId metadata is not set; check Directory.Build.props.");
+
     public static string Version => Self.GetName().Version?.ToString(3) ?? "0.0.0";
 
     /// <summary>Descriptive use only: the game's name describes what the program works with.</summary>
