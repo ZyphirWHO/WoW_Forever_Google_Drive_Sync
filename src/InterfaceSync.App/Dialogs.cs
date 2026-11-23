@@ -137,7 +137,7 @@ internal sealed class ConflictDialog : Form
         StartPosition = FormStartPosition.CenterParent;
         Font = SystemFonts.MessageBoxFont ?? Font;
         Icon = TrayIcons.AppIcon;
-        ClientSize = new Size(760, 430);
+        ClientSize = new Size(760, 470);
 
         var heading = new Label { Text = $"{version}: settings changed in two places", AutoSize = true, UseMnemonic = false, Font = new Font(Font.FontFamily, 14f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 4) };
         var reason = new Label { Text = c.Reason, AutoSize = true, UseMnemonic = false, MaximumSize = new Size(700, 0), Margin = new Padding(0, 0, 0, 14) };

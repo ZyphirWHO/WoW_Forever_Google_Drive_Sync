@@ -40,6 +40,9 @@ internal sealed class StatusWindow : Window
     private readonly ToggleSwitch _autoUpdate = new() { OnContent = null, OffContent = null, MinWidth = 0 };
     private readonly TextBlock _updateStatus = Ui.Text("", 12, brush: "InterfaceSyncMuted");
     private bool _refreshingUpdate;
+    private readonly Border _dupBar;
+    private readonly TextBlock _dupTitle = Ui.Text("", 14, FontWeight.SemiBold);
+    private readonly TextBlock _dupDetail = Ui.Text("", 12, brush: "InterfaceSyncMuted");
     private readonly ToggleSwitch _startAtLogin = new() { OnContent = null, OffContent = null, MinWidth = 0 };
     private readonly TextBlock _lastLine = Ui.Text("", 12, brush: "InterfaceSyncMuted");
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, Height = 220, FontFamily = new FontFamily("Menlo, monospace"), FontSize = 11, IsVisible = false, Margin = new Thickness(0, 8, 0, 0) };
@@ -86,6 +89,24 @@ internal sealed class StatusWindow : Window
         Ui.Res(_updateBar, Border.BorderBrushProperty, "InterfaceSyncAccent");
         _updateBar.BorderThickness = new Thickness(1.5);
         _updateBar.IsVisible = false;
+        // copies of the cloud folder made by the cloud app: pointed out, never touched
+        var dupIcon = Ui.Icon(Ui.Warning, 22, "InterfaceSyncWarning");
+        dupIcon.VerticalAlignment = VerticalAlignment.Top;
+        dupIcon.Margin = new Thickness(0, 2, 14, 0);
+        var dupButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Top, Children =
+        {
+            Ui.Button("Hide", () => { foreach (var d in Service.Duplicates.ToList()) Service.HideDuplicate(d); Refresh(); }, ButtonKind.Ghost),
+            Ui.Button("Show folder", () => { if (Service.Duplicates.FirstOrDefault() is { } d) _ = Open(d.Path); }, ButtonKind.Secondary, Ui.Folder),
+        } };
+        var dupText = new StackPanel { Spacing = 4, Children = { _dupTitle, _dupDetail } };
+        var dupGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Children = { dupIcon, dupText, dupButtons } };
+        Grid.SetColumn(dupText, 1);
+        Grid.SetColumn(dupButtons, 2);
+        _dupBar = Ui.CardOf(dupGrid);
+        Ui.Res(_dupBar, Border.BorderBrushProperty, "InterfaceSyncWarning");
+        _dupBar.BorderThickness = new Thickness(1.5);
+        _dupBar.IsVisible = false;
+
         _autoUpdate.IsCheckedChanged += (_, _) =>
         {
             if (_refreshingUpdate || _updater == null) return;
@@ -121,6 +142,7 @@ internal sealed class StatusWindow : Window
 
         var root = new StackPanel { Margin = new Thickness(24, 16, 24, 20) };
         root.Children.Add(_updateBar);
+        root.Children.Add(_dupBar);
         root.Children.Add(heroCard);
         root.Children.Add(MacBrand.Section("Game versions"));
         root.Children.Add(_rows);
@@ -179,6 +201,7 @@ internal sealed class StatusWindow : Window
     /// <summary>For tests: what the sun/moon switch does.</summary>
     internal void ChooseAppearance(AppTheme theme) => MacApp.ChooseTheme(_host, theme);
     internal bool UpdateOffered => _updateBar.IsVisible;
+    internal bool DuplicateShown => _dupBar.IsVisible;
 
     /// <summary>Opens this Mac's disk image (or the release page) in the browser: an unsigned app can't replace itself.</summary>
     private async Task DownloadUpdate()
@@ -198,6 +221,19 @@ internal sealed class StatusWindow : Window
     public void Refresh()
     {
         var now = DateTime.UtcNow;
+        var dups = Service.Duplicates;
+        _dupBar.IsVisible = dups.Count > 0;
+        if (dups.Count > 0)
+        {
+            _dupTitle.Text = dups.Count == 1
+                ? $"{Service.ProviderName} made a copy of an {ProductInfo.Name} folder"
+                : $"{Service.ProviderName} made {dups.Count} copies of {ProductInfo.Name} folders";
+            _dupDetail.Text = string.Join("\n", dups.Take(3).Select(d => $"• \"{d.Name}\" ({d.FileCount} file{(d.FileCount == 1 ? "" : "s")}, last changed {StatusWords.Ago(d.NewestUtc, now)})")) +
+                (dups.Count > 3 ? $"\n• and {dups.Count - 3} more (see the log)" : "") +
+                $"\nThis happens when two computers save at the same moment. {ProductInfo.Name} only uses \"{dups[0].CopyOf}\" and hasn't moved or deleted anything. " +
+                $"Look inside, and delete the copy in {Service.ProviderName} when you're sure you don't need it.";
+        }
+
         if (_updater != null)
         {
             _refreshingUpdate = true;

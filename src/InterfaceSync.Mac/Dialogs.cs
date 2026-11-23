@@ -29,24 +29,37 @@ internal static class Dialogs
         return panel;
     }
 
-    private static Window Small(string title, Control content) => new()
+    private static Window Small(string title, Control content, double width = 480) => new()
     {
         Title = title,
         Icon = MacIcons.App,
-        Width = 460,
+        Width = width,
         SizeToContent = SizeToContent.Height,
         CanResize = false,
         WindowStartupLocation = WindowStartupLocation.CenterScreen,
-        Content = new Border { Padding = new Thickness(18), Child = content },
+        Content = content,
     };
 
-    public static Window Message(string message)
+    /// <summary>A message in the app's look: an icon, an optional heading, the text and an OK button.</summary>
+    public static Window Message(string message, string? heading = null, bool warning = false)
     {
         Window? w = null;
-        var panel = new StackPanel();
-        panel.Children.Add(Text(message));
-        panel.Children.Add(Buttons(Button("OK", () => w!.Close(), isDefault: true)));
-        return w = Small(ProductInfo.Name, panel);
+        var icon = Ui.Icon(warning ? Ui.Warning : Ui.Info, 26, warning ? "InterfaceSyncWarning" : "InterfaceSyncAccent");
+        icon.VerticalAlignment = VerticalAlignment.Top;
+        icon.Margin = new Thickness(0, 2, 16, 0);
+        var text = new StackPanel { Spacing = 6 };
+        if (heading != null) text.Children.Add(Ui.Text(heading, 15, FontWeight.SemiBold));
+        text.Children.Add(Ui.Text(message, 13));
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Children = { icon, text } };
+        Grid.SetColumn(text, 1);
+        var ok = Ui.Button("OK", () => w!.Close(), ButtonKind.Primary);
+        ok.IsDefault = true;
+        var root = new StackPanel { Margin = new Thickness(22, 20, 22, 16), Children =
+        {
+            row,
+            new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0), Children = { ok } },
+        } };
+        return w = Small(ProductInfo.Name, root);
     }
 
     internal static string AboutText =>
@@ -55,31 +68,75 @@ internal static class Dialogs
     public static Window About()
     {
         Window? w = null;
-        var panel = new StackPanel();
-        panel.Children.Add(new Image { Source = new Avalonia.Media.Imaging.Bitmap(typeof(Dialogs).Assembly.GetManifestResourceStream("app.png")!), Width = 64, Height = 64, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 10) });
-        panel.Children.Add(Text($"{ProductInfo.Name} {ProductInfo.DisplayVersion}", 16, FontWeight.SemiBold));
-        panel.Children.Add(Text(AboutText));
-        panel.Children.Add(Buttons(Button("OK", () => w!.Close(), isDefault: true)));
-        return w = Small($"About {ProductInfo.Name}", panel);
+        var (banner, _) = MacBrand.Banner($"Version {ProductInfo.DisplayVersion}");
+        var ok = Ui.Button("OK", () => w!.Close(), ButtonKind.Primary);
+        ok.IsDefault = true;
+        var root = new StackPanel { Children =
+        {
+            banner,
+            new StackPanel { Margin = new Thickness(22, 16, 22, 16), Children =
+            {
+                Ui.Text(AboutText, 12.5),
+                new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0), Children = { ok } },
+            } },
+        } };
+        return w = Small($"About {ProductInfo.Name}", root, 560);
     }
 
-    /// <summary>Asks which copy to keep; the newer one is the default. Calls back with null on cancel.</summary>
+    /// <summary>
+    /// "Settings changed in two places": this Mac's copy and the cloud copy side by side (which computer, when each
+    /// last changed, the newer one marked), each with its Keep button. Calls back with null on "Decide later".
+    /// </summary>
     public static Window ChooseKeep(string version, ConflictInfo c, Action<KeepChoice?> answer)
     {
         Window? w = null;
         bool answered = false;
         void Done(KeepChoice? k) { answered = true; answer(k); w!.Close(); }
-        var panel = new StackPanel();
-        panel.Children.Add(Text($"{version}: settings changed in two places", 15, FontWeight.SemiBold));
-        panel.Children.Add(Text(c.Reason));
-        panel.Children.Add(Text($"This Mac{(c.LocalMachine != null ? $" ({c.LocalMachine})" : "")}: last changed {Format(c.LocalNewestUtc)}\n" +
-                                $"Cloud{(c.CloudPushedBy != null ? $" (from {c.CloudPushedBy})" : "")}: last changed {Format(c.CloudNewestUtc)}"));
-        panel.Children.Add(Text("The copy you don't keep is saved as a backup."));
-        panel.Children.Add(Buttons(
-            Button("Cancel", () => Done(null)),
-            Button("Keep the cloud settings", () => Done(KeepChoice.Cloud), c.Suggested == KeepChoice.Cloud),
-            Button("Keep this Mac's settings", () => Done(KeepChoice.Local), c.Suggested == KeepChoice.Local)));
-        w = Small(ProductInfo.Name, panel);
+
+        Border Side(string icon, string title, DateTime? changed, bool newer, string keep, KeepChoice choice, string effect)
+        {
+            var button = Ui.Button(keep, () => Done(choice), newer ? ButtonKind.Primary : ButtonKind.Secondary);
+            if (newer) button.IsDefault = true;
+            var stack = new StackPanel { Spacing = 6, Children =
+            {
+                Ui.Icon(icon, 24),
+                Ui.Text(title, 14, FontWeight.SemiBold),
+            } };
+            ((Control)stack.Children[0]).HorizontalAlignment = HorizontalAlignment.Left;
+            if (newer) stack.Children.Add(Ui.Pill("Newer", "InterfaceSyncAccent"));
+            ((Control)stack.Children[^1]).HorizontalAlignment = HorizontalAlignment.Left;
+            stack.Children.Add(Ui.Text(changed is { } t ? $"Last changed {t.ToLocalTime():ddd d MMM, HH:mm} ({StatusWords.Ago(t, DateTime.UtcNow)})" : "Last changed: unknown", 12.5));
+            stack.Children.Add(Ui.Text(effect, 12, brush: "InterfaceSyncMuted", bottom: 6));
+            stack.Children.Add(button);
+            var card = Ui.CardOf(stack);
+            if (newer) { Ui.Res(card, Border.BorderBrushProperty, "InterfaceSyncAccent"); card.BorderThickness = new Thickness(1.5); }
+            return card;
+        }
+
+        var mine = Side(Ui.Game, c.LocalMachine != null ? $"This Mac ({c.LocalMachine})" : "This Mac", c.LocalNewestUtc, c.Suggested == KeepChoice.Local,
+            "Keep this Mac's settings", KeepChoice.Local, "Uses the settings on this Mac and uploads them, replacing the cloud copy.");
+        var cloud = Side(Ui.Cloud, c.CloudPushedBy != null ? $"Cloud copy (from {c.CloudPushedBy})" : "Cloud copy", c.CloudNewestUtc, c.Suggested == KeepChoice.Cloud,
+            "Keep the cloud settings", KeepChoice.Cloud, "Downloads the cloud copy, replacing this Mac's settings.");
+        mine.Margin = new Thickness(0, 0, 8, 0);
+        cloud.Margin = new Thickness(8, 0, 0, 0);
+        var sides = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Children = { mine, cloud } };
+        Grid.SetColumn(cloud, 1);
+
+        var later = Ui.Button("Decide later", () => Done(null), ButtonKind.Ghost);
+        var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 12, 0, 0), Children =
+        {
+            Ui.Text("The copy you don't keep is saved as a backup, so you can get it back any time with Restore… on this game version.", 12, brush: "InterfaceSyncMuted"),
+            later,
+        } };
+        Grid.SetColumn(later, 1);
+        var root = new StackPanel { Margin = new Thickness(22, 20, 22, 16), Spacing = 4, Children =
+        {
+            Ui.Text($"{version}: settings changed in two places", 19, FontWeight.SemiBold),
+            Ui.Text(c.Reason, 12.5, brush: "InterfaceSyncMuted", bottom: 10),
+            sides,
+            footer,
+        } };
+        w = Small($"{ProductInfo.Name}: choose which settings to keep", root, 760);
         w.Closed += (_, _) => { if (!answered) answer(null); };
         return w;
     }

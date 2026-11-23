@@ -235,6 +235,27 @@ public sealed class MacWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void Status_window_points_out_a_copy_of_the_cloud_folder_and_the_conflict_window_returns_the_choice()
+    {
+        var (service, myDrive) = MakeService(setupComplete: true);
+        Directory.CreateDirectory(Path.Combine(myDrive, "InterfaceSync (1)", "_retail_"));
+        service.Start();
+        var window = new StatusWindow(new Host(service));
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.DuplicateShown);
+        window.AllowClose();
+
+        InterfaceSync.Core.Sync.KeepChoice? chosen = null;
+        var info = new InterfaceSync.Core.Sync.ConflictInfo { Reason = "Both changed.", LocalNewestUtc = DateTime.UtcNow.AddHours(-1), CloudNewestUtc = DateTime.UtcNow, CloudPushedBy = "HOME-PC" };
+        var dialog = Dialogs.ChooseKeep("_retail_", info, k => chosen = k);
+        dialog.Show();
+        Dispatcher.UIThread.RunJobs();
+        dialog.Close();                                                  // "decide later"
+        Assert.Null(chosen);
+    }
+
+    [AvaloniaFact]
     public void Status_window_lists_each_version()
     {
         var (service, _) = MakeService(setupComplete: true);
