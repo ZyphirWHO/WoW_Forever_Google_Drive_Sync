@@ -185,6 +185,8 @@ internal sealed class FirstRun : Form
             bool on = !_service.Settings.EnabledVersions.TryGetValue(v.FolderName, out var saved) || saved;
             _versions.Items.Add(new VersionItem(v), on);
         }
+        // Only as tall as it needs to be (up to five rows), so the window fits on small screens.
+        _versions.Height = Math.Clamp(_versions.Items.Count, 1, 5) * _versions.ItemHeight + 8;
 
         var notes = new List<string>();
         if (notLaunched.Count > 0)
@@ -220,8 +222,8 @@ internal sealed class FirstRun : Form
         {
             var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(8, 2, 0, 6) };
             box.Controls.Add(new Label { Text = p.Version, AutoSize = true, Font = new Font(Font, FontStyle.Bold) });
-            var useCloud = new RadioButton { Text = p.CloudOptionText(), AutoSize = true, MaximumSize = new Size(590, 0), Checked = p.Suggested == FirstSyncChoice.UseCloud };
-            var useMine = new RadioButton { Text = p.LocalOptionText(), AutoSize = true, MaximumSize = new Size(590, 0), Checked = p.Suggested == FirstSyncChoice.UseThisComputer };
+            var useCloud = WrappedRadio(p.CloudOptionText(), p.Suggested == FirstSyncChoice.UseCloud);
+            var useMine = WrappedRadio(p.LocalOptionText(), p.Suggested == FirstSyncChoice.UseThisComputer);
             box.Controls.Add(useCloud);
             box.Controls.Add(useMine);
             _choicesPanel.Controls.Add(box);
@@ -433,6 +435,35 @@ internal sealed class FirstRun : Form
     internal void ClickStart() => _start.PerformClick();
     internal bool IsFinished => _finish.Enabled;
     internal IReadOnlyList<string> Results => _results.Items.Cast<ListViewItem>().Select(i => $"{i.Text}: {i.SubItems[1].Text}").ToList();
+
+    /// <summary>A radio button whose long text wraps instead of running off the window.</summary>
+    private RadioButton WrappedRadio(string text, bool chosen)
+    {
+        const int width = 590;
+        var height = TextRenderer.MeasureText(text, Font, new Size(width - 24, 0), TextFormatFlags.WordBreak).Height;
+        return new RadioButton { Text = text, AutoSize = false, Size = new Size(width, height + 8), Checked = chosen, TextAlign = ContentAlignment.TopLeft, CheckAlign = ContentAlignment.TopLeft };
+    }
+
+    /// <summary>Taller than the screen (small laptop, large text): scroll instead of hiding the buttons.</summary>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        FitToScreen();
+    }
+
+    private void FitToScreen()
+    {
+        var area = Screen.FromControl(this).WorkingArea;
+        if (Height <= area.Height) return;
+        var width = Width + SystemInformation.VerticalScrollBarWidth;
+        AutoSize = false;
+        AutoScroll = true;
+        Size = new Size(width, area.Height - 16);
+        Location = new Point(Math.Max(area.Left, area.Left + (area.Width - width) / 2), area.Top + 8);
+    }
+
+    /// <summary>For tests: whether the window had to scroll to fit the screen.</summary>
+    internal bool Scrolls => AutoScroll;
 
     private static Label PathLabel() => new() { AutoSize = true, MaximumSize = new Size(420, 0), Margin = new Padding(0, 6, 8, 6) };
 

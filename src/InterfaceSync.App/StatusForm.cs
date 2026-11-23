@@ -21,7 +21,7 @@ internal sealed class StatusForm : Form
     private readonly IStatusHost _app;
     private SyncService Service => _app.Service;
 
-    private readonly Label _overall = new() { AutoSize = true, Font = new Font((SystemFonts.MessageBoxFont ?? DefaultFont).FontFamily, 11f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) };
+    private readonly Label _overall = new() { AutoSize = true, Font = new Font((SystemFonts.MessageBoxFont ?? DefaultFont).FontFamily, 11f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6), Padding = new Padding(0, 0, 0, 2) };
     private readonly Label _paths = new() { AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
     private readonly ListView _list = new() { View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, Dock = DockStyle.Fill, Height = 130 };
     private readonly TextBox _logBox = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.FixedSingle };
@@ -45,7 +45,7 @@ internal sealed class StatusForm : Form
         _app = app;
         Text = $"{ProductInfo.Name} {ProductInfo.Version}";
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(860, 600);
+        Size = new Size(880, 680);
         MinimumSize = new Size(640, 420);
         Font = SystemFonts.MessageBoxFont ?? Font;
         Padding = Padding.Empty;
@@ -56,7 +56,7 @@ internal sealed class StatusForm : Form
         _list.Columns.Add("Status", 260);
         _list.Columns.Add("Last push", 120);
         _list.Columns.Add("Last pull", 120);
-        _list.Columns.Add("Notes", 180);
+        _list.Columns.Add("Notes", 170);
         _list.SelectedIndexChanged += (_, _) => UpdateButtons();
 
         _syncNow.Click += (_, _) => _app.Run(Service.SyncNow);
