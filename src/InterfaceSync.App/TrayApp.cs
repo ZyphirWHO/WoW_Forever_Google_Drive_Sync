@@ -250,8 +250,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             {
                 var path = await Updater.DownloadAsync(asset, Path.Combine(Service.Paths.Data, "Updates"));
                 var info = FileVersionInfo.GetVersionInfo(path);
-                if (info.ProductName != ProductInfo.Name)
-                    throw new InvalidDataException($"The downloaded installer says it is \"{info.ProductName}\", not {ProductInfo.Name}.");
+                if (!Updater.IsThisProduct(info.ProductName))
+                    throw new InvalidDataException($"The downloaded installer says it is \"{info.ProductName?.Trim('\0', ' ')}\", not {ProductInfo.Name}.");
                 OnUi(() =>
                 {
                     _log.Info($"Installing {asset.Name}; {ProductInfo.Name} will reopen when it's done.");

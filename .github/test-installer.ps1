@@ -8,6 +8,11 @@ $id = $props.Project.PropertyGroup.ProductId | Where-Object { $_ } | Select-Obje
 $setup = Get-ChildItem $Folder -Filter "$id-Setup-*.exe" | Select-Object -First 1
 if (-not $setup) { throw "No installer in $Folder" }
 
+# The in-app updater accepts an installer only if its product name is this product (padding ignored).
+$product = $setup.VersionInfo.ProductName
+"Installer product name: [$product] (char codes after the name: $((($product.ToCharArray() | Select-Object -Skip $name.Length | ForEach-Object { [int]$_ }) | Select-Object -Unique) -join ','))"
+if (($product -replace '[\x00-\x1F]', '').Trim() -ne $name) { throw "Installer product name '$product' isn't '$name': the in-app updater would refuse it" }
+
 $dir = Join-Path $env:LOCALAPPDATA "Programs\$name"
 $exe = Join-Path $dir "$id.exe"
 $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$name.lnk"

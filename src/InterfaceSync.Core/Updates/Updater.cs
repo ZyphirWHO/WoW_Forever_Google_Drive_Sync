@@ -284,6 +284,14 @@ public sealed class Updater
         }
     }
 
+    /// <summary>
+    /// True when a downloaded installer's product name is this product. Inno Setup pads the name in the installer's
+    /// version information with spaces or NULs ("Interface Sync      "), so padding and control characters are ignored.
+    /// </summary>
+    public static bool IsThisProduct(string? productName) =>
+        productName != null &&
+        new string(productName.Where(c => !char.IsControl(c)).ToArray()).Trim().Equals(ProductInfo.Name, StringComparison.Ordinal);
+
     internal static bool IsGitHubHost(string host) =>
         host.Equals("github.com", StringComparison.OrdinalIgnoreCase) ||
         host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||

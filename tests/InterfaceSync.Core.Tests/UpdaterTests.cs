@@ -52,6 +52,17 @@ public sealed class UpdaterTests : IDisposable
     }
 
     [Theory]
+    [InlineData("Interface Sync", true)]
+    [InlineData("Interface Sync                                        ", true)]     // as Inno Setup writes it
+    [InlineData("Interface Sync\0\0\0\0", true)]
+    [InlineData("Interface Sync Setup", false)]
+    [InlineData("Something Else", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void The_installers_product_name_is_checked_ignoring_padding(string? name, bool ok) =>
+        Assert.Equal(ok, Updater.IsThisProduct(name));
+
+    [Theory]
     [InlineData("3.0.1", "3.0.0", true)]
     [InlineData("3.1.0", "3.0.9", true)]
     [InlineData("3.0.0", "3.0.0-dev.42", true)]       // a release beats the dev builds before it
