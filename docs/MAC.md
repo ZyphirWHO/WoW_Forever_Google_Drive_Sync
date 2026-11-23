@@ -11,10 +11,10 @@ OneDrive or Dropbox account.
 
 1. Download the zip for your Mac from the project's GitHub Releases page (or a development build from
    **Actions → build → macos**):
-   - `InterfaceSync-…-macos-arm64.zip` for Apple silicon (M1 and later),
-   - `InterfaceSync-…-macos-x64.zip` for Intel Macs.
-2. Unzip it. The folder holds **Interface Sync.app** and **How to open Interface Sync.html**, an illustrated
-   copy of the steps below. Move the app to your **Applications** folder (not into a cloud folder).
+   - `InterfaceSync-…-macos-arm64.dmg` (or `.zip`) for Apple silicon (M1 and later),
+   - `InterfaceSync-…-macos-x64.dmg` (or `.zip`) for Intel Macs.
+2. Open the `.dmg` (or unzip the `.zip`). It holds **Interface Sync.app** and **How to open Interface Sync.html**,
+   an illustrated copy of the steps below. Drag the app onto **Applications** (not into a cloud folder).
 3. Open it. The first time, macOS will stop it (see below). After that, a window shows what was found:
    your World of Warcraft folder, the game versions, and your cloud folder. Check them and click
    **Start syncing**, then **Finish**. If your cloud folder already has settings from another computer, the

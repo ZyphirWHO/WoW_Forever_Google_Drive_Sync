@@ -30,7 +30,9 @@ src/InterfaceSync.Core/           detection, game watcher, sync engine, backups 
 tests/InterfaceSync.Core.Tests/   unit tests and simulated two-PC tests
 tests/InterfaceSync.App.Tests/    Windows window smoke tests (run on Windows)
 tests/InterfaceSync.Mac.Tests/    Mac window tests (headless, run on every OS)
-packaging/macos/                  Info.plist template and the script that builds the .app
+packaging/windows/                Inno Setup script and wizard images for the per-user installer
+packaging/macos/                  Info.plist template and the script that builds the .app and .dmg
+packaging/guides/                 "How to open" pages shipped with the downloads
 assets/icon/                      icon master (SVG) and the script that builds the .ico files
 ```
 
@@ -39,9 +41,14 @@ else derives from it, and CI fails if the built exe's product name differs.
 
 ## Trying a development build
 
-Every push to `main` builds `InterfaceSync.exe` on Windows. Open the latest green run under
-**Actions → build**, download the `InterfaceSync-dev-...` artifact, unzip it outside your cloud folders
-and run `InterfaceSync.exe`. Development builds don't install themselves or start at login yet.
+Every push to `main` builds and tests everything. Open the latest green run under **Actions → build**:
+
+- **Windows:** download `InterfaceSync-Setup-dev-...` and run `InterfaceSync-Setup-<version>.exe`. It installs for
+  you only (no administrator rights) to `%LOCALAPPDATA%\Programs\Interface Sync`, adds a Start menu entry, and
+  can be removed in Settings → Apps. Your settings, backups and logs stay in `%LOCALAPPDATA%\InterfaceSync`.
+  `InterfaceSync-dev-...` holds the same app as a single exe, for running without installing.
+- **Mac:** download `InterfaceSync-macos-dev-...`, open the `.dmg` for your Mac (arm64 for Apple silicon, x64
+  for Intel) and drag Interface Sync onto Applications. See [docs/MAC.md](docs/MAC.md) for the first-open steps.
 
 ## Docs
 
