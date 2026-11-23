@@ -136,8 +136,8 @@ jobs:
           $zipHash = (Get-FileHash "out/$id-$v.zip" -Algorithm SHA256).Hash
           Copy-Item "installer/$id-Setup-$v.exe" "out/"
           $setupHash = (Get-FileHash "out/$id-Setup-$v.exe" -Algorithm SHA256).Hash
-          # "What's new" for this version, written by hand in docs/releases/<version>.md (optional).
-          $whatsNew = if (Test-Path "docs/releases/$v.md") { Get-Content -Raw "docs/releases/$v.md" } else { "" }
+          # "What's new" for this version, written by hand in docs/release-notes/<version>.md (optional).
+          $whatsNew = if (Test-Path "docs/release-notes/$v.md") { Get-Content -Raw "docs/release-notes/$v.md" } else { throw "Write docs/release-notes/$v.md (What's new) before releasing $v" }
           @"
           $whatsNew
           ### Files
