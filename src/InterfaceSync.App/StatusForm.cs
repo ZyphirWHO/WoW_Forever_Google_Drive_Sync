@@ -47,6 +47,11 @@ internal sealed class StatusForm : Form
     private readonly ToggleSwitch _startAtLogin = new("Start with Windows") { Visible = false };
     private readonly BrandBanner _banner = new("Your interface settings, on every computer");
 
+    // copies of the cloud folder made by the cloud app
+    private readonly Card _dupBar = new() { Padding = new Padding(18, 12, 16, 12), Visible = false };
+    private readonly Label _dupTitle = new() { AutoSize = true, UseMnemonic = false, Margin = new Padding(0, 0, 0, 4) };
+    private readonly Label _dupDetail = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
+
     // updates
     private readonly Card _updateBar = new() { Height = 76, Padding = new Padding(18, 12, 16, 12), Visible = false };
     private readonly Label _updateTitle = new() { AutoSize = true, UseMnemonic = false, Margin = new Padding(0, 0, 0, 2) };
@@ -98,7 +103,9 @@ internal sealed class StatusForm : Form
         BuildHero();
 
         BuildUpdateBar();
+        BuildDuplicateBar();
         _stack.Controls.Add(_updateBar);
+        _stack.Controls.Add(_dupBar);
         _stack.Controls.Add(_hero);
         _stack.Controls.Add(new SectionHeader("Game versions"));
         _stack.Controls.Add(_versionRows);
@@ -250,7 +257,7 @@ internal sealed class StatusForm : Form
         Tool("Copy diagnostics", Draw.Info, () =>
         {
             Clipboard.SetText(Service.Diagnostics());
-            MessageBox.Show(this, "Diagnostics copied. Paste them into your message or GitHub issue.", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ThemedDialog.Info(this, "Paste them into your message or GitHub issue.", "Diagnostics copied");
         });
         Tool("About", Draw.Info, () => ShowAbout(this));
         return tools;
@@ -298,6 +305,35 @@ internal sealed class StatusForm : Form
         grid.SetRowSpan(_updateNow, 2);
         _updateBar.Controls.Add(grid);
     }
+
+    private void BuildDuplicateBar()
+    {
+        _dupTitle.Font = new Font(Font, FontStyle.Bold);
+        Theme.SetRole(_dupDetail, TextRole.Muted);
+        _dupBar.Highlight = Theme.Warning;
+        var show = new ModernButton("Show folder", ButtonKind.Secondary) { Icon = Draw.Folder, Anchor = AnchorStyles.Right | AnchorStyles.Top, Margin = new Padding(8, 0, 0, 0) };
+        show.Click += (_, _) => { if (Service.Duplicates.FirstOrDefault() is { } d) Open(d.Path); };
+        var hide = new ModernButton("Hide", ButtonKind.Ghost) { Anchor = AnchorStyles.Right | AnchorStyles.Top, Margin = new Padding(8, 0, 0, 0) };
+        hide.Click += (_, _) => { foreach (var d in Service.Duplicates.ToList()) Service.HideDuplicate(d); RefreshView(); };
+        var icon = new Glyph(Draw.Warning, 18f) { Margin = new Padding(0, 0, 12, 0), Anchor = AnchorStyles.Left | AnchorStyles.Top };
+        Theme.SetRole(icon, TextRole.Warning);
+        var text = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty };
+        text.Controls.Add(_dupTitle);
+        text.Controls.Add(_dupDetail);
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.Controls.Add(icon, 0, 0);
+        grid.Controls.Add(text, 1, 0);
+        grid.Controls.Add(hide, 2, 0);
+        grid.Controls.Add(show, 3, 0);
+        _dupBar.Controls.Add(grid);
+    }
+
+    /// <summary>For tests: whether the duplicate-folder card is showing.</summary>
+    internal bool DuplicateShown => _dupBar.Visible;
 
     private void OnThemeChanged()
     {
@@ -369,6 +405,22 @@ internal sealed class StatusForm : Form
         _hero.Invalidate();
         _pause.Text = Service.Settings.Paused ? "Resume" : "Pause";
 
+        // copies of the cloud folder
+        var dups = Service.Duplicates;
+        if ((dups.Count > 0) != _dupBar.Visible) { _dupBar.Visible = dups.Count > 0; FitWidths(); }
+        if (dups.Count > 0)
+        {
+            _dupTitle.Text = dups.Count == 1
+                ? $"{Service.ProviderName} made a copy of an {ProductInfo.Name} folder"
+                : $"{Service.ProviderName} made {dups.Count} copies of {ProductInfo.Name} folders";
+            var dupLines = dups.Take(3).Select(d => $"• \"{d.Name}\" ({d.FileCount} file{(d.FileCount == 1 ? "" : "s")}, last changed {StatusWords.Ago(d.NewestUtc, now)})");
+            _dupDetail.Text = string.Join("\n", dupLines) + (dups.Count > 3 ? $"\n• and {dups.Count - 3} more (see the log)" : "") +
+                $"\nThis happens when two computers save at the same moment. {ProductInfo.Name} only uses \"{dups[0].CopyOf}\" and hasn't moved or " +
+                $"deleted anything. Look inside, and delete the copy in {Service.ProviderName} when you're sure you don't need it.";
+            _dupDetail.MaximumSize = new Size(Math.Max(300, RowWidth - 330), 0);
+            _dupBar.Height = Math.Max(96, _dupTitle.PreferredHeight + _dupDetail.GetPreferredSize(new Size(_dupDetail.MaximumSize.Width, 0)).Height + 30);
+        }
+
         // updates
         foreach (var c in _updateRow) c.Visible = Updater != null;
         if (Updater != null)
@@ -433,42 +485,14 @@ internal sealed class StatusForm : Form
     {
         if (w.State.Conflict is not { } c) return;
 
-        var keepLocal = new TaskDialogButton("Keep this PC's settings");
-        var keepCloud = new TaskDialogButton("Keep the cloud settings");
-        var page = new TaskDialogPage
-        {
-            Caption = ProductInfo.Name,
-            Heading = $"{w.Version.FolderName}: settings changed in two places",
-            Text = $"{c.Reason}\n\nThis PC{(c.LocalMachine != null ? $" ({c.LocalMachine})" : "")}: last changed {Format(c.LocalNewestUtc)}\n" +
-                   $"Cloud{(c.CloudPushedBy != null ? $" (from {c.CloudPushedBy})" : "")}: last changed {Format(c.CloudNewestUtc)}\n\n" +
-                   "The copy you don't keep is saved as a backup." +
-                   (c.CloudBackupPath != null ? $"\nCloud copy saved to: {c.CloudBackupPath}" : ""),
-            Icon = TaskDialogIcon.Warning,
-            Buttons = { keepLocal, keepCloud, TaskDialogButton.Cancel },
-            DefaultButton = c.Suggested == KeepChoice.Cloud ? keepCloud : keepLocal,
-        };
-        var result = TaskDialog.ShowDialog(this, page);
-        if (result == keepLocal) _app.Run(() => Service.Resolve(w, KeepChoice.Local));
-        else if (result == keepCloud) _app.Run(() => Service.Resolve(w, KeepChoice.Cloud));
+        if (ConflictDialog.Ask(this, w.Version.FolderName, c) is { } keep) _app.Run(() => Service.Resolve(w, keep));
     }
 
     internal static string AboutText =>
         $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\n" +
         $"Version {ProductInfo.DisplayVersion}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
 
-    internal static void ShowAbout(IWin32Window? owner)
-    {
-        var page = new TaskDialogPage
-        {
-            Caption = $"About {ProductInfo.Name}",
-            Heading = $"{ProductInfo.Name} {ProductInfo.DisplayVersion}",
-            Text = AboutText,
-            Icon = new TaskDialogIcon(TrayIcons.AppIcon),
-            Buttons = { TaskDialogButton.OK },
-        };
-        if (owner != null) TaskDialog.ShowDialog(owner, page);
-        else TaskDialog.ShowDialog(page);
-    }
+    internal static void ShowAbout(IWin32Window? owner) => AboutDialog.ShowFor(owner);
 
     private void ChangeCloudFolder()
     {
@@ -479,8 +503,7 @@ internal sealed class StatusForm : Form
         ProviderChangeResult? result = null;
         _app.Run(
             () => result = Service.ChangeProvider(target, null, keep),
-            () => MessageBox.Show(this, result?.Message ?? "Nothing changed.", ProductInfo.Name, MessageBoxButtons.OK,
-                result?.Changed == true ? MessageBoxIcon.Information : MessageBoxIcon.Warning));
+            () => ThemedDialog.Show(this, result?.Message ?? "Nothing changed.", null, result?.Changed == true ? DialogKind.Info : DialogKind.Warning));
     }
 
     private static string Format(DateTime? utc) => utc?.ToLocalTime().ToString("g") ?? "never";
@@ -494,7 +517,7 @@ internal sealed class StatusForm : Form
         }
         catch (Exception e)
         {
-            MessageBox.Show(this, $"Couldn't open {folder}: {e.Message}", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ThemedDialog.Warn(this, $"Couldn't open {folder}: {e.Message}");
         }
     }
 

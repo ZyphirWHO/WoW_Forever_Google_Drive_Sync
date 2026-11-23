@@ -205,7 +205,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             }
             else if (startup.CannotEnableReason is { } why)
             {
-                MessageBox.Show(owner, why, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                ThemedDialog.Info(owner, why, $"{startup.Label} can't be switched on from here");
             }
             else
             {
@@ -216,7 +216,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         catch (Exception e)
         {
             log.Warn($"Couldn't change {startup.Label}: {e.Message}");
-            MessageBox.Show(owner, $"Couldn't change {startup.Label}: {e.Message}", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ThemedDialog.Warn(owner, e.Message, $"Couldn't change {startup.Label}");
         }
     }
 
@@ -262,8 +262,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             catch (Exception e) when (e is HttpRequestException or InvalidDataException or IOException or TaskCanceledException or UnauthorizedAccessException)
             {
                 _log.Warn($"Update failed: {e.Message}");
-                OnUi(() => MessageBox.Show(owner, $"The update couldn't be installed: {e.Message}\n\nNothing was changed. You can download it from the project's Releases page instead.",
-                    ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning));
+                OnUi(() => ThemedDialog.Warn(owner, $"{e.Message}\n\nNothing was changed. You can download it from the project's Releases page instead.", "The update couldn't be installed"));
             }
         });
     }
@@ -300,10 +299,9 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private void OnUnexpected(Exception e)
     {
         _log.Error($"Unexpected error in the window: {e}");
-        MessageBox.Show(
-            $"{ProductInfo.Name} hit an unexpected problem: {e.Message}\n\nIt has been written to the log. " +
-            "Open the status window and use Copy diagnostics to send the details.",
-            ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Error);
+        ThemedDialog.Show(null,
+            $"{e.Message}\n\nIt has been written to the log. Open the status window and use Copy diagnostics to send the details.",
+            $"{ProductInfo.Name} hit an unexpected problem", DialogKind.Error);
     }
 
     // ------------------------------------------------------------------ exit

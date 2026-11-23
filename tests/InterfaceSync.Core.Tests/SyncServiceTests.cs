@@ -321,4 +321,28 @@ public sealed class SyncServiceTests : IDisposable
         Assert.Contains("Last 200 log lines", text);
         Assert.Contains("pushed settings", text);
     }
+
+    [Fact]
+    public void A_copy_of_the_cloud_folder_is_pointed_out_once_and_can_be_hidden()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var service = Service();
+        service.Start();
+        service.Poll();
+        Assert.Empty(service.Duplicates);
+
+        Directory.CreateDirectory(Path.Combine(MirrorDrive, "InterfaceSync (1)", "_retail_", "WTF-Account"));
+        File.WriteAllText(Path.Combine(MirrorDrive, "InterfaceSync (1)", "_retail_", "WTF-Account", "x.lua"), "x");
+        _clock.Advance(SyncService.DuplicateCheckEvery);
+        service.Poll();
+        var copy = Assert.Single(service.Duplicates);
+        Assert.Equal("InterfaceSync (1)", copy.Name);
+        Assert.True(Directory.Exists(copy.Path));                                       // nothing moved or deleted
+
+        service.HideDuplicate(copy);
+        Assert.Empty(service.Duplicates);
+        var again = new SyncService(_fs, new FakeRegistry(), _processes, _env, _clock, new MemoryLog(), new AppPaths(_env.LocalAppData), "HomePC");   // restart
+        again.Start();
+        Assert.Empty(again.Duplicates);
+    }
 }

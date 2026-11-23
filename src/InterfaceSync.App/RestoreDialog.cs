@@ -93,11 +93,10 @@ internal sealed class RestoreDialog : Form
     private void Restore()
     {
         if (_list.SelectedItems.Count == 0 || _list.SelectedItems[0].Tag is not BackupInfo backup) return;
-        var ask = MessageBox.Show(this,
-            $"Put {_worker.Version.FolderName}'s settings back as they were on {backup.CreatedUtc.ToLocalTime():f}?\n\n" +
-            "Your current settings are backed up first, and the restored settings are then uploaded to your other computers.",
-            ProductInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
-        if (ask != DialogResult.OK) return;
+        if (!ThemedDialog.Ask(this,
+                "Your current settings are backed up first, and the restored settings are then uploaded to your other computers.",
+                "Restore", "Cancel", $"Put {_worker.Version.FolderName}'s settings back as they were on {backup.CreatedUtc.ToLocalTime():f}?"))
+            return;
         RestoreNow(backup);
     }
 
@@ -110,11 +109,11 @@ internal sealed class RestoreDialog : Form
             LastOutcome = outcome;
             if (IsDisposed) return;
             var done = outcome is SyncOutcome.Pushed or SyncOutcome.NothingToDo or SyncOutcome.Waiting;
-            if (!Quiet) MessageBox.Show(this, done
-                    ? $"Restored. {_worker.Version.FolderName}'s settings are back as they were on {backup.CreatedUtc.ToLocalTime():f}" +
+            if (!Quiet) ThemedDialog.Show(this, done
+                    ? $"{_worker.Version.FolderName}'s settings are back as they were on {backup.CreatedUtc.ToLocalTime():f}" +
                       (outcome == SyncOutcome.Pushed ? " and were uploaded to your cloud folder." : ".")
-                    : $"The settings weren't restored: {_worker.State.LastError ?? _worker.StatusText}",
-                ProductInfo.Name, MessageBoxButtons.OK, done ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                    : $"{_worker.State.LastError ?? _worker.StatusText}",
+                done ? "Restored" : "The settings weren't restored", done ? DialogKind.Info : DialogKind.Warning);
             if (done) { DialogResult = DialogResult.OK; Close(); }
             else { Fill(); _restore.Enabled = _list.SelectedItems.Count > 0; }
         });

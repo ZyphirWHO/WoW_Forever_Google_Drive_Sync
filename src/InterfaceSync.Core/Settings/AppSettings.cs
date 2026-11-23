@@ -58,6 +58,9 @@ public sealed class AppSettings
     /// <summary>Last detected paths, for diagnostics and for noticing that Drive moved.</summary>
     public string? LastDetectedWowInstall { get; set; }
     public string? LastDetectedDrive { get; set; }
+
+    /// <summary>Duplicate cloud folders the player has looked at and hidden ("Hide" in the status window).</summary>
+    public List<string> HiddenDuplicates { get; set; } = [];
 }
 
 public static class Json

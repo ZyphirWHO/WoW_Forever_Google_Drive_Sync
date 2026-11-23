@@ -398,6 +398,9 @@ public sealed class WindowSmokeTests : IDisposable
         });
 
         // The status window after setup, on a PC that has synced.
+        var dupCopy = Path.Combine(_root, "Users", "Player", "My Drive", "InterfaceSync (1)", "_retail_");
+        Directory.CreateDirectory(dupCopy);
+        File.WriteAllText(Path.Combine(dupCopy, "x.lua"), "x");
         var status = Service(setupComplete: true, ("_retail_", true), ("_classic_", false));
         status.Poll();
         var retailAccount = Path.Combine(_root, "World of Warcraft", "_retail_", "WTF", "Account");
@@ -416,6 +419,17 @@ public sealed class WindowSmokeTests : IDisposable
                     form.RefreshView();
                     Application.DoEvents();
                     Save(form, Path.Combine(folder, $"windows-status-{theme}.png"));
+                    var conflict = new InterfaceSync.Core.Sync.ConflictInfo
+                    {
+                        Reason = "Both this PC and LAPTOP changed _retail_ since the last sync, so it isn't clear which settings are newest.",
+                        LocalNewestUtc = DateTime.UtcNow.AddHours(-3), CloudNewestUtc = DateTime.UtcNow.AddMinutes(-12), LocalMachine = "HOME-PC", CloudPushedBy = "LAPTOP",
+                    };
+                    using (var c = new ConflictDialog("_retail_", conflict)) { c.Show(); Application.DoEvents(); Save(c, Path.Combine(folder, $"windows-conflict-{theme}.png")); c.Close(); }
+                    using (var a = new AboutDialog()) { a.Show(); Application.DoEvents(); Save(a, Path.Combine(folder, $"windows-about-{theme}.png")); a.Close(); }
+                    using (var m = ThemedDialog.Create("Your current settings are backed up first, and the restored settings are then uploaded to your other computers.",
+                               "Put _retail_'s settings back as they were on Monday 23 November 2026 18:16?", DialogKind.Question,
+                               ("Cancel", DialogResult.Cancel, ButtonKind.Ghost), ("Restore", DialogResult.OK, ButtonKind.Primary)))
+                    { m.Show(); Application.DoEvents(); Save(m, Path.Combine(folder, $"windows-message-{theme}.png")); m.Close(); }
                     using (var restore = new RestoreDialog(new TestHost(status), status.Workers[0]))
                     {
                         restore.Show();
@@ -502,6 +516,52 @@ public sealed class WindowSmokeTests : IDisposable
             Assert.NotNull(dialog.LastOutcome);
         });
         Assert.Equal("_forever_", File.ReadAllText(Path.Combine(account, "macros-cache.txt")));
+    }
+
+    [Fact]
+    public void Status_window_points_out_a_copy_of_the_cloud_folder_and_hides_it()
+    {
+        var copy = Path.Combine(_root, "Users", "Player", "My Drive", "InterfaceSync (1)", "_forever_");
+        Directory.CreateDirectory(copy);
+        File.WriteAllText(Path.Combine(copy, "x.lua"), "x");
+        var service = Service(setupComplete: true, ("_forever_", true));
+        service.Poll();
+        OnSta(() =>
+        {
+            using var form = new StatusForm(new TestHost(service));
+            form.Show();
+            form.RefreshView();
+            Application.DoEvents();
+            Assert.True(form.DuplicateShown);
+            AllControls(form).OfType<ModernButton>().Single(b => b.Text == "Hide").PerformClick();
+            Application.DoEvents();
+            Assert.False(form.DuplicateShown);
+            form.AllowClose();
+            form.Close();
+        });
+        Assert.True(Directory.Exists(copy));                       // left alone
+    }
+
+    [Fact]
+    public void Conflict_window_shows_both_copies_and_returns_the_choice()
+    {
+        var info = new InterfaceSync.Core.Sync.ConflictInfo
+        {
+            Reason = "Both this PC and LAPTOP changed _retail_ since the last sync.",
+            LocalNewestUtc = DateTime.UtcNow.AddHours(-2), CloudNewestUtc = DateTime.UtcNow.AddMinutes(-5),
+            LocalMachine = "HOME-PC", CloudPushedBy = "LAPTOP",   // the cloud copy is newer, so it is suggested
+        };
+        OnSta(() =>
+        {
+            using var d = new ConflictDialog("_retail_", info);
+            d.Show();
+            Application.DoEvents();
+            var keepCloud = AllControls(d).OfType<ModernButton>().Single(b => b.Text == "Keep the cloud settings");
+            Assert.Equal(ButtonKind.Primary, keepCloud.Kind);                       // the newer one is the main action
+            Assert.Contains(AllControls(d).OfType<Label>(), l => l.Text.Contains("This PC (HOME-PC)"));
+            keepCloud.PerformClick();
+            Assert.Equal(InterfaceSync.Core.Sync.KeepChoice.Cloud, d.Choice);
+        });
     }
 
     private static IEnumerable<Control> AllControls(Control c) =>

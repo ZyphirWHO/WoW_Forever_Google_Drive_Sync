@@ -94,6 +94,33 @@ public sealed class SyncService
     public IReadOnlyList<GameVersion> Versions { get; private set; } = [];
     public IReadOnlyList<VersionSync> Workers { get { lock (_gate) return _workers.ToList(); } }
 
+    /// <summary>Copies of Interface Sync folders the cloud app made ("InterfaceSync (1)"), minus those the player hid.</summary>
+    public IReadOnlyList<DuplicateFolder> Duplicates { get; private set; } = [];
+    private DateTime _duplicatesCheckedUtc = DateTime.MinValue;
+    private readonly HashSet<string> _duplicatesLogged = new(StringComparer.OrdinalIgnoreCase);
+    public static readonly TimeSpan DuplicateCheckEvery = TimeSpan.FromMinutes(10);
+
+    /// <summary>Looks for cloud-made duplicates now and then (it only lists folder names; nothing is changed).</summary>
+    private void CheckDuplicates(bool now = false)
+    {
+        if (!now && _clock.UtcNow - _duplicatesCheckedUtc < DuplicateCheckEvery) return;
+        _duplicatesCheckedUtc = _clock.UtcNow;
+        if (Drive?.MyDrivePath is not { } root) { Duplicates = []; return; }
+        var all = DuplicateFolders.Find(_fs, root);
+        foreach (var d in all.Where(d => _duplicatesLogged.Add(d.Path)))
+            _log.Warn($"{ProviderName} made a copy of an {ProductInfo.Name} folder: {d.Path} ({d.FileCount} files). " +
+                      $"{ProductInfo.Name} doesn't use it and won't move or delete it.");
+        Duplicates = all.Where(d => !Settings.HiddenDuplicates.Contains(d.Path, StringComparer.OrdinalIgnoreCase)).ToList();
+    }
+
+    /// <summary>"Hide": the player has seen this copy; stop showing it (it stays in the log).</summary>
+    public void HideDuplicate(DuplicateFolder d)
+    {
+        SavePreference(s => { if (!s.HiddenDuplicates.Contains(d.Path, StringComparer.OrdinalIgnoreCase)) s.HiddenDuplicates.Add(d.Path); });
+        Duplicates = Duplicates.Where(x => !x.Path.Equals(d.Path, StringComparison.OrdinalIgnoreCase)).ToList();
+        UpdateOverall();
+    }
+
     public OverallState State { get; private set; } = OverallState.Waiting;
     public string StateText { get; private set; } = "Starting";
 
@@ -119,7 +146,11 @@ public sealed class SyncService
         var updates = PathUtil.Join(Paths.Data, "Updates");
         try { if (_fs.DirectoryExists(updates)) _fs.DeleteDirectory(updates); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // still in use: next start
-        lock (_gate) Redetect(reason: null);
+        lock (_gate)
+        {
+            Redetect(reason: null);
+            CheckDuplicates(now: true);
+        }
         UpdateOverall();
     }
 
@@ -157,6 +188,7 @@ public sealed class SyncService
                 NotifyFor(w);
             }
             ApplyFirstSyncChoices();
+            CheckDuplicates();
         }
         CheckLog();
         UpdateOverall();

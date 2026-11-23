@@ -418,7 +418,7 @@ internal sealed class FirstRun : Form
         _service.Settings.WowInstallOverride = path;
         _service.SaveSettings(_service.Settings);
         if (_service.Wow is not { Source: DetectionSource.UserOverride })
-            MessageBox.Show(this, "That folder doesn't contain a World of Warcraft game version (such as _retail_ or _forever_).", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ThemedDialog.Warn(this, "Choose the folder that contains _retail_ (or _forever_, _classic_…).", "That folder doesn't contain a World of Warcraft game version");
         Fill();
     }
 
