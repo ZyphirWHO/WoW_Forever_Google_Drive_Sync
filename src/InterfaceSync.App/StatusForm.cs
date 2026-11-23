@@ -36,7 +36,7 @@ internal sealed class StatusForm : Form
     internal IStartAtLogin? StartAtLogin
     {
         get => _startup;
-        init { _startup = value; _startAtLogin.Visible = value != null; if (value != null) _startAtLogin.Text = value.Label; }
+        init { _startup = value; _startAtLogin.Visible = value != null; if (value != null) { _startAtLogin.Text = value.Label; _startAtLogin.Checked = value.IsEnabled; } }
     }
     private readonly IStartAtLogin? _startup;
 
