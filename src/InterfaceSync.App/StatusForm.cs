@@ -27,7 +27,7 @@ internal sealed class StatusForm : Form
     private SyncService Service => _app.Service;
 
     private readonly Panel _content = new() { Dock = DockStyle.Fill, AutoScroll = true };
-    private readonly FlowLayoutPanel _stack = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Location = new Point(24, 16), Margin = Padding.Empty };
+    private readonly FlowLayoutPanel _stack = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Location = new Point(24, 16), Margin = Padding.Empty };
 
     // headline
     private readonly Card _hero = new() { Height = 104, Padding = new Padding(20, 14, 20, 14) };
@@ -38,7 +38,7 @@ internal sealed class StatusForm : Form
     private readonly ModernButton _pause = new("Pause");
 
     // versions
-    private readonly FlowLayoutPanel _versionRows = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = Padding.Empty };
+    private readonly FlowLayoutPanel _versionRows = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = Padding.Empty };
     private readonly Dictionary<string, VersionRow> _rows = new();
 
     // settings
@@ -46,6 +46,7 @@ internal sealed class StatusForm : Form
     private readonly ToggleSwitch _startAtLogin = new("Start with Windows") { Visible = false };
     private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170 };
     private readonly IStartAtLogin? _startup;
+    private Control _startIcon = null!;
 
     // activity
     private readonly Card _activity = new() { Height = 300, Padding = new Padding(16, 10, 16, 14) };
@@ -60,7 +61,7 @@ internal sealed class StatusForm : Form
     internal IStartAtLogin? StartAtLogin
     {
         get => _startup;
-        init { _startup = value; _startAtLogin.Visible = value != null; if (value != null) { _startAtLogin.Text = value.Label; _startAtLogin.Checked = value.IsEnabled; } }
+        init { _startup = value; _startAtLogin.Visible = _startIcon.Visible = value != null; if (value != null) { _startAtLogin.Text = value.Label; _startAtLogin.Checked = value.IsEnabled; } }
     }
 
     public StatusForm(IStatusHost app)
@@ -145,7 +146,7 @@ internal sealed class StatusForm : Form
         Control Icon(string g) { var l = new Glyph(g, 14f) { Anchor = AnchorStyles.Left }; Theme.SetRole(l, TextRole.Accent); return l; }
         Label Bold(string t) => new() { Text = t, AutoSize = true, UseMnemonic = false, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 1) };
 
-        var cloud = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left, Margin = Padding.Empty };
+        var cloud = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Left, Margin = Padding.Empty };
         cloud.Controls.Add(Bold("Cloud folder"));
         Theme.SetRole(_cloudPath, TextRole.Muted);
         cloud.Controls.Add(_cloudPath);
@@ -158,7 +159,9 @@ internal sealed class StatusForm : Form
         _startAtLogin.Anchor = AnchorStyles.Left;
         _startAtLogin.AutoCheck = false;
         _startAtLogin.Click += (_, _) => ToggleStartAtLogin();
-        grid.Controls.Add(Icon(Draw.Power), 0, 1);
+        _startIcon = Icon(Draw.Power);
+        _startIcon.Visible = false;
+        grid.Controls.Add(_startIcon, 0, 1);
         grid.Controls.Add(_startAtLogin, 1, 1);
 
         foreach (var (_, label) in TrayApp.ThemeChoices) _appearance.Items.Add(label);
@@ -207,7 +210,7 @@ internal sealed class StatusForm : Form
 
     private Control BuildTools()
     {
-        var tools = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0, 4, 0, 16) };
+        var tools = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Margin = new Padding(0, 4, 0, 16) };
         ModernButton Tool(string text, string glyph, Action click)
         {
             var b = new ModernButton(text, ButtonKind.Ghost) { Icon = glyph, Height = 32 };

@@ -115,7 +115,7 @@ internal static class Theme
         foreach (Control child in c.Controls) ApplyTree(child);
     }
 
-    private static bool NeedsNativeTheme(Control c) => c is TextBoxBase or ListBox or ListView or ComboBox or ProgressBar;
+    private static bool NeedsNativeTheme(Control c) => c is TextBoxBase or ListBox or ListView or ComboBox or ProgressBar or ScrollableControl { AutoScroll: true };
 
     private static void ApplyOne(Control c)
     {
@@ -137,6 +137,12 @@ internal static class Theme
                 card.BackColor = Surface;
                 card.ForeColor = Text;
                 card.Invalidate();
+                break;
+
+            case Panel { AutoScroll: true } scroller and not Card:
+                scroller.ResetBackColor();
+                RoleOrReset(c);
+                NativeTheme(c);   // dark scroll bars
                 break;
 
             case Button b:

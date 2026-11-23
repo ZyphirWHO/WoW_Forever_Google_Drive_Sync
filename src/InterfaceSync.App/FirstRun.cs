@@ -53,7 +53,7 @@ internal sealed class FirstRun : Form
 
     // "Your settings"
     private readonly Label _choicesIntro = new() { AutoSize = true, MaximumSize = new Size(PageWidth, 0), Margin = new Padding(0, 0, 0, 12) };
-    private readonly FlowLayoutPanel _choicesPanel = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+    private readonly FlowLayoutPanel _choicesPanel = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty };
     private readonly List<(string version, RadioButton useCloud, RadioButton useMine)> _choices = [];
 
     // "Finish"
@@ -98,7 +98,7 @@ internal sealed class FirstRun : Form
         // footer: Back on the left; Cancel and the main button on the right
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 62, Padding = new Padding(28, 13, 28, 13) };
         footer.Paint += (_, e) => { using var pen = new Pen(Theme.Border); e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0); };
-        var right = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        var right = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty };
         _next.Margin = _finish.Margin = new Padding(8, 0, 0, 0);
         _cancel.Margin = new Padding(0);
         right.Controls.AddRange([_finish, _next, _cancel]);
@@ -141,7 +141,7 @@ internal sealed class FirstRun : Form
 
     private static FlowLayoutPanel Page() => new()
     {
-        FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty, Location = new Point(28, 6), Visible = false,
+        FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty, Location = new Point(28, 6), Visible = false,
     };
 
     private Label Title(string text) => new()
@@ -158,7 +158,7 @@ internal sealed class FirstRun : Form
 
     private static Card MakeCard(params Control[] rows)
     {
-        var inner = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty, Location = new Point(16, 12) };
+        var inner = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty, Location = new Point(16, 12) };
         inner.Controls.AddRange(rows);
         var card = new Card { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(PageWidth, 0), Padding = new Padding(16, 12, 16, 14) };
         card.Controls.Add(inner);
@@ -182,7 +182,7 @@ internal sealed class FirstRun : Form
 
     private Control Feature(string glyph, string title, string text)
     {
-        var row = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, AutoSize = true, Margin = Padding.Empty };
+        var row = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = Padding.Empty };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var icon = new Glyph(glyph, 20f) { Margin = new Padding(0, 4, 0, 0) };
@@ -396,7 +396,7 @@ internal sealed class FirstRun : Form
             var useCloud = WrappedRadio(p.CloudOptionText(), p.Suggested == FirstSyncChoice.UseCloud);
             var useMine = WrappedRadio(p.LocalOptionText(), p.Suggested == FirstSyncChoice.UseThisComputer);
             var title = new Label { Text = p.Version, AutoSize = true, UseMnemonic = false, Font = new Font(Font.FontFamily, 10.5f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) };
-            var group = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+            var group = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty };
             group.Controls.AddRange([title, useCloud, useMine]);   // one group per version, so each pair is its own choice
             _choicesPanel.Controls.Add(MakeCard(group));
             _choices.Add((p.Version, useCloud, useMine));
