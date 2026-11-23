@@ -381,7 +381,7 @@ internal sealed class StatusForm : Form
             if (show != _updateBar.Visible) { _updateBar.Visible = show; FitWidths(); }
             if (show)
             {
-                _updateTitle.Text = $"{ProductInfo.Name} {release!.Version} is available";
+                _updateTitle.Text = release!.IsPrerelease ? $"Test build {release.Version} is available" : $"{ProductInfo.Name} {release.Version} is available";
                 _updateDetail.Text = Updater.State == UpdateState.Downloading
                     ? "Downloading and checking the installer…"
                     : $"You have {Updater.CurrentVersion}. Updating takes a few seconds and keeps all your settings.";

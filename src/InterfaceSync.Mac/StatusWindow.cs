@@ -208,7 +208,7 @@ internal sealed class StatusWindow : Window
             _updateBar.IsVisible = release != null && _updater.State is UpdateState.Available or UpdateState.Downloading;
             if (release != null)
             {
-                _updateTitle.Text = $"{ProductInfo.Name} {release.Version} is available";
+                _updateTitle.Text = release.IsPrerelease ? $"Test build {release.Version} is available" : $"{ProductInfo.Name} {release.Version} is available";
                 _updateDetail.Text = $"You have {_updater.CurrentVersion}. Your settings are kept when you update.";
             }
         }

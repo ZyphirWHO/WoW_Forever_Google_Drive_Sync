@@ -228,7 +228,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         if (Updater.State == UpdateState.Available && Updater.Available is { } r && _announcedUpdate != r.Version)
         {
             _announcedUpdate = r.Version;
-            _tray.ShowBalloonTip(10_000, $"{ProductInfo.Name} {r.Version} is available",
+            _tray.ShowBalloonTip(10_000, r.IsPrerelease ? $"Test build {r.Version} is available" : $"{ProductInfo.Name} {r.Version} is available",
                 "Open Interface Sync and click Update now. Your settings are kept.", ToolTipIcon.Info);
         }
     }

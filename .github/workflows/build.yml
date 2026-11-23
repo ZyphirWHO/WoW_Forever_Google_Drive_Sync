@@ -129,3 +129,70 @@ jobs:
             out/*.zip
             out/*.dmg
           retention-days: 14
+
+  # Test builds: every green build on main becomes a GitHub pre-release "v<version>-dev.<run>", so the app's
+  # updater can bring test builds up to the newest one (published releases never see these). Only the newest 3
+  # test builds are kept.
+  test-build:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, macos]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test-build-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: InterfaceSync-dev-${{ github.sha }}
+          path: dl/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: InterfaceSync-Setup-dev-${{ github.sha }}
+          path: dl/setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: InterfaceSync-macos-dev-${{ github.sha }}
+          path: dl/macos
+
+      - name: Name the files after the test build's version
+        id: files
+        run: |
+          set -euo pipefail
+          prop() { python3 -c "import sys, xml.etree.ElementTree as E; print(next(e.text for e in E.parse('Directory.Build.props').getroot().iter(sys.argv[1]) if e.text))" "$1"; }
+          ID=$(prop ProductId); NAME=$(prop ProductDisplayName); BASE=$(prop Version)
+          V="$BASE-dev.${{ github.run_number }}"
+          mkdir out
+          cp "dl/windows/$ID.exe" "out/$ID.exe"
+          cp dl/setup/*.exe "out/$ID-Setup-$V.exe"
+          for f in dl/macos/*; do
+            n=$(basename "$f"); cp "$f" "out/${n/$ID-$BASE-/$ID-$V-}"
+          done
+          ls -l out
+          {
+            echo "Test build of $NAME, made by GitHub Actions from commit ${GITHUB_SHA} (run ${{ github.run_number }})."
+            echo "It is not a release: only test builds update to it. Releases are published separately."
+            echo ""
+            echo "| File | SHA-256 |"
+            echo "|---|---|"
+            for f in out/*; do echo "| $(basename "$f") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done
+          } > notes.md
+          cat notes.md
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the test build and keep only the newest 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.files.outputs.version }}"
+          gh release create "v$V" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Test build $V" --notes-file notes.md
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | test("-dev\\.")))] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' |
+          while read -r old; do
+            echo "Removing old test build $old"
+            gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          done

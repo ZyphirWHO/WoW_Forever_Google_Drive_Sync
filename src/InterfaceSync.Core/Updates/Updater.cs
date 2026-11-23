@@ -13,6 +13,9 @@ public sealed record ReleaseAsset(string Name, Uri Url, long Size, string? Sha25
 
 public sealed record ReleaseInfo(string Version, string Tag, Uri Page, string Notes, IReadOnlyList<ReleaseAsset> Assets)
 {
+    /// <summary>A test build (GitHub pre-release); only test builds are offered these.</summary>
+    public bool IsPrerelease { get; init; }
+
     /// <summary>The Windows installer ("InterfaceSync-Setup-3.0.1.exe").</summary>
     public ReleaseAsset? WindowsInstaller => Assets.FirstOrDefault(a => a.Name.Equals($"{ProductInfo.Id}-Setup-{Version}.exe", StringComparison.OrdinalIgnoreCase));
 
@@ -65,13 +68,12 @@ public sealed class Updater
     public string Describe() => State switch
     {
         UpdateState.Checking => "Checking for updates…",
-        UpdateState.Available => $"Version {Available!.Version} is available (you have {_current}).",
+        UpdateState.Available => Available!.IsPrerelease
+            ? $"Test build {Available.Version} is available (you have {_current})."
+            : $"Version {Available.Version} is available (you have {_current}).",
         UpdateState.Downloading => $"Downloading version {Available?.Version}…",
-        UpdateState.UpToDate when LatestPublished == null => IsTestBuild
-            ? $"You're on test build {_current}. No release has been published on GitHub yet, so there's nothing to update to; " +
-              "test builds are downloaded from the project's build page."
-            : $"No release has been published on GitHub yet (you have {_current}).",
-        UpdateState.UpToDate when IsTestBuild => $"You're on test build {_current}, which is newer than the latest release ({LatestPublished}).",
+        UpdateState.UpToDate when IsTestBuild => $"You have the newest test build ({_current}).",
+        UpdateState.UpToDate when LatestPublished == null => $"No release has been published on GitHub yet (you have {_current}).",
         UpdateState.UpToDate => $"You have the latest version ({_current}).",
         UpdateState.Failed => $"Couldn't check for updates: {Problem}",
         _ => _service.Settings.CheckForUpdates ? $"Version {_current}. Checks once a day." : $"Version {_current}. Automatic checks are off.",
@@ -92,8 +94,19 @@ public sealed class Updater
         try
         {
             Set(UpdateState.Checking);
-            var latest = await LatestAsync(cancel).ConfigureAwait(false);
-            LatestPublished = latest?.Version;
+            ReleaseInfo? latest;
+            if (IsTestBuild)
+            {
+                // Test builds follow the test channel: the newest of the published releases and test pre-releases.
+                var all = await ReleasesAsync(cancel).ConfigureAwait(false);
+                LatestPublished = Newest(all.Where(r => !r.IsPrerelease))?.Version;
+                latest = Newest(all);
+            }
+            else
+            {
+                latest = await LatestAsync(cancel).ConfigureAwait(false);
+                LatestPublished = latest?.Version;
+            }
             _service.SavePreference(s => s.LastUpdateCheckUtc = _clock.UtcNow);
             if (latest != null && IsNewer(latest.Version, _current))
             {
@@ -120,7 +133,25 @@ public sealed class Updater
     /// <summary>The newest published (non-pre-release) release, or null when the project has none yet.</summary>
     public async Task<ReleaseInfo?> LatestAsync(CancellationToken cancel = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{ProductInfo.Repository}/releases/latest");
+        var json = await GetAsync("releases/latest", cancel).ConfigureAwait(false);
+        return json == null ? null : Parse(json);
+    }
+
+    /// <summary>Recent releases and test builds (pre-releases), newest first as GitHub lists them.</summary>
+    public async Task<IReadOnlyList<ReleaseInfo>> ReleasesAsync(CancellationToken cancel = default)
+    {
+        var json = await GetAsync("releases?per_page=30", cancel).ConfigureAwait(false);
+        if (json == null) return [];
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.EnumerateArray().Select(e => Parse(e, allowPrerelease: true)).OfType<ReleaseInfo>().ToList();
+    }
+
+    private static ReleaseInfo? Newest(IEnumerable<ReleaseInfo> releases) =>
+        releases.Aggregate((ReleaseInfo?)null, (best, r) => best == null || IsNewer(r.Version, best.Version) ? r : best);
+
+    private async Task<string?> GetAsync(string path, CancellationToken cancel)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{ProductInfo.Repository}/{path}");
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue(ProductInfo.Id, "updater"));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancel);
@@ -128,16 +159,20 @@ public sealed class Updater
         using var response = await _http.SendAsync(request, timeout.Token).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;   // no release published yet
         if (!response.IsSuccessStatusCode) throw new HttpRequestException($"GitHub answered {(int)response.StatusCode} {response.ReasonPhrase}");
-        var json = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
-        return Parse(json);
+        return await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
     }
 
     internal static ReleaseInfo? Parse(string json)
     {
         using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        return Parse(doc.RootElement, allowPrerelease: false);
+    }
+
+    internal static ReleaseInfo? Parse(JsonElement root, bool allowPrerelease)
+    {
         if (root.TryGetProperty("draft", out var draft) && draft.GetBoolean()) return null;
-        if (root.TryGetProperty("prerelease", out var pre) && pre.GetBoolean()) return null;
+        bool prerelease = root.TryGetProperty("prerelease", out var pre) && pre.GetBoolean();
+        if (prerelease && !allowPrerelease) return null;
         var tag = root.GetProperty("tag_name").GetString() ?? throw new InvalidDataException("release has no tag");
         var version = tag.TrimStart('v', 'V');
         var page = new Uri(root.GetProperty("html_url").GetString() ?? throw new InvalidDataException("release has no page"));
@@ -155,7 +190,7 @@ public sealed class Updater
                 sha ??= HashFromNotes(notes, name);
                 assets.Add(new ReleaseAsset(name, new Uri(url), a.TryGetProperty("size", out var size) ? size.GetInt64() : 0, sha?.ToLowerInvariant()));
             }
-        return new ReleaseInfo(version, tag, page, notes, assets);
+        return new ReleaseInfo(version, tag, page, notes, assets) { IsPrerelease = prerelease };
     }
 
     /// <summary>The release notes list "| InterfaceSync-Setup-3.0.1.exe ... | `HASH` |".</summary>

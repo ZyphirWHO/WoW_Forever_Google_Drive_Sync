@@ -95,17 +95,43 @@ public sealed class UpdaterTests : IDisposable
         Assert.Null(updater.Available);
     }
 
+    private static string Releases => $"https://api.github.com/repos/{ProductInfo.Repository}/releases?per_page=30";
+
     [Fact]
-    public async Task A_test_build_says_so_instead_of_claiming_to_be_the_latest_version()
+    public async Task A_test_build_updates_to_the_newest_test_build_or_release()
     {
         var (updater, github, _) = Make("3.0.0-dev.44");
+        await updater.CheckAsync();                                  // nothing published at all
+        Assert.Equal(UpdateState.UpToDate, updater.State);
+        Assert.Contains("newest test build (3.0.0-dev.44)", updater.Describe());
+
+        static string Rel(string v, bool pre) => ReleaseJson($"v{v}", $"InterfaceSync-Setup-{v}.exe", $"https://github.com/o/r/releases/download/v{v}/InterfaceSync-Setup-{v}.exe", new string('a', 64), pre);
+        github.Routes[Releases] = () => new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent($"[{Rel("3.0.0-dev.46", true)}, {Rel("3.0.0-dev.45", true)}, {Rel("2.9.0", false)}]") };
         await updater.CheckAsync();
-        Assert.Contains("test build 3.0.0-dev.44", updater.Describe());
-        Assert.Contains("No release has been published", updater.Describe());
-        github.Routes[Latest] = () => new HttpResponseMessage(HttpStatusCode.OK)
-        { Content = new StringContent(ReleaseJson("v2.9.0", "InterfaceSync-Setup-2.9.0.exe", "https://github.com/x", null)) };
+        Assert.Equal(UpdateState.Available, updater.State);
+        Assert.Equal("3.0.0-dev.46", updater.Available!.Version);
+        Assert.True(updater.Available.IsPrerelease);
+        Assert.NotNull(updater.Available.WindowsInstaller);          // InterfaceSync-Setup-3.0.0-dev.46.exe
+        Assert.Contains("Test build 3.0.0-dev.46 is available", updater.Describe());
+
+        // once 3.0.0 is released, it beats every 3.0.0 test build
+        github.Routes[Releases] = () => new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent($"[{Rel("3.0.0", false)}, {Rel("3.0.0-dev.46", true)}]") };
         await updater.CheckAsync();
-        Assert.Contains("newer than the latest release (2.9.0)", updater.Describe());
+        Assert.Equal("3.0.0", updater.Available!.Version);
+        Assert.False(updater.Available.IsPrerelease);
+    }
+
+    [Fact]
+    public async Task A_release_build_never_sees_test_builds()
+    {
+        var (updater, github, _) = Make("3.0.0");
+        github.Routes[Releases] = () => new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent($"[{ReleaseJson("v3.0.1-dev.50", "x.exe", "https://github.com/x", null, true)}]") };
+        await updater.CheckAsync();                                  // asks only for releases/latest (404 here)
+        Assert.Equal(UpdateState.UpToDate, updater.State);
+        Assert.DoesNotContain(github.Requests, r => r.Contains("per_page"));
     }
 
     [Fact]

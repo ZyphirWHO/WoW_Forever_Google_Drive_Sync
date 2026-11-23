@@ -3,11 +3,22 @@ name: release
 # Releases are built only here, from this repository: never by hand.
 #  - Push a tag like v3.0.0 (or v3.0.0-beta.1 for a pre-release) to build, package and, after an approver
 #    approves the "release" environment, publish a GitHub Release.
-#  - Run it manually (Actions -> release -> Run workflow) for a dry run: build and package only, nothing published.
+#  - Or run it from the website: Actions -> release -> Run workflow, enter the version (e.g. 3.0.0) and tick
+#    "Publish": it builds, packages and, after approval, creates the tag and the GitHub Release.
+#    Without "Publish" it's a dry run: build and package only, nothing published.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 3.0.0 (blank = the one in Directory.Build.props)
+        required: false
+        default: ''
+      publish:
+        description: Publish the release (after approval). Leave unticked for a dry run.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -29,7 +40,9 @@ jobs:
         shell: pwsh
         run: |
           if ($env:GITHUB_REF -like 'refs/tags/v*') { $v = $env:GITHUB_REF_NAME.Substring(1) }
+          elseif ("${{ inputs.version }}" -ne "") { $v = "${{ inputs.version }}".TrimStart('v') }
           else { $v = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1 }
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') { throw "Not a version: $v" }
           "version=$v" >> $env:GITHUB_OUTPUT
           "Version: $v"
 
@@ -175,7 +188,7 @@ jobs:
   publish:
     # Only for tags. The "release" environment must have required reviewers (Settings -> Environments),
     # so every release waits for an approver.
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
     needs: [build, package, macos]
     runs-on: ubuntu-latest
     environment: release
@@ -220,7 +233,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A pushed tag names the release; a run from the website creates the tag v<version> on this commit.
+          tag="v${{ needs.build.outputs.version }}"
           prerelease=""
-          case "${GITHUB_REF_NAME}" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "${GITHUB_REF_NAME}" out/*.zip out/*.exe out/*.dmg \
-            --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes-file out/release-notes.md $prerelease
+          case "$tag" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$tag" out/*.zip out/*.exe out/*.dmg --target "${GITHUB_SHA}" \
+            --repo "${GITHUB_REPOSITORY}" --title "$tag" --notes-file out/release-notes.md $prerelease
