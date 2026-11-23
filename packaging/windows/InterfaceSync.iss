@@ -82,5 +82,5 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupA
 
 [Run]
 Filename: "{app}\{#AppId}.exe"; Description: "Open {#AppName} now"; Flags: nowait postinstall skipifsilent
-; An update started from the app runs silently: open the app again afterwards, quietly in the tray.
-Filename: "{app}\{#AppId}.exe"; Parameters: "--tray --updated"; Flags: nowait skipifnotsilent
+; An update started from the app runs silently: open the app again afterwards, with its status window.
+Filename: "{app}\{#AppId}.exe"; Parameters: "--updated"; Flags: nowait skipifnotsilent

@@ -101,7 +101,7 @@ internal sealed class MacApp : Application, IMacHost
         _darkItem = new NativeMenuItem("Dark Mode") { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = MacTheme.IsDark };
         _darkItem.Click += (_, _) => ToggleTheme(this);
         var updates = new NativeMenuItem("Check for Updates...");
-        updates.Click += (_, _) => { ShowStatus(); _ = Updater.CheckAsync(); };
+        updates.Click += (_, _) => { ShowStatus(); _status?.CheckForUpdates(); };
         var about = new NativeMenuItem($"About {ProductInfo.Name}");
         about.Click += (_, _) => Dialogs.About().Show();
         var quit = new NativeMenuItem($"Quit {ProductInfo.Name}");

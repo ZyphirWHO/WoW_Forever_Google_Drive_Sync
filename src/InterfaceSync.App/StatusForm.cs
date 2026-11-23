@@ -205,7 +205,7 @@ internal sealed class StatusForm : Form
         updates.Controls.Add(_autoUpdate);
         updates.Controls.Add(_updateStatus);
         var checkNow = new ModernButton("Check now") { Height = 30, Anchor = AnchorStyles.Right };
-        checkNow.Click += (_, _) => { if (Updater != null) _ = Updater.CheckAsync(); };
+        checkNow.Click += (_, _) => CheckForUpdates();
         _updateIcon = Icon(Draw.Download);
         grid.Controls.Add(_updateIcon, 0, 2);
         grid.Controls.Add(updates, 1, 2);
@@ -332,6 +332,34 @@ internal sealed class StatusForm : Form
         _dupBar.Controls.Add(grid);
     }
 
+    private bool _revealUpdate;
+
+    /// <summary>
+    /// "Check now" / "Check for updates": checks, and when it's done brings the top of the window into view, where
+    /// the update card appears (it's easy to miss when the window is scrolled down to Settings).
+    /// </summary>
+    internal void CheckForUpdates()
+    {
+        if (Updater == null) return;
+        _revealUpdate = true;
+        _ = Updater.CheckAsync();
+    }
+
+    private void ScrollToTop() => _content.AutoScrollPosition = Point.Empty;
+
+    /// <summary>For tests: how far down the window is scrolled, and scrolling to the bottom.</summary>
+    internal int ScrollY => -_content.AutoScrollPosition.Y;
+    internal void ScrollToBottom() => _content.AutoScrollPosition = new Point(0, _content.DisplayRectangle.Height);
+
+    /// <summary>After an update: a short confirmation at the top of the window.</summary>
+    internal void ShowUpdated()
+    {
+        _updatedNote = true;
+        ScrollToTop();
+        RefreshView();
+    }
+    private bool _updatedNote;
+
     /// <summary>For tests: whether the duplicate-folder card is showing.</summary>
     internal bool DuplicateShown => _dupBar.Visible;
 
@@ -405,6 +433,12 @@ internal sealed class StatusForm : Form
         _hero.Invalidate();
         _pause.Text = Service.Settings.Paused ? "Resume" : "Pause";
 
+        // "Updated to …" after an in-app update
+        if (_updatedNote)   // stays for this session, so it's still there after the next refresh
+        {
+            _overallDetail.Text = $"Updated to version {ProductInfo.DisplayVersion} · {_overallDetail.Text}";
+        }
+
         // copies of the cloud folder
         var dups = Service.Duplicates;
         if ((dups.Count > 0) != _dupBar.Visible) { _dupBar.Visible = dups.Count > 0; FitWidths(); }
@@ -430,7 +464,13 @@ internal sealed class StatusForm : Form
                 ? $" Last checked {StatusWords.Ago(checkedAt, now)}." : "");
             var release = Updater.Available;
             bool show = release != null && Updater.State is UpdateState.Available or UpdateState.Downloading;
+            bool appeared = show && !_updateBar.Visible;
             if (show != _updateBar.Visible) { _updateBar.Visible = show; FitWidths(); }
+            if (appeared || (_revealUpdate && Updater.State != UpdateState.Checking))
+            {
+                _revealUpdate = false;
+                ScrollToTop();
+            }
             if (show)
             {
                 _updateTitle.Text = release!.IsPrerelease ? $"Test build {release.Version} is available" : $"{ProductInfo.Name} {release.Version} is available";

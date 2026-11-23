@@ -39,7 +39,16 @@ internal sealed class StatusWindow : Window
     private readonly Button _updateNow;
     private readonly ToggleSwitch _autoUpdate = new() { OnContent = null, OffContent = null, MinWidth = 0 };
     private readonly TextBlock _updateStatus = Ui.Text("", 12, brush: "InterfaceSyncMuted");
-    private bool _refreshingUpdate;
+    private bool _refreshingUpdate, _revealUpdate;
+    private ScrollViewer _scroller = null!;
+
+    /// <summary>"Check now" / "Check for Updates…": checks, then brings the top (the update card) into view.</summary>
+    internal void CheckForUpdates()
+    {
+        if (_updater == null) return;
+        _revealUpdate = true;
+        _ = _updater.CheckAsync();
+    }
     private readonly Border _dupBar;
     private readonly TextBlock _dupTitle = Ui.Text("", 14, FontWeight.SemiBold);
     private readonly TextBlock _dupDetail = Ui.Text("", 12, brush: "InterfaceSyncMuted");
@@ -121,7 +130,7 @@ internal sealed class StatusWindow : Window
             SettingRow(Ui.Cloud, new StackPanel { Children = { Ui.Text("Cloud folder", 13, FontWeight.SemiBold), _cloudPath } }, move),
             SettingRow(Ui.Power, new StackPanel { Children = { Ui.Text("Open at Login", 13, FontWeight.SemiBold), Ui.Text($"Start {ProductInfo.Name} when you log in to this Mac", 12, brush: "InterfaceSyncMuted") } }, _startAtLogin),
             SettingRow(Ui.Sync, new StackPanel { Children = { Ui.Text("Check for updates automatically", 13, FontWeight.SemiBold), _updateStatus } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { Ui.Button("Check now", () => { if (_updater != null) _ = _updater.CheckAsync(); }), _autoUpdate } }));
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { Ui.Button("Check now", CheckForUpdates), _autoUpdate } }));
         if (_updater == null) ((StackPanel)settings.Child!).Children.RemoveAt(((StackPanel)settings.Child!).Children.Count - 1);
         if (_startup == null) ((StackPanel)settings.Child!).Children.RemoveAt(1);
 
@@ -156,7 +165,7 @@ internal sealed class StatusWindow : Window
         var dock = new DockPanel();
         DockPanel.SetDock(banner, Dock.Top);
         dock.Children.Add(banner);
-        dock.Children.Add(new ScrollViewer { Content = root });
+        dock.Children.Add(_scroller = new ScrollViewer { Content = root });
         Content = dock;
         Refresh();
     }
@@ -241,7 +250,14 @@ internal sealed class StatusWindow : Window
             _refreshingUpdate = false;
             _updateStatus.Text = _updater.Describe();
             var release = _updater.Available;
-            _updateBar.IsVisible = release != null && _updater.State is UpdateState.Available or UpdateState.Downloading;
+            bool show = release != null && _updater.State is UpdateState.Available or UpdateState.Downloading;
+            bool appeared = show && !_updateBar.IsVisible;
+            _updateBar.IsVisible = show;
+            if (appeared || (_revealUpdate && _updater.State != UpdateState.Checking))
+            {
+                _revealUpdate = false;
+                _scroller.Offset = new Vector(0, 0);
+            }
             if (release != null)
             {
                 _updateTitle.Text = release.IsPrerelease ? $"Test build {release.Version} is available" : $"{ProductInfo.Name} {release.Version} is available";

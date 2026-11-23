@@ -65,7 +65,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         menu.Items.Add(_pauseItem);
         menu.Items.Add(_startupItem);
         menu.Items.Add(_darkItem);
-        menu.Items.Add(new ToolStripMenuItem("Check for updates", null, (_, _) => { ShowStatus(); _ = Updater.CheckAsync(); }));
+        menu.Items.Add(new ToolStripMenuItem("Check for updates", null, (_, _) => { ShowStatus(); _status?.CheckForUpdates(); }));
         menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => StatusForm.ShowAbout(null)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
@@ -110,13 +110,16 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             _tray.ShowBalloonTip(8_000, $"{ProductInfo.Name} is running",
                 "It syncs on its own when you close the game. Click the W icon by the clock to see its status.", ToolTipIcon.Info);
         }
-        else if (!_startInTray)
+        else if (!_startInTray || _justUpdated)
         {
-            ShowStatus();
+            ShowStatus();   // after an in-app update, reopen where the player left off: the status window
         }
 
         if (_justUpdated)
+        {
+            _status?.ShowUpdated();
             _tray.ShowBalloonTip(6_000, $"{ProductInfo.Name} was updated", $"You now have version {ProductInfo.DisplayVersion}.", ToolTipIcon.Info);
+        }
         _timer = new System.Threading.Timer(_ => Poll(), null, TimeSpan.Zero, SyncService.PollInterval);
     }
 

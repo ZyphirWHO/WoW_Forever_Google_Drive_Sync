@@ -473,6 +473,38 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
+    public void Check_now_brings_the_update_card_into_view_and_an_update_reopens_the_status_window_with_a_note()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true), ("_retail_", true), ("_ptr_", false));
+        service.Poll();
+        var updater = new InterfaceSync.Core.Updates.Updater(service, new HttpClient(new NewerRelease()), new FakeClock(DateTime.UtcNow), "3.0.0");
+        OnSta(() =>
+        {
+            using var form = new StatusForm(new TestHost(service)) { Updater = updater, InstallUpdate = _ => { } };
+            form.Size = new System.Drawing.Size(860, 420);                // short, so it scrolls
+            form.Show();
+            form.RefreshView();
+            Application.DoEvents();
+            form.ScrollToBottom();
+            Application.DoEvents();
+            Assert.True(form.ScrollY > 0, "the window should be scrolled down to start with");
+
+            form.CheckForUpdates();
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (updater.State != InterfaceSync.Core.Updates.UpdateState.Available && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+            form.RefreshView();
+            Application.DoEvents();
+            Assert.True(form.UpdateOffered);
+            Assert.Equal(0, form.ScrollY);                                   // the update card is in view
+
+            form.ShowUpdated();
+            Assert.Contains(AllControls(form).OfType<Label>(), l => l.Text.StartsWith($"Updated to version {InterfaceSync.Core.ProductInfo.DisplayVersion}"));
+            form.AllowClose();
+            form.Close();
+        });
+    }
+
+    [Fact]
     public void Status_window_offers_an_available_update()
     {
         var service = Service(setupComplete: true, ("_forever_", true));
