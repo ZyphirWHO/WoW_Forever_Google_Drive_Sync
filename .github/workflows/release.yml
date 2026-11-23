@@ -92,6 +92,18 @@ jobs:
         shell: pwsh
         run: ./.github/check-product-name.ps1 publish
 
+      - name: Build and test the installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $props = [xml](Get-Content Directory.Build.props)
+          $name = $props.Project.PropertyGroup.ProductDisplayName | Where-Object { $_ } | Select-Object -First 1
+          $id = $props.Project.PropertyGroup.ProductId | Where-Object { $_ } | Select-Object -First 1
+          & $iscc /Q "/DAppName=$name" "/DAppId=$id" "/DAppVersion=${{ needs.build.outputs.version }}" "/DSourceDir=$PWD\publish" "/O$PWD\installer" packaging\windows\InterfaceSync.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          ./.github/test-installer.ps1 installer
+
       - name: Zip and hash
         shell: pwsh
         run: |
@@ -109,6 +121,8 @@ jobs:
           Compress-Archive -Path "$stage/*" -DestinationPath "out/$id-$v.zip"
           $exeHash = (Get-FileHash "out/$id.exe" -Algorithm SHA256).Hash
           $zipHash = (Get-FileHash "out/$id-$v.zip" -Algorithm SHA256).Hash
+          Copy-Item "installer/$id-Setup-$v.exe" "out/"
+          $setupHash = (Get-FileHash "out/$id-Setup-$v.exe" -Algorithm SHA256).Hash
           @"
           $name $v
 
@@ -117,6 +131,7 @@ jobs:
           | File | SHA-256 |
           |---|---|
           | $id.exe | ``$exeHash`` |
+          | $id-Setup-$v.exe (installer, recommended) | ``$setupHash`` |
           | $id-$v.zip | ``$zipHash`` |
 
           Check the file before running it: in PowerShell, ``Get-FileHash .\$id.exe`` must show the SHA-256 above.

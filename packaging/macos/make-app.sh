@@ -49,3 +49,15 @@ ZIP="$OUT/$ID-$VERSION-macos-${RID#osx-}.zip"
 (cd "$OUT/pkg-$RID" && ditto -c -k --sequesterRsrc --keepParent "$NAME" "$ZIP")
 echo "Built $ZIP"
 shasum -a 256 "$ZIP"
+
+# Disk image: drag the app onto Applications (the usual Mac install), with the "How to open" guide.
+DMG_SRC="$OUT/dmg-$RID"
+rm -rf "$DMG_SRC"; mkdir -p "$DMG_SRC"
+ditto "$APP" "$DMG_SRC/$NAME.app"
+ln -s /Applications "$DMG_SRC/Applications"
+cp "$ROOT/packaging/guides/mac.html" "$DMG_SRC/How to open $NAME.html"
+DMG="$OUT/$ID-$VERSION-macos-${RID#osx-}.dmg"
+hdiutil create -volname "$NAME" -srcfolder "$DMG_SRC" -fs HFS+ -format UDZO -ov "$DMG" >/dev/null
+hdiutil verify "$DMG" >/dev/null
+echo "Built $DMG"
+shasum -a 256 "$DMG"

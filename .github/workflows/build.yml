@@ -59,6 +59,24 @@ jobs:
         shell: pwsh
         run: ./.github/check-product-name.ps1 publish
 
+      # Per-user installer (Inno Setup): built, then installed, checked and uninstalled on this runner.
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $props = [xml](Get-Content Directory.Build.props)
+          $name = $props.Project.PropertyGroup.ProductDisplayName | Where-Object { $_ } | Select-Object -First 1
+          $id = $props.Project.PropertyGroup.ProductId | Where-Object { $_ } | Select-Object -First 1
+          $v = $props.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          & $iscc /Q "/DAppName=$name" "/DAppId=$id" "/DAppVersion=$v" "/DSourceDir=$PWD\publish" "/O$PWD\installer" packaging\windows\InterfaceSync.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          Get-ChildItem installer | ForEach-Object { "$($_.Name)  SHA-256: $((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" }
+
+      - name: Test installer (install, check, uninstall)
+        shell: pwsh
+        run: ./.github/test-installer.ps1 installer
+
       # The download holds the exe and the "How to open" guide (SmartScreen / browser warnings).
       - name: Add the guide
         shell: pwsh
@@ -73,6 +91,13 @@ jobs:
         with:
           name: InterfaceSync-dev-${{ github.sha }}
           path: artifact/
+          retention-days: 14
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: InterfaceSync-Setup-dev-${{ github.sha }}
+          path: installer/*.exe
           retention-days: 14
 
   # macOS: Core and Mac app tests on a real Mac, then the menu-bar app for Apple silicon and Intel.
@@ -98,5 +123,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: InterfaceSync-macos-dev-${{ github.sha }}
-          path: out/*.zip
+          path: |
+            out/*.zip
+            out/*.dmg
           retention-days: 14
