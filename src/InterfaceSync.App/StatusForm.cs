@@ -1,3 +1,4 @@
+using InterfaceSync.Core.Detection;
 using InterfaceSync.Core.Logging;
 using InterfaceSync.Core;
 using System.Diagnostics;
@@ -15,67 +16,150 @@ internal interface IStatusHost
     void Run(Action work, Action? afterOnUi = null);
 }
 
-/// <summary>Per-version state, recent log lines and the rare manual actions.</summary>
+/// <summary>
+/// The status dashboard: a headline card (state, last sync, Sync now / Pause), a card per game version with its
+/// status and any action it needs, settings (cloud folder, start with Windows, appearance), recent activity, and
+/// the rare tools (backups, log, diagnostics, about).
+/// </summary>
 internal sealed class StatusForm : Form
 {
     private readonly IStatusHost _app;
     private SyncService Service => _app.Service;
 
-    private readonly Label _overall = new() { AutoSize = true, Font = new Font((SystemFonts.MessageBoxFont ?? DefaultFont).FontFamily, 11f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6), Padding = new Padding(0, 0, 0, 2) };
-    private readonly Label _paths = new() { AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
-    private readonly ListView _list = new() { View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, Dock = DockStyle.Fill, Height = 130 };
-    private readonly TextBox _logBox = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.FixedSingle };
-    private readonly Button _syncNow = new() { Text = "Sync now", AutoSize = true };
-    private readonly Button _pause = new() { Text = "Pause syncing", AutoSize = true };
-    private readonly Button _resolve = new() { Text = "Choose settings to keep...", AutoSize = true, Enabled = false };
-    private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, Margin = new Padding(3, 4, 3, 3) };
-    private readonly CheckBox _startAtLogin = new() { AutoSize = true, AutoCheck = false, Margin = new Padding(16, 8, 3, 3), Visible = false };
+    private readonly Panel _content = new() { Dock = DockStyle.Fill, AutoScroll = true };
+    private readonly FlowLayoutPanel _stack = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Location = new Point(24, 16), Margin = Padding.Empty };
+
+    // headline
+    private readonly Card _hero = new() { Height = 104, Padding = new Padding(20, 14, 20, 14) };
+    private readonly Glyph _heroIcon = new(Draw.Check, 26f) { Margin = new Padding(0, 6, 14, 0) };
+    private readonly Label _overall = new() { AutoSize = true, UseMnemonic = false, Margin = new Padding(0, 4, 0, 2) };
+    private readonly Label _overallDetail = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
+    private readonly ModernButton _syncNow = new("Sync now", ButtonKind.Primary) { Icon = Draw.Sync };
+    private readonly ModernButton _pause = new("Pause");
+
+    // versions
+    private readonly FlowLayoutPanel _versionRows = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = Padding.Empty };
+    private readonly Dictionary<string, VersionRow> _rows = new();
+
+    // settings
+    private readonly Label _cloudPath = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
+    private readonly ToggleSwitch _startAtLogin = new("Start with Windows") { Visible = false };
+    private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170 };
+    private readonly IStartAtLogin? _startup;
+
+    // activity
+    private readonly Card _activity = new() { Height = 300, Padding = new Padding(16, 10, 16, 14) };
+    private readonly TextBox _logBox = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.None };
+    private readonly Label _lastLine = new() { AutoSize = false, Dock = DockStyle.Fill, UseMnemonic = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+    private readonly ModernButton _toggleActivity = new("Show", ButtonKind.Ghost) { Height = 28 };
+    private bool _activityOpen;
+
     private bool _allowClose;
 
-    /// <summary>Start with Windows; the checkbox is hidden when not set (tests).</summary>
+    /// <summary>Start with Windows; the switch is hidden when not set (tests).</summary>
     internal IStartAtLogin? StartAtLogin
     {
         get => _startup;
         init { _startup = value; _startAtLogin.Visible = value != null; if (value != null) { _startAtLogin.Text = value.Label; _startAtLogin.Checked = value.IsEnabled; } }
     }
-    private readonly IStartAtLogin? _startup;
 
     public StatusForm(IStatusHost app)
     {
         _app = app;
         Text = $"{ProductInfo.Name} {ProductInfo.Version}";
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(880, 680);
-        MinimumSize = new Size(640, 420);
+        Size = new Size(860, 760);
+        MinimumSize = new Size(680, 520);
         Font = SystemFonts.MessageBoxFont ?? Font;
         Padding = Padding.Empty;
         Icon = TrayIcons.AppIcon;
 
-
-        _list.Columns.Add("Game version", 130);
-        _list.Columns.Add("Status", 260);
-        _list.Columns.Add("Last push", 120);
-        _list.Columns.Add("Last pull", 120);
-        _list.Columns.Add("Notes", 170);
-        _list.SelectedIndexChanged += (_, _) => UpdateButtons();
-
+        _overall.Font = new Font(Font.FontFamily, 15f, FontStyle.Bold);
+        Theme.SetRole(_overallDetail, TextRole.Muted);
         _syncNow.Click += (_, _) => _app.Run(Service.SyncNow);
         _pause.Click += (_, _) => _app.Run(() => Service.SetPaused(!Service.Settings.Paused));
-        _resolve.Click += (_, _) => ResolveSelected();
-        var openLog = new Button { Text = "Open log", AutoSize = true };
-        openLog.Click += (_, _) => Open(Service.Paths.Logs);
-        var openBackups = new Button { Text = "Open backups", AutoSize = true };
-        openBackups.Click += (_, _) => Open(Service.Paths.Backups);
-        var changeCloud = new Button { Text = "Change cloud folder...", AutoSize = true };
-        changeCloud.Click += (_, _) => ChangeCloudFolder();
-        var about = new Button { Text = "About", AutoSize = true };
-        about.Click += (_, _) => ShowAbout(this);
-        var copyDiag = new Button { Text = "Copy diagnostics", AutoSize = true };
-        copyDiag.Click += (_, _) =>
-        {
-            Clipboard.SetText(Service.Diagnostics());
-            MessageBox.Show(this, "Diagnostics copied. Paste them into your message or GitHub issue.", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
-        };
+        BuildHero();
+
+        _stack.Controls.Add(_hero);
+        _stack.Controls.Add(new SectionHeader("Game versions"));
+        _stack.Controls.Add(_versionRows);
+        _stack.Controls.Add(new SectionHeader("Settings"));
+        _stack.Controls.Add(BuildSettings());
+        _stack.Controls.Add(new SectionHeader("Activity"));
+        _stack.Controls.Add(BuildActivity());
+        _stack.Controls.Add(BuildTools());
+        _content.Controls.Add(_stack);
+        _content.Resize += (_, _) => FitWidths();
+
+        Controls.Add(_content);
+        Controls.Add(new BrandBanner("Your interface settings, on every computer"));   // docks above the content
+        Theme.Apply(this);
+        Theme.Changed += OnThemeChanged;
+        FitWidths();
+    }
+
+    private int RowWidth => Math.Max(560, _content.ClientSize.Width - 48);
+
+    /// <summary>Cards fill the window's width (it can be resized).</summary>
+    private void FitWidths()
+    {
+        foreach (Control c in _stack.Controls) c.Width = RowWidth;
+        foreach (var row in _rows.Values) row.Width = RowWidth;
+        _stack.Controls[^1].Width = RowWidth;
+    }
+
+    private void BuildHero()
+    {
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2, Margin = Padding.Empty };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
+        grid.Controls.Add(_heroIcon, 0, 0);
+        grid.SetRowSpan(_heroIcon, 2);
+        _overall.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+        _overallDetail.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+        grid.Controls.Add(_overall, 1, 0);
+        grid.Controls.Add(_overallDetail, 1, 1);
+        _pause.Anchor = _syncNow.Anchor = AnchorStyles.Right;
+        _syncNow.Margin = new Padding(8, 0, 0, 0);
+        _pause.Margin = new Padding(8, 0, 0, 0);
+        grid.Controls.Add(_pause, 2, 0);
+        grid.Controls.Add(_syncNow, 3, 0);
+        grid.SetRowSpan(_pause, 2);
+        grid.SetRowSpan(_syncNow, 2);
+        _hero.Controls.Add(grid);
+    }
+
+    private Card BuildSettings()
+    {
+        var card = new Card { Height = 172, Padding = new Padding(16, 8, 16, 8) };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, Margin = Padding.Empty };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 36));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        for (int i = 0; i < 3; i++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 33.3f));
+
+        Control Icon(string g) { var l = new Glyph(g, 14f) { Anchor = AnchorStyles.Left }; Theme.SetRole(l, TextRole.Accent); return l; }
+        Label Bold(string t) => new() { Text = t, AutoSize = true, UseMnemonic = false, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 1) };
+
+        var cloud = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left, Margin = Padding.Empty };
+        cloud.Controls.Add(Bold("Cloud folder"));
+        Theme.SetRole(_cloudPath, TextRole.Muted);
+        cloud.Controls.Add(_cloudPath);
+        var change = new ModernButton("Change...") { Height = 30, Anchor = AnchorStyles.Right };
+        change.Click += (_, _) => ChangeCloudFolder();
+        grid.Controls.Add(Icon(Draw.Cloud), 0, 0);
+        grid.Controls.Add(cloud, 1, 0);
+        grid.Controls.Add(change, 2, 0);
+
+        _startAtLogin.Anchor = AnchorStyles.Left;
+        _startAtLogin.AutoCheck = false;
+        _startAtLogin.Click += (_, _) => ToggleStartAtLogin();
+        grid.Controls.Add(Icon(Draw.Power), 0, 1);
+        grid.Controls.Add(_startAtLogin, 1, 1);
 
         foreach (var (_, label) in TrayApp.ThemeChoices) _appearance.Items.Add(label);
         SelectAppearance();
@@ -84,36 +168,65 @@ internal sealed class StatusForm : Form
             var chosen = TrayApp.ThemeChoices[Math.Max(0, _appearance.SelectedIndex)].Theme;
             if (chosen != Theme.Mode) TrayApp.ChooseTheme(Service, chosen);
         };
-        _startAtLogin.Click += (_, _) => ToggleStartAtLogin();
-        var appearanceLabel = new Label { Text = "Appearance:", AutoSize = true, Margin = new Padding(12, 8, 0, 0) };
-
-        var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
-        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag, about, appearanceLabel, _appearance, _startAtLogin]);
-
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(14, 10, 14, 12) };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.Controls.Add(_overall, 0, 0);
-        layout.Controls.Add(_paths, 0, 1);
-        layout.Controls.Add(new SectionHeader("Game versions") { Dock = DockStyle.Fill }, 0, 2);
-        layout.Controls.Add(_list, 0, 3);
-        layout.Controls.Add(buttons, 0, 4);
-        layout.Controls.Add(new SectionHeader("Recent activity") { Dock = DockStyle.Fill }, 0, 5);
-        layout.Controls.Add(_logBox, 0, 6);
-        Controls.Add(layout);
-        Controls.Add(new BrandBanner("Your interface settings, on every computer"));   // docks above the layout
-        Theme.SetPrimary(_syncNow);
-
-        Theme.Apply(this);
-        Theme.Changed += OnThemeChanged;
+        _appearance.Anchor = AnchorStyles.Right;
+        var appearance = Bold("Appearance");
+        appearance.Anchor = AnchorStyles.Left;
+        grid.Controls.Add(Icon(Draw.Paint), 0, 2);
+        grid.Controls.Add(appearance, 1, 2);
+        grid.Controls.Add(_appearance, 2, 2);
+        card.Controls.Add(grid);
+        return card;
     }
 
-    /// <summary>The Start with Windows checkbox (also used by tests).</summary>
+    private Card BuildActivity()
+    {
+        var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 34, ColumnCount = 2, Margin = Padding.Empty };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        Theme.SetRole(_lastLine, TextRole.Muted);
+        header.Controls.Add(_lastLine, 0, 0);
+        _toggleActivity.Anchor = AnchorStyles.Right;
+        _toggleActivity.Margin = Padding.Empty;
+        header.Controls.Add(_toggleActivity, 1, 0);
+        _toggleActivity.Click += (_, _) => SetActivityOpen(!_activityOpen);
+        _logBox.Visible = false;
+        _activity.Controls.Add(_logBox);
+        _activity.Controls.Add(header);   // docked after the log box = above it
+        SetActivityOpen(false);
+        return _activity;
+    }
+
+    private void SetActivityOpen(bool open)
+    {
+        _activityOpen = open;
+        _logBox.Visible = open;
+        _activity.Height = open ? 300 : 58;
+        _toggleActivity.Text = open ? "Hide" : "Show all";
+        _lastLine.Visible = true;
+    }
+
+    private Control BuildTools()
+    {
+        var tools = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0, 4, 0, 16) };
+        ModernButton Tool(string text, string glyph, Action click)
+        {
+            var b = new ModernButton(text, ButtonKind.Ghost) { Icon = glyph, Height = 32 };
+            b.Click += (_, _) => click();
+            tools.Controls.Add(b);
+            return b;
+        }
+        Tool("Open backups", Draw.History, () => Open(Service.Paths.Backups));
+        Tool("Open log folder", Draw.Folder, () => Open(Service.Paths.Logs));
+        Tool("Copy diagnostics", Draw.Info, () =>
+        {
+            Clipboard.SetText(Service.Diagnostics());
+            MessageBox.Show(this, "Diagnostics copied. Paste them into your message or GitHub issue.", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        });
+        Tool("About", Draw.Info, () => ShowAbout(this));
+        return tools;
+    }
+
+    /// <summary>The Start with Windows switch (also used by tests).</summary>
     internal void ToggleStartAtLogin()
     {
         if (_startup == null) return;
@@ -140,7 +253,9 @@ internal sealed class StatusForm : Form
     internal void ChooseAppearance(AppTheme theme) =>
         _appearance.SelectedIndex = Array.FindIndex(TrayApp.ThemeChoices, c => c.Theme == theme);
 
-    internal ListView VersionList => _list;
+    /// <summary>For tests: the version cards' titles, and the headline card.</summary>
+    internal IReadOnlyList<string> VersionTitles => _versionRows.Controls.OfType<VersionRow>().Select(r => r.Title).ToList();
+    internal Card Headline => _hero;
 
     protected override void Dispose(bool disposing)
     {
@@ -162,56 +277,76 @@ internal sealed class StatusForm : Form
         base.OnFormClosing(e);
     }
 
+    private static Color ToneColor(StatusTone tone) => tone switch
+    {
+        StatusTone.Good => Theme.Good,
+        StatusTone.Busy => Theme.Info,
+        StatusTone.Attention => Theme.Error,
+        StatusTone.Paused => Theme.Muted,
+        _ => Theme.Warning,
+    };
+
+    private static string ToneGlyph(StatusTone tone) => tone switch
+    {
+        StatusTone.Good => Draw.Check,
+        StatusTone.Busy => Draw.Sync,
+        StatusTone.Attention => Draw.Warning,
+        StatusTone.Paused => Draw.Pause,
+        _ => Draw.Clock,
+    };
+
     public void RefreshView()
     {
         if (IsDisposed || !Visible) return;
+        var now = DateTime.UtcNow;
+        var tone = StatusWords.Tone(Service.State);
 
-        _overall.Text = Service.StateText;
-        Theme.SetRole(_overall, Service.State == OverallState.NeedsAttention ? TextRole.Error : TextRole.Normal);
-        var wow = Service.Wow?.Found == true ? string.Join("; ", Service.Wow.Installs.Select(i => i.Root)) : "not found";
-        var drive = Service.Drive?.MyDrivePath ?? "not found";
-        _paths.Text = $"World of Warcraft: {wow}{Environment.NewLine}{Service.ProviderName}: {drive}{Environment.NewLine}Log: {Service.Paths.Logs}";
+        _overall.Text = StatusWords.Headline(Service.State);
+        var last = StatusWords.LastSynced(Service.Workers);
+        _overallDetail.Text = Service.State == OverallState.InSync
+            ? $"Last synced {StatusWords.Ago(last, now)}"
+            : $"{Service.StateText}{(last != null ? $" · last synced {StatusWords.Ago(last, now)}" : "")}";
+        _heroIcon.Text = ToneGlyph(tone);
+        _heroIcon.ForeColor = ToneColor(tone);
+        _hero.Highlight = tone == StatusTone.Attention ? Theme.Error : null;
+        _hero.Invalidate();
+        _pause.Text = Service.Settings.Paused ? "Resume" : "Pause";
+        _pause.Icon = Service.Settings.Paused ? Draw.Sync : Draw.Pause;
 
-        var selected = _list.SelectedItems.Count > 0 ? (_list.SelectedItems[0].Tag as VersionSync)?.Version.FolderName : null;
-        _list.BeginUpdate();
-        _list.Items.Clear();
-        foreach (var w in Service.Workers)
+        // one card per game version, updated in place
+        var wanted = new List<(string key, VersionSync? worker, GameVersion version)>();
+        foreach (var w in Service.Workers) wanted.Add((w.Version.FolderName, w, w.Version));
+        foreach (var v in Service.Versions.Where(v => !Service.IsEnabled(v))) wanted.Add((v.FolderName, null, v));
+        if (!wanted.Select(x => x.key).SequenceEqual(_versionRows.Controls.OfType<VersionRow>().Select(r => r.Key)))
         {
-            var s = w.State;
-            var notes = s.Conflict != null ? "Choose which to keep"
-                : s.PendingPush ? "Push pending"
-                : s.LastError ?? "";
-            var item = new ListViewItem([
-                w.Version.FolderName,
-                string.IsNullOrEmpty(w.StatusText) ? w.Status.ToString() : w.StatusText,
-                Format(s.LastPushUtc),
-                Format(s.LastPullUtc),
-                notes,
-            ]) { Tag = w };
-            if (w.Status is SyncStatus.NeedsAttention or SyncStatus.Error) item.ForeColor = Theme.Error;
-            _list.Items.Add(item);
-            if (w.Version.FolderName == selected) item.Selected = true;
+            _versionRows.SuspendLayout();
+            _versionRows.Controls.Clear();
+            _rows.Clear();
+            foreach (var (key, _, _) in wanted)
+            {
+                var row = new VersionRow(key, Resolve) { Width = RowWidth };
+                _rows[key] = row;
+                _versionRows.Controls.Add(row);
+            }
+            Theme.Apply(this);
+            _versionRows.ResumeLayout();
         }
-        foreach (var v in Service.Versions.Where(v => !Service.IsEnabled(v)))
-            _list.Items.Add(new ListViewItem([v.FolderName, v.CanEnable ? "Off" : "Not played on this PC yet", "", "", ""]) { ForeColor = Theme.Muted });
-        _list.EndUpdate();
+        foreach (var (key, worker, version) in wanted) _rows[key].Show(worker, version, now);
 
-        _pause.Text = Service.Settings.Paused ? "Resume syncing" : "Pause syncing";
+        var drive = Service.Drive?.MyDrivePath;
+        _cloudPath.Text = drive != null ? $"{Service.ProviderName}: {PathUtil.Join(drive, CloudLayout.AppFolderName)}" : $"{Service.ProviderName}: not found";
         if (_startup != null) _startAtLogin.Checked = _startup.IsEnabled;
+
         // Newest first, so the latest action is visible without scrolling.
-        _logBox.Text = string.Join(Environment.NewLine, Service.RecentLog(200).Reverse().Select(l => l.ToString()));
-        UpdateButtons();
+        var lines = Service.RecentLog(200).Reverse().Select(l => l.ToString()).ToList();
+        _logBox.Text = string.Join(Environment.NewLine, lines);
+        _lastLine.Text = lines.Count > 0 ? lines[0] : "Nothing yet.";
+        FitWidths();
     }
 
-    private void UpdateButtons()
+    private void Resolve(VersionSync w)
     {
-        var w = _list.SelectedItems.Count > 0 ? _list.SelectedItems[0].Tag as VersionSync : null;
-        _resolve.Enabled = w?.State.Conflict != null;
-    }
-
-    private void ResolveSelected()
-    {
-        if (_list.SelectedItems.Count == 0 || _list.SelectedItems[0].Tag is not VersionSync w || w.State.Conflict is not { } c) return;
+        if (w.State.Conflict is not { } c) return;
 
         var keepLocal = new TaskDialogButton("Keep this PC's settings");
         var keepCloud = new TaskDialogButton("Keep the cloud settings");
@@ -275,6 +410,69 @@ internal sealed class StatusForm : Form
         catch (Exception e)
         {
             MessageBox.Show(this, $"Couldn't open {folder}: {e.Message}", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>One game version: name and version, status pill, upload/download times, and its action if any.</summary>
+    private sealed class VersionRow : Card
+    {
+        private readonly Label _title = new() { AutoSize = true, UseMnemonic = false, Margin = new Padding(0, 0, 0, 2) };
+        private readonly Label _details = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
+        private readonly StatusPill _pill = new() { Anchor = AnchorStyles.Right, Margin = new Padding(8, 0, 0, 0) };
+        private readonly ModernButton _action = new("Choose which to keep...", ButtonKind.Primary) { Anchor = AnchorStyles.Right, Visible = false, Height = 30, Margin = new Padding(10, 0, 0, 0) };
+        private VersionSync? _worker;
+
+        public VersionRow(string key, Action<VersionSync> resolve)
+        {
+            Key = key;
+            Height = 70;
+            Padding = new Padding(18, 10, 16, 10);
+            Margin = new Padding(0, 0, 0, 8);
+            _title.Font = new Font(SystemFonts.MessageBoxFont ?? DefaultFont, FontStyle.Bold);
+            Theme.SetRole(_details, TextRole.Muted);
+            _action.Click += (_, _) => { if (_worker != null) resolve(_worker); };
+            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2, Margin = Padding.Empty };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            _title.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+            _details.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+            grid.Controls.Add(_title, 0, 0);
+            grid.Controls.Add(_details, 0, 1);
+            grid.Controls.Add(_pill, 1, 0);
+            grid.SetRowSpan(_pill, 2);
+            grid.Controls.Add(_action, 2, 0);
+            grid.SetRowSpan(_action, 2);
+            Controls.Add(grid);
+        }
+
+        public string Key { get; }
+        public string Title => _title.Text;
+
+        public void Show(VersionSync? worker, GameVersion version, DateTime now)
+        {
+            _worker = worker;
+            _title.Text = version.FolderName + (version.ClientVersion != null ? $"   {version.ClientVersion}" : "");
+            if (worker == null)
+            {
+                _details.Text = version.CanEnable ? "Not synced on this PC. Switch it on in setup to sync it." : "Not played on this PC yet";
+                _pill.Set("Off", Theme.Muted);
+                _action.Visible = false;
+                Highlight = null;
+            }
+            else
+            {
+                var tone = StatusWords.Tone(worker.Status);
+                var status = string.IsNullOrEmpty(worker.StatusText) ? worker.Status.ToString() : worker.StatusText;
+                _pill.Set(status.Length > 48 ? status[..45] + "..." : status, ToneColor(tone));
+                var pending = worker.State.PendingPush ? " · upload pending" : "";
+                _details.Text = (worker.State.LastError is { Length: > 0 } err && tone == StatusTone.Attention ? err : StatusWords.Details(worker, now)) + pending;
+                _action.Visible = worker.State.Conflict != null;
+                Highlight = tone == StatusTone.Attention ? Theme.Error : null;
+            }
+            Invalidate();
         }
     }
 }

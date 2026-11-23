@@ -10,45 +10,69 @@ using InterfaceSync.Core.Sync;
 namespace InterfaceSync.App;
 
 /// <summary>
-/// First run: shows what was found, lets the player change any path and pick game versions, then runs
-/// each version's first sync with its result shown, and a Finish button once everything is done.
-/// No typing needed when detection works.
+/// First run, as a short wizard: Welcome, Your setup (what was found; change anything), Your settings (only when the
+/// cloud already has settings: which copy this PC uses), Finish (start with Windows, appearance), then the first
+/// sync with each version's result and a Finish button. No typing needed when detection works.
 /// </summary>
 internal sealed class FirstRun : Form
 {
+    private const int PageWidth = 664;   // content width inside the window's side margins
+
     private readonly SyncService _service;
     private readonly IRegistry _registry;
+    private readonly IStartAtLogin? _startup;
+
+    // chrome
+    private readonly BrandBanner _banner = new($"Welcome! Let's set up {ProductInfo.Name} on this PC.");
+    private readonly StepIndicator _steps = new();
+    private readonly Panel _content = new() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(28, 6, 28, 12) };
+    private readonly ModernButton _back = new("Back");
+    private readonly ModernButton _cancel = new("Cancel", ButtonKind.Ghost) { DialogResult = DialogResult.Cancel };
+    private readonly ModernButton _next = new("Next", ButtonKind.Primary);
+    private readonly ModernButton _finish = new("Finish", ButtonKind.Primary) { Visible = false, Enabled = false };
+    private int _page;
+    private bool _canStart;
+
+    // pages
+    private readonly FlowLayoutPanel _welcomePage = Page();
+    private readonly FlowLayoutPanel _setupPage = Page();
+    private readonly FlowLayoutPanel _choicesPage = Page();
+    private readonly FlowLayoutPanel _finalPage = Page();
+    private readonly FlowLayoutPanel _progressPage = Page();
+
+    // "Your setup"
     private readonly Label _wowPath = PathLabel();
     private readonly Label _drivePath = PathLabel();
     private readonly Label _cloudPath = PathLabel();
-    private readonly ComboBox _provider = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, Margin = new Padding(0, 4, 8, 4) };
+    private readonly ComboBox _provider = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280, Margin = new Padding(0, 4, 8, 4) };
     private bool _filling;
-    private readonly CheckBox _keepOnDevice = new() { AutoSize = true, Margin = new Padding(0, 2, 0, 4), Visible = false };
-    private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
-    private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
-    private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
-    private readonly BrandBanner _banner = new($"Welcome! Let's set up {ProductInfo.Name} on this PC.");
-    private readonly IStartAtLogin? _startup;
-    private readonly CheckBox _startAtLogin = new() { AutoSize = true, Margin = new Padding(0, 8, 0, 2), Text = $"Start {ProductInfo.Name} when I sign in to Windows (recommended)" };
-    private readonly Label _startAtLoginNote = new() { AutoSize = true, MaximumSize = new Size(600, 0), Margin = new Padding(18, 0, 0, 6), Visible = false };
-    private readonly FlowLayoutPanel _choicesPanel = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 8) };
+    private readonly CheckBox _keepOnDevice = new() { AutoSize = true, Margin = new Padding(0, 6, 0, 2), Visible = false };
+    private readonly CheckedListBox _versions = new() { CheckOnClick = true, IntegralHeight = false, Width = PageWidth - 34, Height = 60, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 4, 0, 2) };
+    private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(PageWidth, 0), Margin = new Padding(2, 0, 0, 8) };
+
+    // "Your settings"
+    private readonly Label _choicesIntro = new() { AutoSize = true, MaximumSize = new Size(PageWidth, 0), Margin = new Padding(0, 0, 0, 12) };
+    private readonly FlowLayoutPanel _choicesPanel = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
     private readonly List<(string version, RadioButton useCloud, RadioButton useMine)> _choices = [];
+
+    // "Finish"
+    private readonly ToggleSwitch _startAtLogin = new($"Start {ProductInfo.Name} when I sign in to Windows (recommended)");
+    private readonly Label _startAtLoginNote = new() { AutoSize = true, MaximumSize = new Size(PageWidth - 40, 0), Margin = new Padding(50, 0, 0, 4), Visible = false };
+    private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, Margin = new Padding(0, 2, 0, 2) };
+    private readonly Label _summary = new() { AutoSize = true, MaximumSize = new Size(PageWidth - 34, 0), Margin = new Padding(0, 2, 0, 2) };
+
+    // first sync
+    private readonly Label _progressHeading = new() { AutoSize = true, Margin = new Padding(0, 4, 0, 10) };
+    private readonly ListView _results = new() { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = PageWidth, Height = 150 };
+    private readonly ProgressBar _bar = new() { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Width = PageWidth, Height = 6, Margin = new Padding(0, 10, 0, 0) };
+    private readonly Label _afterword = new() { AutoSize = true, MaximumSize = new Size(PageWidth, 0), Margin = new Padding(0, 12, 0, 0) };
+    private bool _syncStarted;
+    private volatile bool _syncing;
 
     internal static readonly string HowItWorks =
         "• When you quit the game, this PC's interface settings (keybindings, macros, addon settings) are copied to your cloud folder.\n" +
         "• When you start up another computer, it copies in the newer settings before you play.\n" +
         "• Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs.";
-    private readonly TableLayoutPanel _setupGrid = new() { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill };
-
-    // First-sync progress page
-    private readonly TableLayoutPanel _progressPage = new() { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, Visible = false };
-    private readonly Label _progressHeading = new() { AutoSize = true, Margin = new Padding(0, 0, 0, 10) };
-    private readonly ListView _results = new() { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 640, Height = 150 };
-    private readonly ProgressBar _bar = new() { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Width = 640, Height = 14, Margin = new Padding(0, 8, 0, 0) };
-    private readonly Label _afterword = new() { AutoSize = true, MaximumSize = new Size(640, 0), Margin = new Padding(0, 10, 0, 0) };
-    private readonly Button _finish = new() { Text = "Finish", AutoSize = true, Enabled = false };
-    private bool _syncStarted;
-    private volatile bool _syncing;
 
     internal FirstRun(SyncService service, IRegistry registry, IStartAtLogin? startAtLogin = null)
     {
@@ -59,77 +83,39 @@ internal sealed class FirstRun : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        Padding = Padding.Empty;
         Font = SystemFonts.MessageBoxFont ?? Font;
         Icon = TrayIcons.AppIcon;
+        ClientSize = new Size(PageWidth + 56 + SystemInformation.VerticalScrollBarWidth, 660);
 
-        var grid = _setupGrid;
-        grid.Dock = DockStyle.None;
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 420));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        BuildWelcome();
+        BuildSetup();
+        BuildChoices();
+        BuildFinal();
+        BuildProgress();
+        foreach (var page in new[] { _welcomePage, _setupPage, _choicesPage, _finalPage, _progressPage }) _content.Controls.Add(page);
 
-        var top = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
-        top.Controls.Add(new SectionHeader("How it works") { Margin = new Padding(0, 0, 0, 4) });
-        top.Controls.Add(new Label { Text = HowItWorks, AutoSize = true, MaximumSize = new Size(600, 0), Margin = new Padding(0, 0, 0, 6) });
-        top.Controls.Add(new SectionHeader("Found on this PC"));
-        top.Controls.Add(new Label { Text = "Check these, then start syncing.", AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
-        grid.Controls.Add(top, 0, 0);
-        grid.SetColumnSpan(top, 3);
+        // footer: Back on the left; Cancel and the main button on the right
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 62, Padding = new Padding(28, 13, 28, 13) };
+        footer.Paint += (_, e) => { using var pen = new Pen(Theme.Border); e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0); };
+        var right = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        _next.Margin = _finish.Margin = new Padding(8, 0, 0, 0);
+        _cancel.Margin = new Padding(0);
+        right.Controls.AddRange([_finish, _next, _cancel]);
+        _back.Dock = DockStyle.Left;
+        footer.Controls.Add(right);
+        footer.Controls.Add(_back);
 
-        AddRow(grid, 1, "World of Warcraft:", _wowPath, ChangeButton(ChooseWow));
-        grid.Controls.Add(new Label { Text = "Sync these game versions:", AutoSize = true, Margin = new Padding(0, 8, 8, 0) }, 0, 2);
-        grid.Controls.Add(_versions, 1, 2);
-        var cloudCell = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
-        cloudCell.Controls.Add(_provider);
-        cloudCell.Controls.Add(_drivePath);
-        cloudCell.Controls.Add(_keepOnDevice);
-        AddRow(grid, 3, "Cloud folder:", cloudCell, ChangeButton(ChooseDrive));
-        _provider.SelectedIndexChanged += (_, _) => { if (!_filling) ProviderChanged(); };
-        AddRow(grid, 4, "Settings are kept in:", _cloudPath, null);
-        var lower = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
-        lower.Controls.Add(_choicesPanel);
-        lower.Controls.Add(_notes);
-        if (_startup != null)
-        {
-            var why = _startup.CannotEnableReason;
-            _startAtLogin.Checked = why == null;
-            _startAtLogin.Enabled = why == null;
-            _startAtLoginNote.Text = why ?? "";
-            _startAtLoginNote.Visible = why != null;
-            lower.Controls.Add(_startAtLogin);
-            lower.Controls.Add(_startAtLoginNote);
-        }
-        grid.Controls.Add(lower, 0, 5);
-        grid.SetColumnSpan(lower, 3);
+        Controls.Add(_content);
+        Controls.Add(footer);
+        Controls.Add(_steps);
+        Controls.Add(_banner);   // docked last = on top
 
-        var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
-        _start.Click += (_, _) => StartSyncing();
-        var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 12, 0, 0) };
-        buttons.Controls.Add(cancel);
-        buttons.Controls.Add(_start);
-        grid.Controls.Add(buttons, 0, 6);
-        grid.SetColumnSpan(buttons, 3);
+        _next.Click += (_, _) => Next();
+        _back.Click += (_, _) => ShowPage(_page - 1);
+        _finish.Click += (_, _) => { DialogResult = DialogResult.OK; Close(); };
+        AcceptButton = _next;
+        CancelButton = _cancel;
 
-        BuildProgressPage();
-        _progressPage.Dock = DockStyle.None;
-        // Banner across the top, then the setup page or (once started) the progress page.
-        var body = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Padding = new Padding(16, 12, 16, 14), Margin = Padding.Empty };
-        body.Controls.Add(grid);
-        body.Controls.Add(_progressPage);
-        var outer = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, Margin = Padding.Empty, Padding = Padding.Empty };
-        outer.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
-        outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        _banner.Dock = DockStyle.Fill;
-        outer.Controls.Add(_banner, 0, 0);
-        outer.Controls.Add(body, 0, 1);
-        Controls.Add(outer);
-        Theme.SetPrimary(_start);
-        Theme.SetPrimary(_finish);
-        AcceptButton = _start;
-        CancelButton = cancel;
         // ItemCheck fires before the item changes (and while Fill adds pre-ticked items, before the window
         // exists), so work out the new count from the event instead of deferring with BeginInvoke.
         _versions.ItemCheck += (_, e) => UpdateStartButton(
@@ -140,6 +126,7 @@ internal sealed class FirstRun : Form
         Theme.SetRole(_notes, TextRole.Warning);
         Theme.SetRole(_startAtLoginNote, TextRole.Muted);
         Theme.Apply(this);
+        ShowPage(0);
     }
 
     /// <summary>Shows the window; true when the player started syncing.</summary>
@@ -148,6 +135,191 @@ internal sealed class FirstRun : Form
         using var form = new FirstRun(service, registry, startAtLogin);
         return form.ShowDialog() == DialogResult.OK;
     }
+
+    // ------------------------------------------------------------------ pages
+
+    private static FlowLayoutPanel Page() => new()
+    {
+        FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty, Location = new Point(28, 6), Visible = false,
+    };
+
+    private Label Title(string text) => new()
+    {
+        Text = text, AutoSize = true, UseMnemonic = false, Font = new Font(Font.FontFamily, 15f, FontStyle.Bold), Margin = new Padding(0, 8, 0, 2),
+    };
+
+    private static Label Lead(string text)
+    {
+        var l = new Label { Text = text, AutoSize = true, UseMnemonic = false, MaximumSize = new Size(PageWidth, 0), Margin = new Padding(0, 0, 0, 14) };
+        Theme.SetRole(l, TextRole.Muted);
+        return l;
+    }
+
+    private static Card MakeCard(params Control[] rows)
+    {
+        var inner = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty, Location = new Point(16, 12) };
+        inner.Controls.AddRange(rows);
+        var card = new Card { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(PageWidth, 0), Padding = new Padding(16, 12, 16, 14) };
+        card.Controls.Add(inner);
+        return card;
+    }
+
+    /// <summary>A card's heading row: icon, title, and an optional button on the right.</summary>
+    private Control CardHeader(string glyph, string title, Control? action = null)
+    {
+        var row = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Width = PageWidth - 34, Height = 40, Margin = new Padding(0, 0, 0, 2) };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var icon = new Glyph(glyph, 15f) { Anchor = AnchorStyles.Left };
+        Theme.SetRole(icon, TextRole.Accent);
+        row.Controls.Add(icon, 0, 0);
+        row.Controls.Add(new Label { Text = title, AutoSize = true, UseMnemonic = false, Anchor = AnchorStyles.Left, Font = new Font(Font.FontFamily, 10.5f, FontStyle.Bold) }, 1, 0);
+        if (action != null) { action.Anchor = AnchorStyles.Right; action.Margin = Padding.Empty; row.Controls.Add(action, 2, 0); }
+        return row;
+    }
+
+    private Control Feature(string glyph, string title, string text)
+    {
+        var row = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, AutoSize = true, Margin = Padding.Empty };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var icon = new Glyph(glyph, 20f) { Margin = new Padding(0, 4, 0, 0) };
+        Theme.SetRole(icon, TextRole.Accent);
+        row.Controls.Add(icon, 0, 0);
+        row.SetRowSpan(icon, 2);
+        row.Controls.Add(new Label { Text = title, AutoSize = true, UseMnemonic = false, Font = new Font(Font.FontFamily, 10.5f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 2) }, 1, 0);
+        var body = new Label { Text = text, AutoSize = true, UseMnemonic = false, MaximumSize = new Size(PageWidth - 90, 0), Margin = Padding.Empty };
+        Theme.SetRole(body, TextRole.Muted);
+        row.Controls.Add(body, 1, 1);
+        return MakeCard(row);
+    }
+
+    private void BuildWelcome()
+    {
+        _welcomePage.Controls.Add(Title($"Welcome to {ProductInfo.Name}"));
+        _welcomePage.Controls.Add(Lead("Keep your keybindings, macros and addon settings the same on every computer you play on. Setup takes about a minute."));
+        _welcomePage.Controls.Add(Feature(Draw.Cloud, "Saved when you quit",
+            "When you quit the game, this PC's interface settings are copied to your own cloud folder (Google Drive, OneDrive or Dropbox)."));
+        _welcomePage.Controls.Add(Feature(Draw.Sync, "Ready on every computer",
+            "When you start up another computer, it copies in the newer settings before you play."));
+        _welcomePage.Controls.Add(Feature(Draw.Shield, "Safe by design",
+            "Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs. " +
+            "Your game files and addons themselves are never touched."));
+    }
+
+    private void BuildSetup()
+    {
+        _setupPage.Controls.Add(Title("Check what was found"));
+        _setupPage.Controls.Add(Lead($"{ProductInfo.Name} looked for World of Warcraft and your cloud folder on this PC. If anything is wrong, change it here."));
+
+        var versionsLabel = new Label { Text = "Game versions to sync", AutoSize = true, Margin = new Padding(0, 10, 0, 0), Font = new Font(Font, FontStyle.Bold) };
+        _setupPage.Controls.Add(MakeCard(CardHeader(Draw.Game, "World of Warcraft", ChangeButton(ChooseWow)), _wowPath, versionsLabel, _versions));
+
+        _provider.SelectedIndexChanged += (_, _) => { if (!_filling) ProviderChanged(); };
+        var keptIn = new Label { Text = "Your settings are kept in", AutoSize = true, Margin = new Padding(0, 8, 0, 0), Font = new Font(Font, FontStyle.Bold) };
+        _setupPage.Controls.Add(MakeCard(CardHeader(Draw.Cloud, "Cloud folder", ChangeButton(ChooseDrive)), _provider, _drivePath, keptIn, _cloudPath, _keepOnDevice));
+        _setupPage.Controls.Add(_notes);
+    }
+
+    private void BuildChoices()
+    {
+        _choicesPage.Controls.Add(Title("Which settings should this PC use?"));
+        Theme.SetRole(_choicesIntro, TextRole.Muted);
+        _choicesPage.Controls.Add(_choicesIntro);
+        _choicesPage.Controls.Add(_choicesPanel);
+    }
+
+    private void BuildFinal()
+    {
+        _finalPage.Controls.Add(Title("Almost done"));
+        _finalPage.Controls.Add(Lead("A couple of preferences, then the first sync runs."));
+        if (_startup != null)
+        {
+            var why = _startup.CannotEnableReason;
+            _startAtLogin.Checked = why == null;
+            _startAtLogin.Enabled = why == null;
+            _startAtLoginNote.Text = why ?? "Recommended, so your settings are always synced when you quit the game.";
+            _startAtLoginNote.Visible = true;
+            _finalPage.Controls.Add(MakeCard(CardHeader(Draw.Power, "Start automatically"), _startAtLogin, _startAtLoginNote));
+        }
+
+        foreach (var (_, label) in TrayApp.ThemeChoices) _appearance.Items.Add(label);
+        _appearance.SelectedIndex = Array.FindIndex(TrayApp.ThemeChoices, c => c.Theme == Theme.Mode);
+        _appearance.SelectedIndexChanged += (_, _) =>
+        {
+            var chosen = TrayApp.ThemeChoices[Math.Max(0, _appearance.SelectedIndex)].Theme;
+            if (chosen != Theme.Mode) TrayApp.ChooseTheme(_service, chosen);
+        };
+        _finalPage.Controls.Add(MakeCard(CardHeader(Draw.Paint, "Appearance", _appearance)));
+        _finalPage.Controls.Add(MakeCard(CardHeader(Draw.Check, "Ready to sync"), _summary));
+    }
+
+    private void BuildProgress()
+    {
+        _progressHeading.Font = new Font(Font.FontFamily, 15f, FontStyle.Bold);
+        _results.Columns.Add("Game version", 140);
+        _results.Columns.Add("Result", PageWidth - 146);
+        _progressPage.Controls.Add(_progressHeading);
+        _progressPage.Controls.Add(_results);
+        _progressPage.Controls.Add(_bar);
+        _progressPage.Controls.Add(_afterword);
+    }
+
+    // ------------------------------------------------------------------ navigation
+
+    private FlowLayoutPanel[] Pages => _choices.Count > 0
+        ? [_welcomePage, _setupPage, _choicesPage, _finalPage]
+        : [_welcomePage, _setupPage, _finalPage];
+
+    private int PageCount => Pages.Length;
+
+    private string[] StepNames => _choices.Count > 0
+        ? ["Welcome", "Your setup", "Your settings", "Finish"]
+        : ["Welcome", "Your setup", "Finish"];
+
+    private void ShowPage(int index)
+    {
+        if (_syncStarted) return;
+        _page = Math.Clamp(index, 0, PageCount - 1);
+        var current = Pages[_page];
+        _content.SuspendLayout();
+        foreach (Control page in _content.Controls) page.Visible = page == current;
+        _content.AutoScrollPosition = Point.Empty;
+        _content.ResumeLayout();
+        _steps.SetSteps(StepNames, _page);
+        if (current == _finalPage) UpdateSummary();
+        UpdateFooter();
+    }
+
+    private void UpdateFooter()
+    {
+        if (_syncStarted) return;
+        bool last = _page == PageCount - 1;
+        _back.Visible = _page > 0;
+        _next.Text = last ? "Start syncing" : "Next";
+        _next.Enabled = _page == 0 || _canStart;
+    }
+
+    private void Next()
+    {
+        if (_page == PageCount - 1) { if (_canStart) StartSyncing(); }
+        else ShowPage(_page + 1);
+    }
+
+    private void UpdateSummary()
+    {
+        var versions = Enumerable.Range(0, _versions.Items.Count).Where(_versions.GetItemChecked)
+            .Select(i => ((VersionItem)_versions.Items[i]).Version.FolderName).ToList();
+        var provider = _service.Drive?.Provider.DisplayName() ?? _service.EffectiveProvider().DisplayName();
+        _summary.Text = versions.Count == 0
+            ? "No game version is ticked. Go back and tick at least one."
+            : $"{string.Join(", ", versions)} will sync through {provider}. Click Start syncing to run the first sync now.";
+    }
+
+    // For the UI smoke tests: the wizard page shown ("Welcome", "Your setup", ...).
+    internal string CurrentStep => _syncStarted ? "Syncing" : StepNames[_page];
+    internal void ClickNext() => _next.PerformClick();
 
     private sealed record VersionItem(GameVersion Version)
     {
@@ -198,8 +370,10 @@ internal sealed class FirstRun : Form
         if (LegacyV11.FindRunEntries(_registry) is { Count: > 0 } legacy)
             notes.Add($"The previous version (WoWSync 1.1) is still set to start at login ({string.Join(", ", legacy)}). Stop its agent before syncing with {ProductInfo.Name}.");
         _notes.Text = string.Join(Environment.NewLine + Environment.NewLine, notes);
+        _notes.Visible = notes.Count > 0;
         FillChoices();
         UpdateStartButton();
+        ShowPage(Math.Min(_page, PageCount - 1));
     }
 
     /// <summary>
@@ -213,31 +387,30 @@ internal sealed class FirstRun : Form
         var previews = _service.PreviewFirstSync().Where(p => p.NeedsChoice).ToList();
         if (previews.Count == 0) { _choicesPanel.Visible = false; return; }
         _choicesPanel.Visible = true;
-        _choicesPanel.Controls.Add(new Label
-        {
-            Text = $"{previews[0].ProviderName} already has settings from another computer. For each game version, choose which to keep:",
-            AutoSize = true, MaximumSize = new Size(600, 0), Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 4),
-        });
+        _choicesIntro.Text = $"{previews[0].ProviderName} already has settings from another computer. For each game version, pick which " +
+                             "settings this PC should use. The newer copy is picked for you, and the other is backed up either way.";
         foreach (var p in previews)
         {
-            var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(8, 2, 0, 6) };
-            box.Controls.Add(new Label { Text = p.Version, AutoSize = true, Font = new Font(Font, FontStyle.Bold) });
             var useCloud = WrappedRadio(p.CloudOptionText(), p.Suggested == FirstSyncChoice.UseCloud);
             var useMine = WrappedRadio(p.LocalOptionText(), p.Suggested == FirstSyncChoice.UseThisComputer);
-            box.Controls.Add(useCloud);
-            box.Controls.Add(useMine);
-            _choicesPanel.Controls.Add(box);
+            var title = new Label { Text = p.Version, AutoSize = true, UseMnemonic = false, Font = new Font(Font.FontFamily, 10.5f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) };
+            var group = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+            group.Controls.AddRange([title, useCloud, useMine]);   // one group per version, so each pair is its own choice
+            _choicesPanel.Controls.Add(MakeCard(group));
             _choices.Add((p.Version, useCloud, useMine));
         }
     }
 
     private void UpdateStartButton() => UpdateStartButton(_versions.CheckedItems.Count);
 
-    private void UpdateStartButton(int checkedCount) =>
-        _start.Enabled = _service.Wow is { Found: true } && _service.Drive is { Found: true } && checkedCount > 0;
+    private void UpdateStartButton(int checkedCount)
+    {
+        _canStart = _service.Wow is { Found: true } && _service.Drive is { Found: true } && checkedCount > 0;
+        UpdateFooter();
+    }
 
     // For the UI smoke tests.
-    internal bool CanStart => _start.Enabled;
+    internal bool CanStart => _canStart;
     internal int VersionCount => _versions.Items.Count;
     internal int CheckedCount => _versions.CheckedItems.Count;
     internal void SetChecked(int index, bool value) => _versions.SetItemChecked(index, value);
@@ -333,29 +506,16 @@ internal sealed class FirstRun : Form
         ? $"It starts by itself when you sign in to Windows (switch that off in the tray menu: {_startup.Label})."
         : $"Start {ProductInfo.Name} again after restarting this PC, or switch on {_startup?.Label ?? "Start with Windows"} in the tray menu.";
 
-    // ------------------------------------------------------------------ first-sync progress
-
-    private void BuildProgressPage()
-    {
-        _progressHeading.Font = new Font(Font, FontStyle.Bold);
-        _results.Columns.Add("Game version", 130);
-        _results.Columns.Add("Result", 505);
-        _finish.Click += (_, _) => { DialogResult = DialogResult.OK; Close(); };
-        var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 12, 0, 0) };
-        buttons.Controls.Add(_finish);
-        _progressPage.Controls.Add(_progressHeading);
-        _progressPage.Controls.Add(_results);
-        _progressPage.Controls.Add(_bar);
-        _progressPage.Controls.Add(_afterword);
-        _progressPage.Controls.Add(buttons);
-    }
+    // ------------------------------------------------------------------ first sync
 
     private void ShowProgressAndSync()
     {
         _syncStarted = true;
         _syncing = true;
-        _setupGrid.Visible = false;
-        _progressPage.Visible = true;
+        foreach (Control page in _content.Controls) page.Visible = page == _progressPage;
+        _steps.SetSteps(StepNames, StepNames.Length);
+        _back.Visible = _next.Visible = _cancel.Visible = false;
+        _finish.Visible = true;
         AcceptButton = _finish;
         CancelButton = null;
         ControlBox = false; // no closing mid-copy
@@ -364,8 +524,7 @@ internal sealed class FirstRun : Form
         _afterword.Text =
             $"{ProductInfo.Name} keeps running in the system tray: its icon by the clock (it may be under the ^ arrow).\n\n" +
             "What to do now: just play. When you quit the game, your settings are copied to the cloud within a minute. " +
-            "On your other computer, open Interface Sync with the game closed and it copies them in. " +
-            "Click the tray icon any time to see what it did, change cloud folder, or open your backups.\n\n" +
+            $"On your other computer, open {ProductInfo.Name} with the game closed and it copies them in.\n\n" +
             RestartLine;
 
         var workers = _service.Workers;
@@ -392,6 +551,7 @@ internal sealed class FirstRun : Form
                     var item = _results.Items[row];
                     item.SubItems[1].Text = text;
                     if (problem) item.ForeColor = Theme.Error;
+                    _results.Invalidate();
                 });
             }
             Post(() => FinishProgress(workers.Count, problems));
@@ -406,7 +566,7 @@ internal sealed class FirstRun : Form
         ControlBox = true;
         _progressHeading.Text = versions == 0
             ? "Setup complete. No game version is switched on."
-            : problems == 0 ? "Setup complete." : "Setup complete, but something needs a look (shown in red).";
+            : problems == 0 ? "You're all set." : "Setup complete, but something needs a look (shown in red).";
         _afterword.Text =
             $"{ProductInfo.Name} keeps running in the system tray: its icon by the clock (it may be under the ^ arrow). " +
             "It syncs on its own whenever you close the game. Click the icon to see its status at any time.\n\n" + RestartLine;
@@ -432,52 +592,44 @@ internal sealed class FirstRun : Form
     }
 
     // For the UI smoke tests.
-    internal void ClickStart() => _start.PerformClick();
+    internal void ClickStart() { if (_canStart) StartSyncing(); }
     internal bool IsFinished => _finish.Enabled;
     internal IReadOnlyList<string> Results => _results.Items.Cast<ListViewItem>().Select(i => $"{i.Text}: {i.SubItems[1].Text}").ToList();
 
     /// <summary>A radio button whose long text wraps instead of running off the window.</summary>
     private RadioButton WrappedRadio(string text, bool chosen)
     {
-        const int width = 590;
+        const int width = PageWidth - 34;
         var height = TextRenderer.MeasureText(text, Font, new Size(width - 44, 0), TextFormatFlags.WordBreak).Height;   // room for the round button and its gap
-        return new RadioButton { Text = text, AutoSize = false, Size = new Size(width, height + 8), Checked = chosen, TextAlign = ContentAlignment.TopLeft, CheckAlign = ContentAlignment.TopLeft };
+        return new RadioButton { Text = text, AutoSize = false, Size = new Size(width, height + 10), Checked = chosen, TextAlign = ContentAlignment.TopLeft, CheckAlign = ContentAlignment.TopLeft, UseMnemonic = false };
     }
 
-    /// <summary>Taller than the screen (small laptop, large text): scroll instead of hiding the buttons.</summary>
+    /// <summary>Taller than the screen (small laptop, large text): shrink; the page scrolls instead.</summary>
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
-        FitToScreen();
-    }
-
-    private void FitToScreen()
-    {
         var area = Screen.FromControl(this).WorkingArea;
-        if (Height <= area.Height) return;
-        var width = Width + SystemInformation.VerticalScrollBarWidth;
-        AutoSize = false;
-        AutoScroll = true;
-        Size = new Size(width, area.Height - 16);
-        Location = new Point(Math.Max(area.Left, area.Left + (area.Width - width) / 2), area.Top + 8);
+        if (Height > area.Height)
+        {
+            Height = area.Height - 16;
+            Top = area.Top + 8;
+        }
     }
 
-    /// <summary>For tests: whether the window had to scroll to fit the screen.</summary>
-    internal bool Scrolls => AutoScroll;
+    /// <summary>For tests: whether the page has to scroll to fit.</summary>
+    internal bool Scrolls => _content.VerticalScroll.Visible;
 
-    private static Label PathLabel() => new() { AutoSize = true, MaximumSize = new Size(420, 0), Margin = new Padding(0, 6, 8, 6) };
-
-    private Button ChangeButton(Action onClick)
+    private static Label PathLabel()
     {
-        var b = new Button { Text = "Change...", AutoSize = true };
+        var l = new Label { AutoSize = true, UseMnemonic = false, MaximumSize = new Size(PageWidth - 34, 0), Margin = new Padding(0, 2, 0, 4) };
+        Theme.SetRole(l, TextRole.Muted);
+        return l;
+    }
+
+    private ModernButton ChangeButton(Action onClick)
+    {
+        var b = new ModernButton("Change...") { Height = 30 };
         b.Click += (_, _) => onClick();
         return b;
-    }
-
-    private static void AddRow(TableLayoutPanel grid, int row, string caption, Control value, Control? button)
-    {
-        grid.Controls.Add(new Label { Text = caption, AutoSize = true, Margin = new Padding(0, 6, 8, 6) }, 0, row);
-        grid.Controls.Add(value, 1, row);
-        if (button != null) grid.Controls.Add(button, 2, row);
     }
 }

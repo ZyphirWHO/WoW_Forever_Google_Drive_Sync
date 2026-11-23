@@ -8,7 +8,7 @@ using P = InterfaceSync.Core.ThemePalette;
 namespace InterfaceSync.App;
 
 /// <summary>Colours for status text; each one follows the current theme.</summary>
-internal enum TextRole { Normal, Muted, Warning, Error }
+internal enum TextRole { Normal, Muted, Warning, Error, Accent, Good }
 
 /// <summary>
 /// Night-and-gold (dark) or parchment (light) windows from <see cref="ThemePalette"/>: flat buttons with a gold
@@ -46,12 +46,16 @@ internal static class Theme
     public static Color Accent => C(IsDark ? P.Dark.Accent : P.Light.Accent);
     public static Color Warning => C(IsDark ? P.Dark.Warning : P.Light.Warning);
     public static Color Error => C(IsDark ? P.Dark.Error : P.Light.Error);
+    public static Color Good => IsDark ? Color.FromArgb(0x8F, 0xC9, 0x8A) : Color.FromArgb(0x2E, 0x6B, 0x2A);
+    public static Color Info => IsDark ? Color.FromArgb(0x8F, 0xB4, 0xE6) : Color.FromArgb(0x2B, 0x5C, 0x9E);
 
     public static Color For(TextRole role) => role switch
     {
         TextRole.Muted => Muted,
         TextRole.Warning => Warning,
         TextRole.Error => Error,
+        TextRole.Accent => Accent,
+        TextRole.Good => Good,
         _ => Text,
     };
 
@@ -121,6 +125,18 @@ internal static class Theme
             case Form f:
                 f.BackColor = Window;
                 f.ForeColor = Text;
+                break;
+
+            case ModernButton or ToggleSwitch or StepIndicator or StatusPill:
+                c.ResetBackColor();
+                c.ResetForeColor();
+                c.Invalidate();
+                break;
+
+            case Card card:
+                card.BackColor = Surface;
+                card.ForeColor = Text;
+                card.Invalidate();
                 break;
 
             case Button b:

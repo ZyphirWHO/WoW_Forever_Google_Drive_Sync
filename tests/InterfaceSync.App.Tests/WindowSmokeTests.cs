@@ -243,7 +243,34 @@ public sealed class WindowSmokeTests : IDisposable
             Application.DoEvents();
             form.RefreshView();
             Application.DoEvents();
+            // one card per game version: the two synced, then the one that's off
+            Assert.Equal(["_forever_", "_retail_", "_ptr_"], form.VersionTitles.Select(t => t.Split(' ')[0]));
+            form.RefreshView();                                      // updates in place
+            Assert.Equal(3, form.VersionTitles.Count);
             form.AllowClose();
+            form.Close();
+        });
+    }
+
+    [Fact]
+    public void Setup_is_a_wizard_that_walks_through_its_steps()
+    {
+        var service = Service(setupComplete: false, ("_forever_", true));
+        OnSta(() =>
+        {
+            using var form = new FirstRun(service, new FakeRegistry(), new WindowsStartAtLogin(new FakeRegistry(), Path.Combine(_root, "InterfaceSync.exe"), Path.Combine(_root, "Temp")));
+            form.Show();
+            Application.DoEvents();
+            Assert.Equal("Welcome", form.CurrentStep);
+            form.ClickNext();
+            Assert.Equal("Your setup", form.CurrentStep);
+            form.ClickNext();
+            Assert.Equal("Finish", form.CurrentStep);               // the cloud is empty: no "Your settings" step
+            form.ClickNext();                                       // Start syncing
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (!form.IsFinished && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(20); }
+            Assert.True(form.IsFinished);
+            Assert.Equal("Syncing", form.CurrentStep);
             form.Close();
         });
     }
@@ -303,10 +330,8 @@ public sealed class WindowSmokeTests : IDisposable
                 Application.DoEvents();
                 Assert.True(Theme.IsDark);
                 Assert.Equal(Theme.Window, form.BackColor);
-                Assert.Equal(Theme.Surface, form.VersionList.BackColor);
-                Assert.True(form.VersionList.OwnerDraw);   // dark headers and selection
-                var button = AllControls(form).OfType<Button>().First();
-                Assert.Equal(FlatStyle.Flat, button.FlatStyle);
+                Assert.Equal(Theme.Surface, form.Headline.BackColor);      // cards take the surface colour
+                Assert.NotEmpty(AllControls(form).OfType<ModernButton>());
                 using (var bmp = new System.Drawing.Bitmap(form.Width, form.Height)) form.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
 
                 var deadline = DateTime.UtcNow.AddSeconds(10);
@@ -317,7 +342,7 @@ public sealed class WindowSmokeTests : IDisposable
                 Application.DoEvents();
                 Assert.False(Theme.IsDark);
                 Assert.Equal(lightBack, form.BackColor);
-                Assert.Equal(Theme.Surface, form.VersionList.BackColor);
+                Assert.Equal(Theme.Surface, form.Headline.BackColor);
                 Assert.True(Brand.HasCinzel);                             // the heading font loaded from the exe
                 Assert.Single(AllControls(form).OfType<BrandBanner>());
                 form.AllowClose();
@@ -352,7 +377,13 @@ public sealed class WindowSmokeTests : IDisposable
                     using var form = new FirstRun(setup, new FakeRegistry(), new WindowsStartAtLogin(new FakeRegistry(), @"C:\Users\Player\Documents\Interface Sync\InterfaceSync.exe", @"C:\Temp"));
                     form.Show();
                     Application.DoEvents();
-                    Save(form, Path.Combine(folder, $"windows-setup-{theme}.png"));
+                    for (int step = 1; ; step++)
+                    {
+                        Save(form, Path.Combine(folder, $"windows-setup-{theme}-{step}-{form.CurrentStep.Replace(' ', '-')}.png"));
+                        if (form.CurrentStep == "Finish") break;
+                        form.ClickNext();
+                        Application.DoEvents();
+                    }
                     form.Close();
                 }
             }
