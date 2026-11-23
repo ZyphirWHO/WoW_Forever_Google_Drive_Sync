@@ -113,7 +113,7 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
-    public void First_run_offers_all_three_cloud_apps_and_switching_updates_the_folder()
+    public void First_run_offers_every_cloud_app_and_switching_updates_the_folder()
     {
         var service = Service(setupComplete: false, ("_forever_", true));
         Directory.CreateDirectory(Path.Combine(_root, "Users", "Player", "Dropbox"));
@@ -122,7 +122,7 @@ public sealed class WindowSmokeTests : IDisposable
             using var form = new FirstRun(service, new FakeRegistry());
             form.Show();
             Application.DoEvents();
-            Assert.Equal(["Google Drive", "OneDrive (not found on this PC)", "Dropbox"], form.ProviderChoices);
+            Assert.Equal(["Google Drive", "OneDrive (not found on this PC)", "Dropbox", "iCloud Drive (not found on this PC)"], form.ProviderChoices);
 
             form.ChooseProvider(InterfaceSync.Core.Detection.CloudProvider.Dropbox);
             Application.DoEvents();
@@ -133,9 +133,16 @@ public sealed class WindowSmokeTests : IDisposable
             Application.DoEvents();
             Assert.StartsWith("Not found", form.CloudFolderText);
             Assert.False(form.CanStart);
+
+            // iCloud for Windows' folder appears: choosing iCloud Drive finds it.
+            Directory.CreateDirectory(Path.Combine(_root, "Users", "Player", "iCloudDrive"));
+            form.ChooseProvider(InterfaceSync.Core.Detection.CloudProvider.ICloudDrive);
+            Application.DoEvents();
+            Assert.EndsWith("iCloudDrive", form.CloudFolderText);
+            Assert.True(form.CanStart);
             form.Close();
         });
-        Assert.Equal(InterfaceSync.Core.Detection.CloudProvider.OneDrive, service.Settings.CloudProvider);
+        Assert.Equal(InterfaceSync.Core.Detection.CloudProvider.ICloudDrive, service.Settings.CloudProvider);
     }
 
     [Fact]

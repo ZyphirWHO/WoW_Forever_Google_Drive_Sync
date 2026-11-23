@@ -201,7 +201,7 @@ internal sealed class FirstRun : Form
         _welcomePage.Controls.Add(Title($"Welcome to {ProductInfo.Name}"));
         _welcomePage.Controls.Add(Lead("Keep your keybindings, macros and addon settings the same on every computer you play on. Setup takes about a minute."));
         _welcomePage.Controls.Add(Feature(Draw.Cloud, "Saved when you quit",
-            "When you quit the game, this PC's interface settings are copied to your own cloud folder (Google Drive, OneDrive or Dropbox)."));
+            "When you quit the game, this PC's interface settings are copied to your own cloud folder (Google Drive, OneDrive, Dropbox or iCloud Drive)."));
         _welcomePage.Controls.Add(Feature(Draw.Sync, "Ready on every computer",
             "When you start up another computer, it copies in the newer settings before you play."));
         _welcomePage.Controls.Add(Feature(Draw.Shield, "Safe by design",

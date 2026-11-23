@@ -523,7 +523,7 @@ public sealed class SyncService
 
     /// <summary>
     /// The chosen cloud app. Settings from builds before the choice existed (setup done, nothing chosen)
-    /// keep Google Drive; on a new PC, the first app found (Google Drive, OneDrive, Dropbox) is suggested.
+    /// keep Google Drive; on a new PC, the first app found (Google Drive, OneDrive, Dropbox, iCloud Drive) is suggested.
     /// </summary>
     public CloudProvider EffectiveProvider()
     {

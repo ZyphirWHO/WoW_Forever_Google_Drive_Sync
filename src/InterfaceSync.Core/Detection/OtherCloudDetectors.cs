@@ -220,6 +220,44 @@ public sealed class DropboxDetector
         new(path, DriveMode.Unknown, source, attempts, CloudProvider.Dropbox);
 }
 
+/// <summary>
+/// iCloud Drive. Mac: ~/Library/Mobile Documents/com~apple~CloudDocs (always there when iCloud Drive is on).
+/// Windows: the iCloud for Windows app's folder, %USERPROFILE%\iCloudDrive by default.
+/// </summary>
+public sealed class ICloudDriveDetector(IFileSystem fs, IUserEnvironment env)
+{
+    public DriveDetectionResult Detect(string? userOverride)
+    {
+        var attempts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(userOverride))
+        {
+            if (fs.DirectoryExists(userOverride))
+                return Result(PathUtil.TrimEnd(userOverride), DetectionSource.UserOverride, attempts);
+            attempts.Add($"Your chosen iCloud Drive folder '{userOverride}' no longer exists.");
+        }
+
+        var candidates = env.Os == HostOs.MacOS
+            ? new[] { PathUtil.Join(env.UserProfile, "Library", "Mobile Documents", "com~apple~CloudDocs") }
+            : new[] { PathUtil.Join(env.UserProfile, "iCloudDrive"), PathUtil.Join(env.UserProfile, "iCloud Drive") };
+        foreach (var candidate in candidates)
+        {
+            if (fs.DirectoryExists(candidate))
+            {
+                attempts.Add($"iCloud Drive folder: found {candidate}");
+                return Result(candidate, DetectionSource.CommonLocation, attempts);
+            }
+            attempts.Add($"iCloud Drive folder: {candidate} doesn't exist");
+        }
+        attempts.Add(env.Os == HostOs.MacOS
+            ? "iCloud Drive was not found. Is iCloud Drive switched on in System Settings → your name → iCloud?"
+            : "iCloud Drive was not found. Is the iCloud for Windows app installed, signed in, with iCloud Drive ticked?");
+        return new(null, DriveMode.Unknown, DetectionSource.NotFound, attempts, CloudProvider.ICloudDrive);
+    }
+
+    private static DriveDetectionResult Result(string path, DetectionSource source, List<string> attempts) =>
+        new(path, DriveMode.Unknown, source, attempts, CloudProvider.ICloudDrive);
+}
+
 /// <summary>One entry point for whichever cloud app the player chose.</summary>
 public static class CloudDetector
 {

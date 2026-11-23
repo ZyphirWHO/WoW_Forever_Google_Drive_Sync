@@ -2,7 +2,7 @@
 
 The Mac version is a menu-bar app (no Dock icon). It runs the same sync engine as the Windows version and
 uses the same cloud folder layout, so a Mac and a Windows PC can share settings through the same Google Drive,
-OneDrive or Dropbox account.
+OneDrive, Dropbox or iCloud Drive account (on Windows, iCloud Drive needs Apple's free iCloud for Windows app).
 
 > **Status: in development.** It is built and tested automatically on macOS, but hasn't been tried by a
 > player on a real Mac yet.
@@ -35,7 +35,7 @@ blocks it the first time:
 On macOS 14 or older: Control-click the app in Applications, choose **Open**, then **Open** again.
 
 When it first reads your cloud folder, macOS asks whether Interface Sync may access files in Google Drive,
-OneDrive or Dropbox: click **Allow**. (Changed later in System Settings → Privacy & Security → Files and Folders.)
+OneDrive, Dropbox or iCloud Drive: click **Allow**. (Changed later in System Settings → Privacy & Security → Files and Folders.)
 
 Check the file first: the release notes list the SHA-256 of each zip; in Terminal, `shasum -a 256` followed by
 the zip's path must show the same value.

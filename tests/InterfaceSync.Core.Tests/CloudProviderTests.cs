@@ -158,3 +158,52 @@ public sealed class CloudProviderSwitchTests : IDisposable
         Assert.Empty(a.Backups.List("_retail_"));
     }
 }
+
+public sealed class ICloudDriveTests
+{
+    private const string Mac = "/Users/player/Library/Mobile Documents/com~apple~CloudDocs";
+    private static readonly FakeEnvironment MacEnv = new() { Os = InterfaceSync.Core.Abstractions.HostOs.MacOS, UserProfile = "/Users/player" };
+
+    [Fact]
+    public void Found_in_its_fixed_place_on_a_mac_and_the_default_folder_on_windows()
+    {
+        var mac = new ICloudDriveDetector(new InMemoryFileSystem().Dir(Mac), MacEnv).Detect(null);
+        Assert.Equal((Mac, CloudProvider.ICloudDrive), (mac.MyDrivePath, mac.Provider));
+
+        var win = new ICloudDriveDetector(new InMemoryFileSystem().Dir(@"C:\Users\Player\iCloudDrive"), new FakeEnvironment()).Detect(null);
+        Assert.Equal(@"C:\Users\Player\iCloudDrive", win.MyDrivePath);
+    }
+
+    [Fact]
+    public void Not_found_says_how_to_switch_it_on_and_a_chosen_folder_wins()
+    {
+        var none = new ICloudDriveDetector(new InMemoryFileSystem(), new FakeEnvironment()).Detect(null);
+        Assert.False(none.Found);
+        Assert.Contains(none.Attempts, a => a.Contains("iCloud for Windows"));
+        var chosen = new ICloudDriveDetector(new InMemoryFileSystem().Dir(@"D:\Apple\iCloud Drive"), new FakeEnvironment()).Detect(@"D:\Apple\iCloud Drive");
+        Assert.Equal(DetectionSource.UserOverride, chosen.Source);
+    }
+
+    [Theory]
+    [InlineData("Bagnon 2.lua", true)]             // Apple's conflict copy, original beside it
+    [InlineData("PLAYER#1 2", true)]               // a copied folder
+    [InlineData("Area 52", false)]                 // a realm name ending in a number, no "Area" beside it
+    [InlineData("WeakAuras 2.lua", false)]         // ends in a number but there's no "WeakAuras.lua"
+    [InlineData("Bagnon.lua", false)]
+    [InlineData("Bagnon 1.lua", false)]            // Apple starts at 2
+    public void Conflict_copies_are_recognised_only_beside_their_original(string name, bool copy)
+    {
+        var siblings = new HashSet<string>(["Bagnon.lua", "PLAYER#1", "Area 52", "WeakAuras 2.lua", name], StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(copy, ICloudDriveProvider.IsConflictName(name, siblings));
+        Assert.Equal(copy, CloudProviderCatalog.IsAnyConflictCopy(name, siblings));   // and never synced, whichever app is in use
+    }
+
+    [Fact]
+    public void Hints_say_how_to_keep_it_downloaded_and_it_is_offered_everywhere()
+    {
+        Assert.Contains("Keep Downloaded", CloudProvider.ICloudDrive.KeepOfflineHint(InterfaceSync.Core.Abstractions.HostOs.MacOS));
+        Assert.Contains("Always keep on this device", CloudProvider.ICloudDrive.KeepOfflineHint());
+        Assert.Contains(CloudProvider.ICloudDrive, CloudProviders.All);
+        Assert.Equal("iCloud Drive", CloudProvider.ICloudDrive.DisplayName());
+    }
+}

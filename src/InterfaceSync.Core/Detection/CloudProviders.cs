@@ -125,12 +125,36 @@ public sealed class DropboxProvider(IFileSystem fs, IUserEnvironment env) : Clou
     public static bool IsConflictName(string name) => Pattern.IsMatch(name);
 }
 
+public sealed class ICloudDriveProvider(IFileSystem fs, IUserEnvironment env) : CloudProviderBase(env.Os)
+{
+    // Apple names a conflict copy "Name 2.ext" (then 3, 4…) beside the original.
+    private static readonly Regex Numbered = new(@"^(?<stem>.+) (?<n>[2-9]|[1-9]\d{1,2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    public override CloudProvider Kind => CloudProvider.ICloudDrive;
+    public override DriveDetectionResult Detect(string? userOverride) => new ICloudDriveDetector(fs, env).Detect(userOverride);
+    public override bool IsConflictCopy(string name, ISet<string> siblings) => IsConflictName(name, siblings);
+
+    /// <summary>
+    /// "Name 2.ext" (or "Folder 2"), only when the original "Name.ext" is beside it, so a file that merely ends in a
+    /// number (a realm like "Area 52", an addon's "Foo 2.lua" with no "Foo.lua") is never taken for a copy.
+    /// </summary>
+    public static bool IsConflictName(string name, ISet<string> siblings)
+    {
+        int dot = name.LastIndexOf('.');
+        var stem = dot > 0 ? name[..dot] : name;
+        var ext = dot > 0 ? name[dot..] : "";
+        var m = Numbered.Match(stem);
+        return m.Success && siblings.Contains(m.Groups["stem"].Value + ext);
+    }
+}
+
 public static class CloudProviderCatalog
 {
     public static ICloudProvider Create(CloudProvider kind, IFileSystem fs, IRegistry registry, IUserEnvironment env, string scratchFolder) => kind switch
     {
         CloudProvider.OneDrive => new OneDriveProvider(fs, registry, env),
         CloudProvider.Dropbox => new DropboxProvider(fs, env),
+        CloudProvider.ICloudDrive => new ICloudDriveProvider(fs, env),
         _ => new GoogleDriveProvider(fs, registry, env, scratchFolder),
     };
 
@@ -141,5 +165,6 @@ public static class CloudProviderCatalog
     public static bool IsAnyConflictCopy(string name, ISet<string> siblings) =>
         GoogleDriveProvider.IsConflictName(name)
         || DropboxProvider.IsConflictName(name)
-        || OneDriveProvider.IsConflictName(name, siblings);
+        || OneDriveProvider.IsConflictName(name, siblings)
+        || ICloudDriveProvider.IsConflictName(name, siblings);
 }

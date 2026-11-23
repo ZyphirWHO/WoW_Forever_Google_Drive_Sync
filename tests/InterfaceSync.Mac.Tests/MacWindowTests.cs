@@ -80,7 +80,7 @@ public sealed class MacWindowTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(1, window.VersionCount);
-        Assert.Equal(["Google Drive", "OneDrive (not found on this Mac)", "Dropbox (not found on this Mac)"], window.ProviderChoices);
+        Assert.Equal(["Google Drive", "OneDrive (not found on this Mac)", "Dropbox (not found on this Mac)", "iCloud Drive (not found on this Mac)"], window.ProviderChoices);
         Assert.True(window.CanStart);
 
         window.ClickStart();

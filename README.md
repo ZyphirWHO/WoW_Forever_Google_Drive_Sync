@@ -1,7 +1,7 @@
 # Interface Sync
 
 **Syncs your World of Warcraft® interface settings between your Windows PCs and Macs** (keybindings, macros
-and addon settings) through your own Google Drive, OneDrive or Dropbox.
+and addon settings) through your own Google Drive, OneDrive, Dropbox or iCloud Drive.
 
 Interface Sync is an independent, free, open-source tool. It is not affiliated with, endorsed by or
 sponsored by Blizzard Entertainment, Inc.
@@ -13,7 +13,7 @@ sponsored by Blizzard Entertainment, Inc.
 
 - The game only ever reads its own local files, so it loads as fast as without Interface Sync.
 - When you close a game version, Interface Sync copies its `WTF\Account` folder to
-  `InterfaceSync\<version>\WTF-Account` in your cloud folder (Google Drive's "My Drive", OneDrive or Dropbox).
+  `InterfaceSync\<version>\WTF-Account` in your cloud folder (Google Drive's "My Drive", OneDrive, Dropbox or iCloud Drive).
   The cloud app carries it to your other PCs. Use the same cloud app on every PC.
 - On your other PC, Interface Sync copies the newer settings in, but only while that game version is closed.
 - Every overwrite, on your PC or in the cloud, is preceded by a backup in `%LOCALAPPDATA%\InterfaceSync\Backups`.
@@ -92,7 +92,7 @@ it is published.
 
 Privacy: this program does not transfer any information to other networked systems unless specifically
 requested by the user. It copies your settings files only to the cloud folder you choose on your PC; your
-cloud app (Google Drive, OneDrive or Dropbox) does the uploading.
+cloud app (Google Drive, OneDrive, Dropbox or iCloud Drive) does the uploading.
 
 ## Licence and dependencies
 

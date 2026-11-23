@@ -135,7 +135,7 @@ internal sealed class SetupWindow : Window
         _welcomePage.Children.Add(PageTitle($"Welcome to {ProductInfo.Name}"));
         _welcomePage.Children.Add(Lead("Keep your keybindings, macros and addon settings the same on every computer you play on. Setup takes about a minute."));
         _welcomePage.Children.Add(Feature(Ui.Cloud, "Saved when you quit",
-            "When you quit the game, this Mac's interface settings are copied to your own cloud folder (Google Drive, OneDrive or Dropbox)."));
+            "When you quit the game, this Mac's interface settings are copied to your own cloud folder (Google Drive, OneDrive, Dropbox or iCloud Drive)."));
         _welcomePage.Children.Add(Feature(Ui.Sync, "Ready on every computer", "When you open another computer, it copies in the newer settings before you play."));
         _welcomePage.Children.Add(Feature(Ui.Shield, "Safe by design",
             "Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs. " +

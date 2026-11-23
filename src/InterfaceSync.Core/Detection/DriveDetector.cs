@@ -6,16 +6,17 @@ namespace InterfaceSync.Core.Detection;
 public enum DriveMode { Unknown, Streaming, Mirror }
 
 /// <summary>The cloud folder InterfaceSync keeps its data in (the app on this PC does the uploading).</summary>
-public enum CloudProvider { GoogleDrive, OneDrive, Dropbox }
+public enum CloudProvider { GoogleDrive, OneDrive, Dropbox, ICloudDrive }
 
 public static class CloudProviders
 {
-    public static readonly CloudProvider[] All = [CloudProvider.GoogleDrive, CloudProvider.OneDrive, CloudProvider.Dropbox];
+    public static readonly CloudProvider[] All = [CloudProvider.GoogleDrive, CloudProvider.OneDrive, CloudProvider.Dropbox, CloudProvider.ICloudDrive];
 
     public static string DisplayName(this CloudProvider p) => p switch
     {
         CloudProvider.OneDrive => "OneDrive",
         CloudProvider.Dropbox => "Dropbox",
+        CloudProvider.ICloudDrive => "iCloud Drive",
         _ => "Google Drive",
     };
 
@@ -25,6 +26,8 @@ public static class CloudProviders
         {
             CloudProvider.OneDrive => $"In Finder, Control-click the {ProductInfo.Id} folder in OneDrive and choose Always Keep on This Device.",
             CloudProvider.Dropbox => $"In Finder, Control-click the {ProductInfo.Id} folder in Dropbox and choose Make available offline.",
+            CloudProvider.ICloudDrive => $"In Finder, open iCloud Drive, Control-click the {ProductInfo.Id} folder and choose Keep Downloaded " +
+                                         "(or turn off Optimise Mac Storage in System Settings → your name → iCloud).",
             _ => $"In Finder, Control-click My Drive/{ProductInfo.Id} in Google Drive and choose Offline access → Available offline.",
         }
         : p.KeepOfflineHint();
@@ -34,6 +37,7 @@ public static class CloudProviders
     {
         CloudProvider.OneDrive => $"In File Explorer, right-click the {ProductInfo.Id} folder in OneDrive and choose Always keep on this device.",
         CloudProvider.Dropbox => $"In File Explorer, right-click the {ProductInfo.Id} folder in Dropbox and choose Make available offline.",
+        CloudProvider.ICloudDrive => $"In File Explorer, right-click the {ProductInfo.Id} folder in iCloud Drive and choose Always keep on this device.",
         _ => $"In File Explorer, right-click My Drive\\{ProductInfo.Id} and choose Offline access → Available offline.",
     };
 }

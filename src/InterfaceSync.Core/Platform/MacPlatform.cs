@@ -111,6 +111,6 @@ internal static class MacNative
     internal static long Size(byte[] st) => BitConverter.ToInt64(st, SizeOffset);
     internal static ushort Mode(byte[] st) => BitConverter.ToUInt16(st, ModeOffset);
 
-    /// <summary>True when the file is an online-only placeholder (Google Drive, OneDrive or Dropbox on macOS).</summary>
+    /// <summary>True when the file is an online-only placeholder (Google Drive, OneDrive, Dropbox or iCloud Drive on macOS).</summary>
     internal static bool IsDataless(string path) => Stat(path) is { } st && (Flags(st) & SfDataless) != 0;
 }
