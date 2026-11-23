@@ -400,12 +400,12 @@ public sealed class VersionSync
         var atRisk = replaced.Concat(removed).ToList();
         if (cloud.Commit == null && FolderScanner.AllFiles(_fs, Cloud.Account).Count > 0)
         {
-            var whole = _backups.Create(Name, Cloud.Account, "cloud-before-push");
+            var whole = _backups.Create(Name, Cloud.Account, "cloud-before-push-all");
             _log.Info($"{Name}: the cloud copy had no {ProductInfo.Name} commit file, so all of it was backed up first ({whole?.FileCount} files, {whole?.Path}).");
         }
         else if (atRisk.Count > 0)
         {
-            var partial = _backups.CreateFromFiles(Name, Cloud.Account, atRisk, "cloud-before-push");
+            var partial = _backups.CreateFromFiles(Name, Cloud.Account, atRisk, "cloud-before-push" + BackupStore.ChangesSuffix);
             _log.Info($"{Name}: backed up {atRisk.Count} cloud file(s) about to be replaced or removed ({partial.Path}).");
         }
 
@@ -478,22 +478,31 @@ public sealed class VersionSync
         var localScan = FolderScanner.Scan(_fs, LocalAccount);
         var localFiles = localScan.Manifest.ToLookup();
 
-        var backup = _backups.Create(Name, LocalAccount, reason);
-        if (backup is { Reused: true }) LogOnce($"{Name}: this PC's settings are unchanged since the backup {backup.Path}, so it wasn't copied again.");
-        else if (backup != null) _log.Info($"{Name}: backed up this PC's settings to {backup.Path}.");
+        // Only what differs is written: the cloud files that are new or changed, and the local files the cloud no
+        // longer has are removed. Unchanged files aren't touched (no SSD writes, no Drive downloads).
+        var cloudLookup = files.ToLookup();
+        var changed = files.Entries.Where(e => !(localFiles.TryGetValue(e.RelativePath, out var l) && Manifest.SameFile(e, l))).ToList();
+        var removed = localScan.Manifest.Entries.Where(l => !cloudLookup.ContainsKey(l.RelativePath)).ToList();
+        var atRisk = localScan.Manifest.Entries
+            .Where(l => !cloudLookup.TryGetValue(l.RelativePath, out var c) || !Manifest.SameFile(l, c))
+            .ToList();
 
-        var staging = FreeAside(LocalAccount + StagingSuffix);
-        var old = FreeAside(LocalAccount + OldSuffix);
-        _fs.CreateDirectory(staging);
-
-        foreach (var entry in files.Entries)
+        // Back up exactly the local files about to be replaced or removed.
+        BackupInfo? backup = null;
+        if (atRisk.Count > 0)
         {
-            // Unchanged files come from the local copy: faster and avoids Drive downloads.
-            var source = localFiles.TryGetValue(entry.RelativePath, out var l) && Manifest.SameFile(entry, l)
-                ? PathUtil.FromRelative(LocalAccount, entry.RelativePath)
-                : PathUtil.FromRelative(Cloud.Account, entry.RelativePath);
+            backup = _backups.CreateFromFiles(Name, LocalAccount, atRisk, reason + BackupStore.ChangesSuffix);
+            if (backup.Reused) LogOnce($"{Name}: this PC's files about to change are unchanged since the backup {backup.Path}, so they weren't copied again.");
+            else _log.Info($"{Name}: backed up this PC's settings that are about to change ({atRisk.Count} file(s), {backup.Path}).");
+        }
+
+        // 1. Download the changed files next to WTF\Account and check each one arrived whole.
+        var staging = FreeAside(LocalAccount + StagingSuffix);
+        _fs.CreateDirectory(staging);
+        foreach (var entry in changed)
+        {
             var target = PathUtil.FromRelative(staging, entry.RelativePath);
-            _fs.CopyFile(source, target);
+            _fs.CopyFile(PathUtil.FromRelative(Cloud.Account, entry.RelativePath), target);
             var copiedSize = _fs.GetFileInfo(target).Size;
             if (copiedSize != entry.Size)
             {
@@ -513,21 +522,36 @@ public sealed class VersionSync
             return SyncOutcome.Cancelled;
         }
 
-        bool hadLocal = _fs.DirectoryExists(LocalAccount);
+        // 2. Move them into place (a rename on the same disk: no second copy), and remove what the cloud dropped.
+        //    If a file is in use (the game started), everything already changed is put back from the backup.
+        var applied = new List<ManifestEntry>();
+        var deleted = new List<ManifestEntry>();
         try
         {
-            if (hadLocal) _fs.MoveDirectory(LocalAccount, old);
-            _fs.MoveDirectory(staging, LocalAccount);
+            _fs.CreateDirectory(LocalAccount);
+            foreach (var entry in changed)
+            {
+                var target = PathUtil.FromRelative(LocalAccount, entry.RelativePath);
+                var parent = PathUtil.Parent(target);
+                if (parent != null) _fs.CreateDirectory(parent);
+                _fs.MoveFile(PathUtil.FromRelative(staging, entry.RelativePath), target);
+                applied.Add(entry);
+            }
+            foreach (var entry in removed)
+            {
+                _fs.DeleteFile(PathUtil.FromRelative(LocalAccount, entry.RelativePath));
+                deleted.Add(entry);
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            if (!_fs.DirectoryExists(LocalAccount) && _fs.DirectoryExists(old)) _fs.MoveDirectory(old, LocalAccount);
+            UndoPartialPull(applied, deleted, localFiles, backup);
             RemoveLeftover(staging);
             _log.Warn($"{Name}: settings files were in use (did the game start?), so the pull was undone. Nothing on this PC changed.");
             SetStatus(SyncStatus.Idle, "Pull undone: files were in use");
             return SyncOutcome.Cancelled;
         }
-        if (hadLocal) RemoveLeftover(old); // already in the backup store; failing to delete it is not a failed sync
+        RemoveLeftover(staging);
 
         if (cloud.Commit == null && Cloud.IsSafeWriteTarget(out _))
         {
@@ -601,9 +625,34 @@ public sealed class VersionSync
         }
     }
 
+    /// <summary>Puts back what a failed pull already changed: the backed-up originals, and removes files it added.</summary>
+    private void UndoPartialPull(List<ManifestEntry> applied, List<ManifestEntry> deleted, Dictionary<string, ManifestEntry> before, BackupInfo? backup)
+    {
+        foreach (var entry in applied.Concat(deleted))
+        {
+            var target = PathUtil.FromRelative(LocalAccount, entry.RelativePath);
+            try
+            {
+                if (before.ContainsKey(entry.RelativePath) && backup != null)
+                    _fs.CopyFile(PathUtil.FromRelative(backup.Path, entry.RelativePath), target);
+                else if (!before.ContainsKey(entry.RelativePath))
+                    _fs.DeleteFile(target);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                _log.Warn($"{Name}: couldn't put back '{entry.RelativePath}' ({e.Message}). Its original is in {backup?.Path}.");
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ restore
 
-    /// <summary>Puts a backup back in place. The current settings are backed up first; the restored copy is then pushed.</summary>
+    /// <summary>
+    /// Puts this game version's settings back as they were when <paramref name="backup"/> was made, then uploads them.
+    /// A whole-folder backup replaces the settings with that copy. A changed-files backup puts its files back, after
+    /// the newer changed-files backups of the same kind (newest first), so every file returns to how it was at that
+    /// moment. Only files that differ are written, and the current versions of those are backed up first.
+    /// </summary>
     public SyncOutcome RestoreBackup(BackupInfo backup)
     {
         lock (_gate)
@@ -611,21 +660,69 @@ public sealed class VersionSync
             if (_isGameRunning()) return Refuse("Close the game before restoring a backup.");
             return Guard(() =>
             {
-                var files = FolderScanner.AllFiles(_fs, backup.Path);
-                if (files.Count == 0) return Refuse("That backup is empty.");
-                var before = _backups.Create(Name, LocalAccount, "before-restore");
+                if (FolderScanner.AllFiles(_fs, backup.Path).Count == 0) return Refuse("That backup is empty.");
+
+                // What each file should become: relative path → (backup folder holding it, its entry there).
+                var target = new Dictionary<string, (string root, ManifestEntry entry)>(StringComparer.OrdinalIgnoreCase);
+                if (!backup.Partial)
+                    foreach (var e in FolderScanner.Scan(_fs, backup.Path).Manifest.Entries) target[e.RelativePath] = (backup.Path, e);
+                else
+                {
+                    bool cloudKind = BackupStore.IsCloudReason(backup.Reason);
+                    var chain = _backups.List(Name)
+                        .Where(b => b.Partial && BackupStore.IsCloudReason(b.Reason) == cloudKind && b.CreatedUtc > backup.CreatedUtc)
+                        .OrderByDescending(b => b.CreatedUtc)
+                        .Append(backup);                                       // the chosen one last, so it has the final say
+                    foreach (var b in chain)                                   // newest first; older ones override
+                        foreach (var e in FolderScanner.Scan(_fs, b.Path).Manifest.Entries) target[e.RelativePath] = (b.Path, e);
+                }
+
+                var current = FolderScanner.Scan(_fs, LocalAccount).Manifest.ToLookup();
+                var writes = target.Where(t => !(current.TryGetValue(t.Key, out var c) && Manifest.SameFile(c, t.Value.entry))).ToList();
+                var removes = backup.Partial ? [] : current.Values.Where(c => !target.ContainsKey(c.RelativePath)).ToList();
+                if (writes.Count == 0 && removes.Count == 0)
+                {
+                    _log.Info($"{Name}: the settings already match the backup from {backup.CreatedUtc.ToLocalTime():g}; nothing to restore.");
+                    return SyncOutcome.NothingToDo;
+                }
+
+                var atRisk = current.Values.Where(c => removes.Contains(c) || writes.Any(w => w.Key.Equals(c.RelativePath, StringComparison.OrdinalIgnoreCase))).ToList();
+                BackupInfo? before = atRisk.Count > 0 ? _backups.CreateFromFiles(Name, LocalAccount, atRisk, "before-restore" + BackupStore.ChangesSuffix) : null;
 
                 var staging = FreeAside(LocalAccount + StagingSuffix);
-                var old = FreeAside(LocalAccount + OldSuffix);
-                TreeCopy.CopyFiles(_fs, backup.Path, staging, files);
-                bool hadLocal = _fs.DirectoryExists(LocalAccount);
-                if (hadLocal) _fs.MoveDirectory(LocalAccount, old);
-                _fs.MoveDirectory(staging, LocalAccount);
-                if (hadLocal) RemoveLeftover(old);
+                _fs.CreateDirectory(staging);
+                foreach (var (rel, (root, _)) in writes)
+                    _fs.CopyFile(PathUtil.FromRelative(root, rel), PathUtil.FromRelative(staging, rel));
+                var applied = new List<ManifestEntry>();
+                var deleted = new List<ManifestEntry>();
+                try
+                {
+                    _fs.CreateDirectory(LocalAccount);
+                    foreach (var (rel, (_, entry)) in writes)
+                    {
+                        var dest = PathUtil.FromRelative(LocalAccount, rel);
+                        if (PathUtil.Parent(dest) is { } parent) _fs.CreateDirectory(parent);
+                        _fs.MoveFile(PathUtil.FromRelative(staging, rel), dest);
+                        applied.Add(entry);
+                    }
+                    foreach (var entry in removes)
+                    {
+                        _fs.DeleteFile(PathUtil.FromRelative(LocalAccount, entry.RelativePath));
+                        deleted.Add(entry);
+                    }
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    UndoPartialPull(applied, deleted, current, before);
+                    RemoveLeftover(staging);
+                    return Refuse($"Some settings files were in use (is the game open?), so the restore was undone: {e.Message}");
+                }
+                RemoveLeftover(staging);
 
                 State.PendingPush = true;
                 Save();
-                _log.Info($"{Name}: restored the backup from {backup.CreatedUtc.ToLocalTime():g} (previous settings saved to {before?.Path ?? "nowhere: folder was empty"}).");
+                _log.Info($"{Name}: restored the settings from {backup.CreatedUtc.ToLocalTime():g} ({writes.Count} file(s) put back" +
+                          (removes.Count > 0 ? $", {removes.Count} removed" : "") + $"; the replaced ones were saved to {before?.Path ?? "nowhere: none"}).");
                 return Evaluate(manual: true);
             });
         }

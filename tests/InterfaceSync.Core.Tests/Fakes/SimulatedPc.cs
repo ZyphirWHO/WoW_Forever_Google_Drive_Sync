@@ -158,7 +158,18 @@ public sealed class ScriptedFileSystem : IFileSystem
         if (FailCopy?.Invoke(source, destination) == true)
             throw new IOException($"Simulated failure copying {Path.GetFileName(source)}");
         _inner.CopyFile(source, destination);
+        Count(destination, new FileInfo(destination).Length);
         OnCopy?.Invoke(source, destination);
+    }
+
+    /// <summary>Bytes written, by the first matching folder in <see cref="Areas"/> (else "other").</summary>
+    public Dictionary<string, long> Written { get; } = new();
+    public List<(string name, string prefix)> Areas { get; } = [];
+
+    private void Count(string path, long bytes)
+    {
+        var area = Areas.FirstOrDefault(a => path.StartsWith(a.prefix, StringComparison.OrdinalIgnoreCase)).name ?? "other";
+        Written[area] = Written.GetValueOrDefault(area) + bytes;
     }
 
     public void DeleteFile(string path) => _inner.DeleteFile(path);
@@ -175,7 +186,7 @@ public sealed class ScriptedFileSystem : IFileSystem
     public void MoveDirectory(string source, string destination) => _inner.MoveDirectory(source, destination);
     public string ReadAllText(string path) => _inner.ReadAllText(path);
     public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
-    public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
-    public void AppendAllText(string path, string contents) => _inner.AppendAllText(path, contents);
+    public void WriteAllText(string path, string contents) { _inner.WriteAllText(path, contents); Count(path, System.Text.Encoding.UTF8.GetByteCount(contents)); }
+    public void AppendAllText(string path, string contents) { _inner.AppendAllText(path, contents); Count(path, System.Text.Encoding.UTF8.GetByteCount(contents)); }
     public IReadOnlyList<DriveEntry> GetDrives() => _inner.GetDrives();
 }

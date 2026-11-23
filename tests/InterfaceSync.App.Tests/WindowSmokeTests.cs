@@ -400,6 +400,10 @@ public sealed class WindowSmokeTests : IDisposable
         // The status window after setup, on a PC that has synced.
         var status = Service(setupComplete: true, ("_retail_", true), ("_classic_", false));
         status.Poll();
+        var retailAccount = Path.Combine(_root, "World of Warcraft", "_retail_", "WTF", "Account");
+        var all = InterfaceSync.Core.Sync.FolderScanner.Scan(new PhysicalFileSystem(), retailAccount).Manifest.Entries.ToList();
+        status.Backups.CreateFromFiles("_retail_", retailAccount, all, "before-pull-changes");
+        status.Backups.Create("_retail_", retailAccount, "cloud-copy-conflict");
         OnSta(() =>
         {
             try
@@ -412,6 +416,13 @@ public sealed class WindowSmokeTests : IDisposable
                     form.RefreshView();
                     Application.DoEvents();
                     Save(form, Path.Combine(folder, $"windows-status-{theme}.png"));
+                    using (var restore = new RestoreDialog(new TestHost(status), status.Workers[0]))
+                    {
+                        restore.Show();
+                        Application.DoEvents();
+                        Save(restore, Path.Combine(folder, $"windows-restore-{theme}.png"));
+                        restore.Close();
+                    }
                     form.AllowClose();
                     form.Close();
                 }
@@ -467,6 +478,30 @@ public sealed class WindowSmokeTests : IDisposable
             form.AllowClose();
             form.Close();
         });
+    }
+
+    [Fact]
+    public void Restore_dialog_lists_backups_and_puts_the_settings_back()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true));
+        service.Poll();
+        var worker = Assert.Single(service.Workers);
+        var account = Path.Combine(_root, "World of Warcraft", "_forever_", "WTF", "Account");
+        var manifest = InterfaceSync.Core.Sync.FolderScanner.Scan(new PhysicalFileSystem(), account).Manifest;
+        var backup = service.Backups.CreateFromFiles("_forever_", account, manifest.Entries.ToList(), "before-pull-changes");
+        File.WriteAllText(Path.Combine(account, "macros-cache.txt"), "broken by an addon");
+        OnSta(() =>
+        {
+            using var dialog = new RestoreDialog(new TestHost(service), worker) { Quiet = true };
+            dialog.Show();
+            Application.DoEvents();
+            Assert.Equal(1, dialog.BackupCount);
+            Assert.Equal("Before downloading settings", backup.Description);
+            dialog.RestoreNow(backup);
+            Application.DoEvents();
+            Assert.NotNull(dialog.LastOutcome);
+        });
+        Assert.Equal("_forever_", File.ReadAllText(Path.Combine(account, "macros-cache.txt")));
     }
 
     private static IEnumerable<Control> AllControls(Control c) =>

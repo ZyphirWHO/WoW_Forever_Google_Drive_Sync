@@ -36,7 +36,7 @@ public sealed class LaptopFailureTests : IDisposable
         var fs = new ScriptedFileSystem();
         var laptop = _world.Pc("TLIT-LT-001", "_forever_", fs);
         laptop.WriteSetting(@"PLAYER#1\SavedVariables\Addon.lua", "laptop copy");
-        fs.FailDeleteDirectory = p => p.Contains(".interfacesync-old");
+        fs.FailDeleteDirectory = p => p.Contains(".interfacesync-staging");   // the download's side folder can't be removed
 
         Assert.Equal(SyncOutcome.Pulled, laptop.Sync.Tick());                       // was: "sync failed", retried forever
         Assert.Equal("cloud copy", laptop.ReadSetting(@"PLAYER#1\SavedVariables\Addon.lua"));

@@ -216,6 +216,25 @@ public sealed class MacWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void Restore_window_lists_backups_and_puts_the_settings_back()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        service.Poll();
+        var worker = Assert.Single(service.Workers);
+        var account = Path.Combine(_root, "Applications", "World of Warcraft", "_retail_", "WTF", "Account");
+        var entries = InterfaceSync.Core.Sync.FolderScanner.Scan(new PhysicalFileSystem(), account).Manifest.Entries.ToList();
+        service.Backups.CreateFromFiles("_retail_", account, entries, "before-pull-changes");
+        File.WriteAllText(Path.Combine(account, "PLAYER#1", "macros-cache.txt"), "broken");
+        var window = new RestoreWindow(new Host(service), worker);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, window.BackupCount);
+        window.RestoreAt(0);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("mac settings", File.ReadAllText(Path.Combine(account, "PLAYER#1", "macros-cache.txt")));
+    }
+
+    [AvaloniaFact]
     public void Status_window_lists_each_version()
     {
         var (service, _) = MakeService(setupComplete: true);

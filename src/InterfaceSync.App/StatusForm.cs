@@ -402,7 +402,7 @@ internal sealed class StatusForm : Form
             _rows.Clear();
             foreach (var (key, _, _) in wanted)
             {
-                var row = new VersionRow(key, Resolve) { Width = RowWidth };
+                var row = new VersionRow(key, Resolve, OpenRestore) { Width = RowWidth };
                 _rows[key] = row;
                 _versionRows.Controls.Add(row);
             }
@@ -420,6 +420,13 @@ internal sealed class StatusForm : Form
         _logBox.Text = string.Join(Environment.NewLine, lines);
         _lastLine.Text = lines.Count > 0 ? lines[0] : "Nothing yet.";
         FitWidths();
+    }
+
+    private void OpenRestore(VersionSync w)
+    {
+        using var dialog = new RestoreDialog(_app, w);
+        dialog.ShowDialog(this);
+        RefreshView();
     }
 
     private void Resolve(VersionSync w)
@@ -498,9 +505,10 @@ internal sealed class StatusForm : Form
         private readonly Label _details = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
         private readonly StatusPill _pill = new() { Anchor = AnchorStyles.Right, Margin = new Padding(8, 0, 0, 0) };
         private readonly ModernButton _action = new("Choose which to keep...", ButtonKind.Primary) { Anchor = AnchorStyles.Right, Visible = false, Height = 30, Margin = new Padding(10, 0, 0, 0) };
+        private readonly ModernButton _restore = new("Restore...", ButtonKind.Ghost) { Anchor = AnchorStyles.Right, Visible = false, Height = 30, Margin = new Padding(10, 0, 0, 0), Icon = Draw.History };
         private VersionSync? _worker;
 
-        public VersionRow(string key, Action<VersionSync> resolve)
+        public VersionRow(string key, Action<VersionSync> resolve, Action<VersionSync> restore)
         {
             Key = key;
             Height = 70;
@@ -509,8 +517,10 @@ internal sealed class StatusForm : Form
             _title.Font = new Font(SystemFonts.MessageBoxFont ?? DefaultFont, FontStyle.Bold);
             Theme.SetRole(_details, TextRole.Muted);
             _action.Click += (_, _) => { if (_worker != null) resolve(_worker); };
-            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2, Margin = Padding.Empty };
+            _restore.Click += (_, _) => { if (_worker != null) restore(_worker); };
+            var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2, Margin = Padding.Empty };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
@@ -523,6 +533,8 @@ internal sealed class StatusForm : Form
             grid.SetRowSpan(_pill, 2);
             grid.Controls.Add(_action, 2, 0);
             grid.SetRowSpan(_action, 2);
+            grid.Controls.Add(_restore, 3, 0);
+            grid.SetRowSpan(_restore, 2);
             Controls.Add(grid);
         }
 
@@ -538,6 +550,7 @@ internal sealed class StatusForm : Form
                 _details.Text = version.CanEnable ? "Not synced on this PC. Switch it on in setup to sync it." : "Not played on this PC yet";
                 _pill.Set("Off", Theme.Muted);
                 _action.Visible = false;
+                _restore.Visible = false;
                 Highlight = null;
             }
             else
@@ -548,6 +561,7 @@ internal sealed class StatusForm : Form
                 var pending = worker.State.PendingPush ? " · upload pending" : "";
                 _details.Text = (worker.State.LastError is { Length: > 0 } err && tone == StatusTone.Attention ? err : StatusWords.Details(worker, now)) + pending;
                 _action.Visible = worker.State.Conflict != null;
+                _restore.Visible = true;
                 Highlight = tone == StatusTone.Attention ? Theme.Error : null;
             }
             Invalidate();

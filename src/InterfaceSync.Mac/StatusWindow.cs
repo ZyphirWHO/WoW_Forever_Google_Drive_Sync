@@ -235,18 +235,17 @@ internal sealed class StatusWindow : Window
             var details = (w.State.LastError is { Length: > 0 } err && wtone == StatusTone.Attention ? err : StatusWords.Details(w, now))
                           + (w.State.PendingPush ? " · upload pending" : "");
             Button? action = null;
+            var worker = w;
             if (w.State.Conflict != null)
-            {
-                var worker = w;
                 action = Ui.Button("Choose which to keep...", () => Resolve(worker), ButtonKind.Primary);
-            }
-            _rows.Children.Add(VersionCard(w.Version, Ui.Pill(status, Ui.ToneBrush(wtone)), details, action));
+            var restore = Ui.Button("Restore...", () => new RestoreWindow(_host, worker, Refresh).ShowDialog(this), ButtonKind.Ghost, Ui.Clock);
+            _rows.Children.Add(VersionCard(w.Version, Ui.Pill(status, Ui.ToneBrush(wtone)), details, action, restore));
             _rowTexts.Add($"{w.Version.FolderName}: {status}");
         }
         foreach (var v in Service.Versions.Where(v => !Service.IsEnabled(v)))
         {
             _rows.Children.Add(VersionCard(v, Ui.Pill("Off", "InterfaceSyncMuted"),
-                v.CanEnable ? "Not synced on this Mac." : "Not played on this Mac yet", null));
+                v.CanEnable ? "Not synced on this Mac." : "Not played on this Mac yet", null, null));
             _rowTexts.Add($"{v.FolderName}: off");
         }
 
@@ -259,14 +258,15 @@ internal sealed class StatusWindow : Window
         _lastLine.Text = lines.Count > 0 ? lines[0] : "Nothing yet.";
     }
 
-    private static Border VersionCard(GameVersion version, Control pill, string details, Button? action)
+    private static Border VersionCard(GameVersion version, Control pill, string details, Button? action, Button? restore)
     {
         var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center, Children =
         {
             Ui.Text(version.FolderName + (version.ClientVersion != null ? $"   {version.ClientVersion}" : ""), 14, FontWeight.SemiBold),
             Ui.Text(details, 12, brush: "InterfaceSyncMuted"),
         } };
-        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), Children = { text, pill } };
+        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), Children = { text, pill } };
+        if (restore != null) { restore.Margin = new Thickness(6, 0, 0, 0); restore.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(restore, 3); g.Children.Add(restore); }
         pill.VerticalAlignment = VerticalAlignment.Center;
         pill.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(pill, 1);

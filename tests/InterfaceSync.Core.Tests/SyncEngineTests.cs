@@ -319,7 +319,7 @@ public sealed class SyncEngineTests : IDisposable
         Assert.DoesNotContain(laptop.Log.Lines, l => l.Message.Contains("uploaded"));
 
         // This PC's settings were backed up first.
-        var backup = Assert.Single(laptop.Backups.List("_retail_"), b => b.Reason == "first-join");
+        var backup = Assert.Single(laptop.Backups.List("_retail_"), b => b.Reason == "first-join-changes");
         Assert.Equal("laptop macros (older)", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
 
         // A commit file now describes the adopted data, with the same id as the legacy content.
@@ -351,7 +351,7 @@ public sealed class SyncEngineTests : IDisposable
 
         Assert.Equal(SyncOutcome.Pushed, a.Sync.ResolveConflict(KeepChoice.Local));
 
-        var backup = Assert.Single(a.Backups.List("_retail_"), x => x.Reason == "cloud-before-push");
+        var backup = Assert.Single(a.Backups.List("_retail_"), x => x.Reason == "cloud-before-push-all");
         Assert.Equal("keep me", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "extra-from-elsewhere.txt")));
         Assert.Equal("M1", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
     }
@@ -362,7 +362,7 @@ public sealed class SyncEngineTests : IDisposable
         var (a, _) = TwoJoinedPcs();
         Assert.Equal(SyncOutcome.Pushed, a.PlaySession((@"PLAYER#1\macros-cache.txt", "M2")));
 
-        var backup = Assert.Single(a.Backups.List("_retail_"), x => x.Reason == "cloud-before-push");
+        var backup = Assert.Single(a.Backups.List("_retail_"), x => x.Reason == "cloud-before-push-changes");
         Assert.Equal("M1", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
         Assert.Equal(1, backup.FileCount);                          // only what changed
     }
@@ -414,7 +414,7 @@ public sealed class SyncEngineTests : IDisposable
         Assert.Equal(SyncOutcome.Pushed, a.PollAfter(TimeSpan.FromSeconds(15)));
 
         Assert.False(File.Exists(Path.Combine(_world.CloudAccount(), "PLAYER#1", "bindings-cache.wtf")));
-        var removed = Directory.GetDirectories(Path.Combine(a.DataFolder, "Backups", "_retail_"), "*cloud-before-push");
+        var removed = Directory.GetDirectories(Path.Combine(a.DataFolder, "Backups", "_retail_"), "*cloud-before-push-changes");
         Assert.True(File.Exists(Path.Combine(Assert.Single(removed), "PLAYER#1", "bindings-cache.wtf")));
 
         Assert.Equal(SyncOutcome.Pulled, b.PollAfter(FiveMinutes));
@@ -491,7 +491,7 @@ public sealed class SyncEngineTests : IDisposable
         Assert.Equal(SyncOutcome.Pulled, b.Sync.ResolveConflict(KeepChoice.Cloud));
         Assert.Equal("from A", b.ReadSetting(@"PLAYER#1\macros-cache.txt"));
         Assert.Null(b.Sync.State.Conflict);
-        Assert.Contains(b.Backups.List("_retail_"), x => x.Reason == "before-keep-cloud");
+        Assert.Contains(b.Backups.List("_retail_"), x => x.Reason == "before-keep-cloud-changes");
     }
 
     [Fact]
@@ -522,7 +522,7 @@ public sealed class SyncEngineTests : IDisposable
         Assert.Equal(SyncOutcome.Pushed, b.Sync.RestoreBackup(good));
         Assert.Equal("good", b.ReadSetting(@"PLAYER#1\macros-cache.txt"));
         Assert.Equal("good", File.ReadAllText(Path.Combine(_world.CloudAccount(), "PLAYER#1", "macros-cache.txt")));
-        Assert.Contains(b.Backups.List("_retail_"), x => x.Reason == "before-restore");
+        Assert.Contains(b.Backups.List("_retail_"), x => x.Reason == "before-restore-changes");
     }
 
     [Fact]

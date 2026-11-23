@@ -6,6 +6,26 @@ namespace InterfaceSync.Core.Backup;
 
 public sealed record BackupInfo(string VersionFolder, string Path, DateTime CreatedUtc, string Reason, int FileCount)
 {
+    /// <summary>
+    /// Holds only the files a sync was about to change (restored by putting them back over the current settings),
+    /// rather than a whole copy (restored by replacing the settings). Earlier builds' "cloud-before-push" backups
+    /// could be either, so they are treated as partial: putting files back never removes anything.
+    /// </summary>
+    public bool Partial => Reason.EndsWith(BackupStore.ChangesSuffix, StringComparison.OrdinalIgnoreCase) ||
+                           Reason.Equals("cloud-before-push", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Plain words for the restore list.</summary>
+    public string Description => (Reason.EndsWith(BackupStore.ChangesSuffix, StringComparison.OrdinalIgnoreCase) ? Reason[..^BackupStore.ChangesSuffix.Length] : Reason) switch
+    {
+        "before-pull" or "first-join" => "Before downloading settings",
+        "before-keep-cloud" => "Before keeping the cloud settings",
+        "before-restore" => "Before restoring a backup",
+        "cloud-before-push" or "cloud-before-push-all" => "Cloud copy, before uploading",
+        "cloud-copy-conflict" => "The cloud copy you chose not to keep",
+        var r when r.StartsWith("cloud-before-provider-move", StringComparison.OrdinalIgnoreCase) => "Cloud copy, before moving cloud folder",
+        var r => r.Replace('-', ' '),
+    };
+
     /// <summary>True when nothing had changed since this existing backup, so no new copy was made.</summary>
     public bool Reused { get; init; }
 }
@@ -17,6 +37,9 @@ public sealed record BackupInfo(string VersionFolder, string Path, DateTime Crea
 public sealed class BackupStore
 {
     public const int KeepPerVersion = 5;
+
+    /// <summary>Ends the reason of a backup that holds only the files a sync changed, e.g. "before-pull-changes".</summary>
+    public const string ChangesSuffix = "-changes";
     private const string StampFormat = "yyyyMMdd-HHmmss-fff";
 
     private readonly IFileSystem _fs;
@@ -56,6 +79,14 @@ public sealed class BackupStore
     /// <summary>Backs up only the listed files (e.g. the cloud files a push is about to replace).</summary>
     public BackupInfo CreateFromFiles(string versionFolder, string sourceFolder, IReadOnlyCollection<ManifestEntry> files, string reason)
     {
+        // The same files as the newest backup made for the same reason (a sync retried every poll)? Reuse it,
+        // so retries never fill the 5 places and push out the backup that matters.
+        var current = FolderScanner.Scan(_fs, sourceFolder).Manifest.ToLookup();
+        var wanted = files.Select(f => current.TryGetValue(f.RelativePath, out var e) ? e : f).ToList();
+        var newest = List(versionFolder).FirstOrDefault(b => b.Reason.Equals(Sanitize(reason), StringComparison.OrdinalIgnoreCase));
+        if (newest != null && SameFiles(wanted, FolderScanner.AllFiles(_fs, newest.Path)))
+            return newest with { Reused = true };
+
         var now = _clock.UtcNow;
         var name = $"{now.ToString(StampFormat, CultureInfo.InvariantCulture)}-{Sanitize(reason)}";
         var dest = PathUtil.Join(Root, versionFolder, name);

@@ -62,7 +62,7 @@ public sealed class FirstSyncChoiceTests : IDisposable
 
         Assert.Equal(SyncOutcome.Pushed, laptop.Sync.Tick());
         Assert.Equal("laptop's own", File.ReadAllText(Path.Combine(_world.CloudAccount(), "PLAYER#1", "macros-cache.txt")));
-        Assert.Contains(laptop.Backups.List("_retail_"), b => b.Reason == "cloud-before-push");   // the cloud's were backed up
+        Assert.Contains(laptop.Backups.List("_retail_"), b => b.Reason == "cloud-before-push-changes");   // the cloud's were backed up
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public sealed class FirstSyncChoiceTests : IDisposable
 
         Assert.Equal(SyncOutcome.Pulled, laptop.Sync.Tick());                                       // no question: already answered
         Assert.Equal("home's", laptop.ReadSetting(@"PLAYER#1\macros-cache.txt"));
-        Assert.Contains(laptop.Backups.List("_retail_"), b => b.Reason == "first-join");
+        Assert.Contains(laptop.Backups.List("_retail_"), b => b.Reason == "first-join-changes");
     }
 
     [Fact]
