@@ -75,6 +75,7 @@ jobs:
           Get-ChildItem installer | ForEach-Object { "$($_.Name)  SHA-256: $((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" }
 
       - name: Test installer (install, check, uninstall)
+        timeout-minutes: 10
         shell: pwsh
         run: ./.github/test-installer.ps1 installer
 

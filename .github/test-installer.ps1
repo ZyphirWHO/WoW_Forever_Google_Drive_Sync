@@ -15,7 +15,9 @@ $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{CA18
 $run = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $data = Join-Path $env:LOCALAPPDATA $id
 
-$p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$PWD\install.log" -Wait -PassThru
+# WaitForExit, not -Wait: -Wait also waits for child processes, and a silent install reopens the app.
+$p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$PWD\install.log" -PassThru
+if (-not $p.WaitForExit(180000)) { throw "Setup didn't finish within 3 minutes" }
 if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 40; throw "Setup exit code $($p.ExitCode)" }
 foreach ($path in $exe, $shortcut, (Join-Path $dir "unins000.exe")) { if (-not (Test-Path $path)) { throw "Missing after install: $path" } }
 # A silent install opens the app again (that's how in-app updates finish): close it before going on.
@@ -34,7 +36,8 @@ Set-ItemProperty $run -Name $id -Value "`"$exe`" --tray"
 New-Item -ItemType Directory $data -Force | Out-Null
 Set-Content (Join-Path $data "keep-me.txt") "settings"
 
-$p = Start-Process (Join-Path $dir "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+$p = Start-Process (Join-Path $dir "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru
+if (-not $p.WaitForExit(180000)) { throw "Uninstall didn't finish within 3 minutes" }
 if ($p.ExitCode -ne 0) { throw "Uninstall exit code $($p.ExitCode)" }
 # The uninstaller finishes from a temporary copy of itself: wait for it.
 $deadline = (Get-Date).AddSeconds(60)
