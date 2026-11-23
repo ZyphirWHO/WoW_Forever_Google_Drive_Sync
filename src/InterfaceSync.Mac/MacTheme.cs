@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
@@ -9,8 +10,8 @@ using P = InterfaceSync.Core.ThemePalette;
 namespace InterfaceSync.Mac;
 
 /// <summary>
-/// Light or dark windows. "Match macOS" follows System Settings → Appearance, live. Dark uses the warm,
-/// soft palette in <see cref="ThemePalette.Dark"/> instead of Fluent's near-black.
+/// Night-and-gold (dark) or parchment (light) windows from <see cref="ThemePalette"/>. "Match macOS" follows
+/// System Settings → Appearance, live.
 /// </summary>
 internal static class MacTheme
 {
@@ -18,36 +19,56 @@ internal static class MacTheme
     {
         Palettes =
         {
-            [ThemeVariant.Dark] = new ColorPaletteResources
-            {
-                Accent = C(P.Dark.Accent),
-                RegionColor = C(P.Dark.Window),
-                ErrorText = C(P.Dark.Error),
-                BaseHigh = C(P.Dark.Text),
-                BaseMediumHigh = C("#C9C6BB"),
-                BaseMedium = C(P.Dark.Muted),
-                BaseMediumLow = C("#77756E"),
-                BaseLow = C(P.Dark.Border),
-                AltHigh = C(P.Dark.Window),
-                AltMediumHigh = C("#2B2B29"),
-                AltMedium = C(P.Dark.Surface),
-                AltMediumLow = C("#353533"),
-                AltLow = C(P.Dark.Raised),
-                ChromeLow = C("#1F1E1D"),
-                ChromeMediumLow = C("#2B2B29"),
-                ChromeMedium = C(P.Dark.Surface),
-                ChromeHigh = C(P.Dark.Border),
-                ChromeGray = C(P.Dark.Muted),
-                ChromeWhite = C(P.Dark.Text),
-                ChromeAltLow = C(P.Dark.Text),
-                ChromeDisabledHigh = C(P.Dark.Border),
-                ChromeDisabledLow = C("#77756E"),
-                ListLow = C(P.Dark.Surface),
-                ListMedium = C(P.Dark.Raised),
-            },
-            [ThemeVariant.Light] = new ColorPaletteResources { Accent = C(P.Light.Accent) },
+            [ThemeVariant.Dark] = Palette(P.Dark.Window, P.Dark.Surface, P.Dark.Raised, P.Dark.Hover, P.Dark.Border,
+                P.Dark.Text, P.Dark.Muted, P.Dark.Accent, P.Dark.Error, P.Dark.Selection),
+            [ThemeVariant.Light] = Palette(P.Light.Window, P.Light.Surface, P.Light.Raised, P.Light.Hover, P.Light.Border,
+                P.Light.Text, P.Light.Muted, P.Light.Accent, P.Light.Error, P.Light.Selection),
         },
     };
+
+    /// <summary>Fluent's palette slots filled from our colours (Base = text shades, Alt = backgrounds, Chrome = control chrome).</summary>
+    private static ColorPaletteResources Palette(string window, string surface, string raised, string hover, string border,
+        string text, string muted, string accent, string error, string selection) => new()
+    {
+        Accent = C(accent),
+        RegionColor = C(window),
+        ErrorText = C(error),
+        BaseHigh = C(text),
+        BaseMediumHigh = Mix(text, muted, 0.5),
+        BaseMedium = C(muted),
+        BaseMediumLow = Mix(muted, border, 0.5),
+        BaseLow = C(border),
+        AltHigh = C(window),
+        AltMediumHigh = Mix(window, surface, 0.5),
+        AltMedium = C(surface),
+        AltMediumLow = Mix(surface, raised, 0.5),
+        AltLow = C(raised),
+        ChromeLow = C(window),
+        ChromeMediumLow = Mix(window, surface, 0.5),
+        ChromeMedium = C(surface),
+        ChromeHigh = C(border),
+        ChromeGray = C(muted),
+        ChromeWhite = C(text),
+        ChromeAltLow = C(text),
+        ChromeDisabledHigh = C(border),
+        ChromeDisabledLow = Mix(muted, border, 0.5),
+        ListLow = C(hover),
+        ListMedium = C(selection),
+    };
+
+    /// <summary>Resources the brand controls bind to, so headings follow the theme.</summary>
+    public static void AddResources(IResourceDictionary resources)
+    {
+        resources.ThemeDictionaries[ThemeVariant.Dark] = new ResourceDictionary { ["InterfaceSyncAccent"] = new SolidColorBrush(C(P.Dark.Accent)) };
+        resources.ThemeDictionaries[ThemeVariant.Light] = new ResourceDictionary { ["InterfaceSyncAccent"] = new SolidColorBrush(C(P.Light.Accent)) };
+    }
+
+    private static Color Mix(string a, string b, double t)
+    {
+        var (ar, ag, ab) = P.Rgb(a); var (br, bg, bb) = P.Rgb(b);
+        byte L(byte x, byte y) => (byte)Math.Round(x + (y - x) * t);
+        return Color.FromRgb(L(ar, br), L(ag, bg), L(ab, bb));
+    }
 
     public static AppTheme Mode { get; private set; } = AppTheme.System;
 

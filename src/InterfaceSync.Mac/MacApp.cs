@@ -38,7 +38,11 @@ internal sealed class MacApp : Application, IMacHost
     public bool StartAsRoot { get; set; }
     public SyncService Service { get; private set; } = null!;
 
-    public override void Initialize() => Styles.Add(MacTheme.Create());
+    public override void Initialize()
+    {
+        Styles.Add(MacTheme.Create());
+        MacTheme.AddResources(Resources);
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {

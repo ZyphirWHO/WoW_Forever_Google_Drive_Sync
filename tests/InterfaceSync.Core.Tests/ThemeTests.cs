@@ -18,6 +18,22 @@ public sealed class ThemeTests
         Assert.True(ThemePalette.Contrast(ThemePalette.Dark.Error, ThemePalette.Dark.Window) >= 4.5);
         Assert.True(ThemePalette.Contrast(ThemePalette.Dark.Warning, ThemePalette.Dark.Window) >= 4.5);
         Assert.True(ThemePalette.Contrast(ThemePalette.Dark.Text, ThemePalette.Dark.Selection) >= 4.5);
+        Assert.True(ThemePalette.Contrast(ThemePalette.Dark.Accent, ThemePalette.Dark.Window) >= 4.5);
+    }
+
+    [Fact]
+    public void Light_parchment_and_banner_are_readable()
+    {
+        Assert.InRange(ThemePalette.Contrast(ThemePalette.Light.Text, ThemePalette.Light.Window), 9, 16);
+        foreach (var c in new[] { ThemePalette.Light.Muted, ThemePalette.Light.Accent, ThemePalette.Light.Error, ThemePalette.Light.Warning })
+        {
+            Assert.True(ThemePalette.Contrast(c, ThemePalette.Light.Window) >= 4.5, c);
+            Assert.True(ThemePalette.Contrast(c, ThemePalette.Light.Surface) >= 4.5, c);
+        }
+        Assert.True(ThemePalette.Contrast(ThemePalette.Light.Text, ThemePalette.Light.Selection) >= 4.5);
+        Assert.True(ThemePalette.Contrast(ThemePalette.Banner.Title, ThemePalette.Banner.Top) >= 4.5);
+        Assert.True(ThemePalette.Contrast(ThemePalette.Banner.Subtitle, ThemePalette.Banner.Top) >= 4.5);
+        Assert.True(ThemePalette.Contrast(ThemePalette.Banner.OnGold, ThemePalette.Banner.Gold) >= 4.5);
     }
 
     [Fact]

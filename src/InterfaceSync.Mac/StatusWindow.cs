@@ -39,7 +39,7 @@ internal sealed class StatusWindow : Window
         _pause = Dialogs.Button("Pause syncing", () => _host.Run(() => Service.SetPaused(!Service.Settings.Paused), Refresh));
         _resolve = Dialogs.Button("Choose settings to keep...", Resolve);
         var buttons = new WrapPanel { Margin = new Thickness(-6, 0, 0, 8) };
-        buttons.Children.Add(Dialogs.Button("Sync now", () => _host.Run(Service.SyncNow, Refresh)));
+        buttons.Children.Add(MacBrand.Primary(Dialogs.Button("Sync now", () => _host.Run(Service.SyncNow, Refresh))));
         buttons.Children.Add(_pause);
         buttons.Children.Add(_resolve);
         buttons.Children.Add(Dialogs.Button("Open log folder", () => _ = Open(Service.Paths.Logs)));
@@ -65,12 +65,14 @@ internal sealed class StatusWindow : Window
         var root = new StackPanel();
         root.Children.Add(_overall);
         root.Children.Add(_paths);
+        root.Children.Add(MacBrand.Section("Game versions"));
         root.Children.Add(_rows);
         root.Children.Add(buttons);
         root.Children.Add(move);
-        root.Children.Add(Dialogs.Text("Recent activity", 12, FontWeight.SemiBold));
+        root.Children.Add(MacBrand.Section("Recent activity"));
         root.Children.Add(_log);
-        Content = new ScrollViewer { Content = new Border { Padding = new Thickness(18), Child = root } };
+        var (banner, _) = MacBrand.Banner("Your interface settings, on every computer");
+        Content = new ScrollViewer { Content = new StackPanel { Children = { banner, new Border { Padding = new Thickness(20, 12, 20, 18), Child = root } } } };
         _moveTo.ItemsSource = CloudProviders.All.Select(p => p.DisplayName()).ToList();
         Refresh();
     }

@@ -104,6 +104,7 @@ jobs:
           Copy-Item "publish/$id.exe", README.md, LICENSE "$stage/"
           Copy-Item docs/ANTIVIRUS.md "$stage/ANTIVIRUS.md"
           Copy-Item packaging/guides/windows.html "$stage/How to open $name.html"
+          Copy-Item assets/fonts/OFL-Cinzel.txt "$stage/"
           Copy-Item "publish/$id.exe" "out/$id.exe"
           Compress-Archive -Path "$stage/*" -DestinationPath "out/$id-$v.zip"
           $exeHash = (Get-FileHash "out/$id.exe" -Algorithm SHA256).Hash

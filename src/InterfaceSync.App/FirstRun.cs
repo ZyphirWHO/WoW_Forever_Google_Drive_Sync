@@ -27,6 +27,7 @@ internal sealed class FirstRun : Form
     private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
     private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
+    private readonly BrandBanner _banner = new($"Welcome! Let's set up {ProductInfo.Name} on this PC.");
     private readonly IStartAtLogin? _startup;
     private readonly CheckBox _startAtLogin = new() { AutoSize = true, Margin = new Padding(0, 8, 0, 2), Text = $"Start {ProductInfo.Name} when I sign in to Windows (recommended)" };
     private readonly Label _startAtLoginNote = new() { AutoSize = true, MaximumSize = new Size(600, 0), Margin = new Padding(18, 0, 0, 6), Visible = false };
@@ -60,19 +61,21 @@ internal sealed class FirstRun : Form
         StartPosition = FormStartPosition.CenterScreen;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        Padding = new Padding(12);
+        Padding = Padding.Empty;
         Font = SystemFonts.MessageBoxFont ?? Font;
         Icon = TrayIcons.AppIcon;
 
         var grid = _setupGrid;
+        grid.Dock = DockStyle.None;
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 420));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         var top = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
-        top.Controls.Add(new Label { Text = $"Welcome to {ProductInfo.Name}", AutoSize = true, Font = new Font(Font.FontFamily, Font.Size + 3, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) });
-        top.Controls.Add(new Label { Text = HowItWorks, AutoSize = true, MaximumSize = new Size(600, 0), Margin = new Padding(0, 0, 0, 10) });
-        top.Controls.Add(new Label { Text = "It found these on this PC. Check them, then start syncing.", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) });
+        top.Controls.Add(new SectionHeader("How it works") { Margin = new Padding(0, 0, 0, 4) });
+        top.Controls.Add(new Label { Text = HowItWorks, AutoSize = true, MaximumSize = new Size(600, 0), Margin = new Padding(0, 0, 0, 6) });
+        top.Controls.Add(new SectionHeader("Found on this PC"));
+        top.Controls.Add(new Label { Text = "Check these, then start syncing.", AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
         grid.Controls.Add(top, 0, 0);
         grid.SetColumnSpan(top, 3);
 
@@ -110,9 +113,21 @@ internal sealed class FirstRun : Form
         grid.Controls.Add(buttons, 0, 6);
         grid.SetColumnSpan(buttons, 3);
 
-        Controls.Add(grid);
         BuildProgressPage();
-        Controls.Add(_progressPage);
+        _progressPage.Dock = DockStyle.None;
+        // Banner across the top, then the setup page or (once started) the progress page.
+        var body = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Padding = new Padding(16, 12, 16, 14), Margin = Padding.Empty };
+        body.Controls.Add(grid);
+        body.Controls.Add(_progressPage);
+        var outer = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, Margin = Padding.Empty, Padding = Padding.Empty };
+        outer.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+        outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _banner.Dock = DockStyle.Fill;
+        outer.Controls.Add(_banner, 0, 0);
+        outer.Controls.Add(body, 0, 1);
+        Controls.Add(outer);
+        Theme.SetPrimary(_start);
+        Theme.SetPrimary(_finish);
         AcceptButton = _start;
         CancelButton = cancel;
         // ItemCheck fires before the item changes (and while Fill adds pre-ticked items, before the window
@@ -343,6 +358,7 @@ internal sealed class FirstRun : Form
         CancelButton = null;
         ControlBox = false; // no closing mid-copy
         _progressHeading.Text = "Running the first sync...";
+        _banner.Subtitle = "Running the first sync";
         _afterword.Text =
             $"{ProductInfo.Name} keeps running in the system tray: its icon by the clock (it may be under the ^ arrow).\n\n" +
             "What to do now: just play. When you quit the game, your settings are copied to the cloud within a minute. " +
@@ -382,6 +398,7 @@ internal sealed class FirstRun : Form
 
     private void FinishProgress(int versions, int problems)
     {
+        _banner.Subtitle = problems == 0 ? "All set" : "Almost there";
         _syncing = false;
         _bar.Visible = false;
         ControlBox = true;

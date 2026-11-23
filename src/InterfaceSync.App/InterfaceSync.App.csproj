@@ -31,6 +31,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Icons\*.ico" LogicalName="%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Icons\crest.png" LogicalName="crest.png" />
+    <EmbeddedResource Include="..\..\assets\fonts\Cinzel-Bold.ttf" LogicalName="Cinzel-Bold.ttf" />
   </ItemGroup>
 
   <ItemGroup>

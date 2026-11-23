@@ -296,7 +296,8 @@ public sealed class WindowSmokeTests : IDisposable
                 using var form = new StatusForm(new TestHost(service));
                 form.Show();
                 Application.DoEvents();
-                Assert.False(form.VersionList.OwnerDraw);
+                Assert.Equal(Theme.Window, form.BackColor);           // parchment
+                var lightBack = form.BackColor;
 
                 form.ChooseAppearance(AppTheme.Dark);
                 Application.DoEvents();
@@ -315,13 +316,77 @@ public sealed class WindowSmokeTests : IDisposable
                 form.ChooseAppearance(AppTheme.Light);
                 Application.DoEvents();
                 Assert.False(Theme.IsDark);
-                Assert.False(form.VersionList.OwnerDraw);
-                Assert.Equal(FlatStyle.Standard, AllControls(form).OfType<Button>().First().FlatStyle);
+                Assert.Equal(lightBack, form.BackColor);
+                Assert.Equal(Theme.Surface, form.VersionList.BackColor);
+                Assert.True(Brand.HasCinzel);                             // the heading font loaded from the exe
+                Assert.Single(AllControls(form).OfType<BrandBanner>());
                 form.AllowClose();
                 form.Close();
             }
             finally { Theme.Set(AppTheme.System); }
         });
+    }
+
+    /// <summary>
+    /// Saves pictures of the windows in both themes for review when INTERFACESYNC_SCREENSHOTS names a folder
+    /// (CI uploads them with the build). Does nothing otherwise.
+    /// </summary>
+    [Fact]
+    public void Screenshots_for_review()
+    {
+        var folder = Environment.GetEnvironmentVariable("INTERFACESYNC_SCREENSHOTS");
+        if (string.IsNullOrEmpty(folder)) return;
+        Directory.CreateDirectory(folder);
+        var cloud = Path.Combine(_root, "Users", "Player", "My Drive", "InterfaceSync", "_retail_", "WTF-Account");
+        Directory.CreateDirectory(cloud);
+        File.WriteAllText(Path.Combine(cloud, "macros-cache.txt"), "from the laptop");
+        var setup = Service(setupComplete: false, ("_retail_", true), ("_classic_", false));
+        var shots = new[] { AppTheme.Dark, AppTheme.Light };
+        OnSta(() =>
+        {
+            try
+            {
+                foreach (var theme in shots)
+                {
+                    Theme.Set(theme);
+                    using var form = new FirstRun(setup, new FakeRegistry(), new WindowsStartAtLogin(new FakeRegistry(), @"C:\Users\Player\Documents\Interface Sync\InterfaceSync.exe", @"C:\Temp"));
+                    form.Show();
+                    Application.DoEvents();
+                    Save(form, Path.Combine(folder, $"windows-setup-{theme}.png"));
+                    form.Close();
+                }
+            }
+            finally { Theme.Set(AppTheme.System); }
+        });
+
+        // The status window after setup, on a PC that has synced.
+        var status = Service(setupComplete: true, ("_retail_", true), ("_classic_", false));
+        status.Poll();
+        OnSta(() =>
+        {
+            try
+            {
+                foreach (var theme in shots)
+                {
+                    Theme.Set(theme);
+                    using var form = new StatusForm(new TestHost(status));
+                    form.Show();
+                    form.RefreshView();
+                    Application.DoEvents();
+                    Save(form, Path.Combine(folder, $"windows-status-{theme}.png"));
+                    form.AllowClose();
+                    form.Close();
+                }
+            }
+            finally { Theme.Set(AppTheme.System); }
+        });
+
+        static void Save(Form form, string path)
+        {
+            using var bmp = new System.Drawing.Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+            bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        }
     }
 
     private static IEnumerable<Control> AllControls(Control c) =>

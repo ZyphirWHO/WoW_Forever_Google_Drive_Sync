@@ -40,6 +40,9 @@ public static class ProductInfo
 
     public const string Licence = "MIT License";
 
+    /// <summary>Credit for the heading font, which is embedded in the app (its licence ships with the download).</summary>
+    public const string FontCredit = "Headings use the Cinzel font by the Cinzel Project Authors, under the SIL Open Font License 1.1.";
+
     /// <summary>Names earlier builds used, so their data can be found and moved once.</summary>
     public static class Legacy
     {

@@ -21,6 +21,27 @@ jobs:
       - name: Build and test
         run: dotnet test --configuration Release
 
+      # Pictures of the windows in both themes, for reviewing the look (uploaded below, and printed so they can
+      # be read from the log).
+      - name: Window screenshots
+        shell: pwsh
+        env:
+          INTERFACESYNC_SCREENSHOTS: ${{ github.workspace }}/screenshots
+        run: |
+          dotnet test tests/InterfaceSync.App.Tests --configuration Release --no-build --filter Screenshots_for_review
+          Get-ChildItem screenshots/*.png | ForEach-Object {
+            "SCREENSHOT-BEGIN $($_.Name)"
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName))
+            "SCREENSHOT-END"
+          }
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: InterfaceSync-screenshots-${{ github.sha }}
+          path: screenshots/
+          retention-days: 14
+
       # One self-contained exe: no trimming, no compression, no self-extraction of native files.
       - name: Publish
         shell: pwsh
@@ -44,6 +65,7 @@ jobs:
           New-Item -ItemType Directory artifact | Out-Null
           Copy-Item publish/* artifact/
           Copy-Item packaging/guides/windows.html "artifact/How to open Interface Sync.html"
+          Copy-Item assets/fonts/OFL-Cinzel.txt artifact/
 
       - name: Upload development build
         uses: actions/upload-artifact@v4

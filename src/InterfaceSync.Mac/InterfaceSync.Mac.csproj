@@ -24,6 +24,7 @@
   <ItemGroup>
     <!-- Generated from assets/icon/app.svg by assets/icon/generate.py -->
     <EmbeddedResource Include="Icons\*.png" LogicalName="%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\..\assets\fonts\Cinzel-Bold.ttf" Link="Assets\Fonts\Cinzel-Bold.ttf" />
   </ItemGroup>
 
   <ItemGroup>

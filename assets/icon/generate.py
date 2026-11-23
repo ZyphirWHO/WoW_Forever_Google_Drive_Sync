@@ -4,6 +4,7 @@ Builds the Interface Sync icons from assets/icon/app.svg.
 
   Windows (src/InterfaceSync.App/Icons):
     app.ico            sizes 16, 20, 24, 32, 40, 48, 64, 256 (exe icon, Start menu, taskbar)
+    crest.png          256 px (the emblem in the window banner)
     tray-<state>.ico   sizes 16, 20, 24, 32, 40, 48 (notification area, 100-300% scaling)
   macOS (src/InterfaceSync.Mac/Icons, packaging/macos):
     tray-<state>.png   44 px (menu bar, drawn at 22 pt on Retina screens)
@@ -80,6 +81,7 @@ def write_ico(path: pathlib.Path, svg: str, sizes: list[int]) -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     write_ico(OUT / "app.ico", MASTER, APP_SIZES)
+    (OUT / "crest.png").write_bytes(render(MASTER, 256))   # the banner emblem
     for state, badge in BADGES.items():
         write_ico(OUT / f"tray-{state}.ico", MASTER.replace("<!-- BADGE -->", badge), TRAY_SIZES)
     # macOS

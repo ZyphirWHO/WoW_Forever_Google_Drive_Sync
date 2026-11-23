@@ -1,20 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
   <!--
-    Interface Sync app icon (original artwork, MIT licence). Two arrows form a loop around a keycap:
-    settings going round between PCs. No letters, fonts, logos or game artwork.
-    Rebuild the .ico files with: python3 assets/icon/generate.py
+    Interface Sync crest (original artwork, MIT licence): a gilded heater shield with a night-blue field,
+    two gold arrows chasing each other round a ring (settings going round between computers) and a small
+    sky-blue gem at the centre. No letters, fonts, logos or game artwork.
+    Rebuild the icons with: python3 assets/icon/generate.py
   -->
   <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26385E"/>
+      <stop offset="1" stop-color="#0E1528"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FBE7A6"/>
+      <stop offset="0.45" stop-color="#D9AE52"/>
+      <stop offset="1" stop-color="#9C6E22"/>
+    </linearGradient>
+    <linearGradient id="goldArrow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE9A8"/>
+      <stop offset="1" stop-color="#D2A043"/>
+    </linearGradient>
+    <radialGradient id="gem" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#E6F6FF"/>
+      <stop offset="0.35" stop-color="#7CC6EE"/>
+      <stop offset="1" stop-color="#1F5E8C"/>
+    </radialGradient>
     <g id="half">
-      <!-- top arc, 200° to 340° on a circle of radius 23 round (32,32), with an arrowhead at its end -->
-      <path d="M10.39 24.13 A23 23 0 0 1 53.61 24.13" fill="none" stroke="#2F80ED" stroke-width="6.5"/>
-      <polygon points="56.0,30.71 59.51,19.86 46.35,24.64" fill="#2F80ED"/>
+      <!-- top arc on a circle of radius 14.5 round (32,30), with an arrowhead at its end -->
+      <path d="M18.4 26.1 A14.5 14.5 0 0 1 45.6 26.1" fill="none" stroke="url(#goldArrow)" stroke-width="4.2" stroke-linecap="round"/>
+      <polygon points="47.6,31.6 50.3,22.2 41.2,25.6" fill="#F2D488"/>
     </g>
   </defs>
+  <!-- shield: gold rim, then the night-blue field -->
+  <path d="M32 2.5 C40 6 49 7 58 6.5 C58.5 30 52 48 32 61.5 C12 48 5.5 30 6 6.5 C15 7 24 6 32 2.5 Z" fill="url(#gold)"/>
+  <path d="M32 6.6 C39.4 9.6 47.2 10.6 54.2 10.4 C54.2 30.4 48.4 45.6 32 57.2 C15.6 45.6 9.8 30.4 9.8 10.4 C16.8 10.6 24.6 9.6 32 6.6 Z" fill="url(#field)"/>
+  <!-- faint inner bevel -->
+  <path d="M32 8.6 C39 11.4 46.2 12.4 52.3 12.3" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1"/>
+  <!-- sync ring -->
   <use xlink:href="#half"/>
-  <use xlink:href="#half" transform="rotate(180 32 32)"/>
-  <!-- keycap: body and top face -->
-  <rect x="19.5" y="19.5" width="25" height="25" rx="5.5" fill="#263238" stroke="#CFD8DC" stroke-width="2"/>
-  <rect x="22.5" y="21.5" width="19" height="16.5" rx="3.5" fill="#607D8B"/>
+  <use xlink:href="#half" transform="rotate(180 32 30)"/>
+  <!-- gem -->
+  <path d="M32 22.5 L38.5 30 L32 37.5 L25.5 30 Z" fill="url(#gem)" stroke="#E8C672" stroke-width="1.4" stroke-linejoin="round"/>
   <!-- BADGE -->
 </svg>

@@ -25,6 +25,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp -R "$PUBLISH/." "$APP/Contents/MacOS/"
 cp "$ROOT/packaging/macos/InterfaceSync.icns" "$APP/Contents/Resources/InterfaceSync.icns"
+cp "$ROOT/assets/fonts/OFL-Cinzel.txt" "$APP/Contents/Resources/OFL-Cinzel.txt"   # licence of the embedded heading font
 sed -e "s|{{NAME}}|$NAME|g" -e "s|{{ID}}|$ID|g" -e "s|{{BUNDLE_ID}}|$BUNDLE_ID|g" \
     -e "s|{{VERSION}}|$VERSION|g" -e "s|{{COPYRIGHT}}|$COPYRIGHT|g" \
     "$ROOT/packaging/macos/Info.plist.template" > "$APP/Contents/Info.plist"

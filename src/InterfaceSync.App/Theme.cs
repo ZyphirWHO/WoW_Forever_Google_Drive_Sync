@@ -11,8 +11,8 @@ namespace InterfaceSync.App;
 internal enum TextRole { Normal, Muted, Warning, Error }
 
 /// <summary>
-/// Light or dark windows. Light is the normal Windows look. Dark is the warm, soft palette in
-/// <see cref="ThemePalette.Dark"/>: dark title bar, dark scroll bars, flat buttons and a matching tray menu.
+/// Night-and-gold (dark) or parchment (light) windows from <see cref="ThemePalette"/>: flat buttons with a gold
+/// primary button, drawn list headers, matching title bar, scroll bars and tray menu.
 /// Windows' own message boxes stay in Windows' style.
 /// </summary>
 internal static class Theme
@@ -25,16 +25,25 @@ internal static class Theme
 
     private static readonly ConditionalWeakTable<Control, object> Hooked = new();
     private static readonly ConditionalWeakTable<Control, Box<TextRole>> Roles = new();
+    private static readonly ConditionalWeakTable<Button, object> Primaries = new();
+
+    /// <summary>Marks the window's main action (Start syncing, Sync now): drawn as the gold button.</summary>
+    public static void SetPrimary(Button b)
+    {
+        if (!Primaries.TryGetValue(b, out _)) Primaries.Add(b, new object());
+        ApplyOne(b);
+    }
     private sealed class Box<T>(T value) { public T Value = value; }
 
-    public static Color Window => C(P.Dark.Window);
-    public static Color Surface => C(P.Dark.Surface);
-    public static Color Raised => C(P.Dark.Raised);
-    public static Color Hover => C(P.Dark.Hover);
-    public static Color Border => C(P.Dark.Border);
-    public static Color Selection => C(P.Dark.Selection);
-    public static Color Text => IsDark ? C(P.Dark.Text) : SystemColors.ControlText;
-    public static Color Muted => IsDark ? C(P.Dark.Muted) : SystemColors.GrayText;
+    public static Color Window => C(IsDark ? P.Dark.Window : P.Light.Window);
+    public static Color Surface => C(IsDark ? P.Dark.Surface : P.Light.Surface);
+    public static Color Raised => C(IsDark ? P.Dark.Raised : P.Light.Raised);
+    public static Color Hover => C(IsDark ? P.Dark.Hover : P.Light.Hover);
+    public static Color Border => C(IsDark ? P.Dark.Border : P.Light.Border);
+    public static Color Selection => C(IsDark ? P.Dark.Selection : P.Light.Selection);
+    public static Color Text => C(IsDark ? P.Dark.Text : P.Light.Text);
+    public static Color Muted => C(IsDark ? P.Dark.Muted : P.Light.Muted);
+    public static Color Accent => C(IsDark ? P.Dark.Accent : P.Light.Accent);
     public static Color Warning => C(IsDark ? P.Dark.Warning : P.Light.Warning);
     public static Color Error => C(IsDark ? P.Dark.Error : P.Light.Error);
 
@@ -110,69 +119,74 @@ internal static class Theme
         switch (c)
         {
             case Form f:
-                if (dark) { f.BackColor = Window; f.ForeColor = Text; }
-                else { f.ResetBackColor(); f.ResetForeColor(); }
+                f.BackColor = Window;
+                f.ForeColor = Text;
                 break;
 
             case Button b:
-                if (dark)
+                b.FlatStyle = FlatStyle.Flat;
+                b.UseVisualStyleBackColor = false;
+                if (Primaries.TryGetValue(b, out _))
                 {
-                    b.FlatStyle = FlatStyle.Flat;
-                    b.UseVisualStyleBackColor = false;
+                    b.BackColor = Brand.C(P.Banner.Gold);
+                    b.ForeColor = Brand.C(P.Banner.OnGold);
+                    b.FlatAppearance.BorderColor = Brand.C(P.Banner.GoldDark);
+                    b.FlatAppearance.MouseOverBackColor = Brand.C(P.Banner.GoldLight);
+                    b.FlatAppearance.MouseDownBackColor = Brand.C(P.Banner.GoldDark);
+                    if (!b.Font.Bold) b.Font = new Font(b.Font, FontStyle.Bold);
+                }
+                else
+                {
                     b.BackColor = Raised;
                     b.ForeColor = Text;
                     b.FlatAppearance.BorderColor = Border;
                     b.FlatAppearance.MouseOverBackColor = Hover;
                     b.FlatAppearance.MouseDownBackColor = Border;
                 }
-                else
-                {
-                    b.FlatStyle = FlatStyle.Standard;
-                    b.ResetBackColor();
-                    b.ResetForeColor();
-                    b.UseVisualStyleBackColor = true;
-                }
+                b.Padding = new Padding(8, 2, 8, 2);
                 break;
 
             case CheckBox or RadioButton:
-                ((ButtonBase)c).FlatStyle = dark ? FlatStyle.Flat : FlatStyle.Standard;
+                ((ButtonBase)c).FlatStyle = FlatStyle.Flat;
                 RoleOrReset(c);
                 break;
 
             case TextBoxBase or ListBox:
-                if (dark) { c.BackColor = Surface; c.ForeColor = Text; }
-                else { c.ResetBackColor(); c.ResetForeColor(); }
+                c.BackColor = Surface;
+                c.ForeColor = Text;
                 NativeTheme(c);
                 break;
 
             case ComboBox cb:
-                cb.FlatStyle = dark ? FlatStyle.Flat : FlatStyle.Standard;
-                if (dark) { cb.BackColor = Surface; cb.ForeColor = Text; }
-                else { cb.ResetBackColor(); cb.ResetForeColor(); }
+                cb.FlatStyle = FlatStyle.Flat;
+                cb.BackColor = Surface;
+                cb.ForeColor = Text;
                 NativeTheme(c);
                 break;
 
             case ListView lv:
                 HookListView(lv);
-                lv.OwnerDraw = dark;   // dark column headers and selection need drawing ourselves
-                if (dark) { lv.BackColor = Surface; lv.ForeColor = Text; }
-                else { lv.ResetBackColor(); lv.ResetForeColor(); }
+                lv.OwnerDraw = true;   // themed column headers and selection
+                lv.BackColor = Surface;
+                lv.ForeColor = Text;
                 NativeTheme(c);
                 lv.Invalidate();
                 break;
 
             case LinkLabel ll:
-                ll.LinkColor = dark ? C(P.Dark.Accent) : Color.FromArgb(0, 102, 204);
-                ll.ActiveLinkColor = ll.LinkColor;
+                ll.LinkColor = Accent;
+                ll.ActiveLinkColor = Accent;
                 RoleOrReset(c);
                 break;
 
             default:
-                // Labels and layout panels take the form's colours, unless they carry a status colour.
+                // Labels, panels, the banner and headings take the form's colours, unless they carry a status colour.
                 c.ResetBackColor();
                 RoleOrReset(c);
+                if (c is SectionHeader or BrandBanner) c.Invalidate();
                 break;
         }
+        _ = dark;
     }
 
     private static void RoleOrReset(Control c)
@@ -197,7 +211,7 @@ internal static class Theme
             e.Graphics.DrawLine(line, e.Bounds.Right - 1, e.Bounds.Top + 4, e.Bounds.Right - 1, e.Bounds.Bottom - 5);
             e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             var text = Rectangle.Inflate(e.Bounds, -6, 0);
-            TextRenderer.DrawText(e.Graphics, e.Header?.Text, lv.Font, text, Muted,
+            TextRenderer.DrawText(e.Graphics, e.Header?.Text, lv.Font, text, Accent,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         };
         lv.DrawItem += (_, e) =>
@@ -219,9 +233,9 @@ internal static class Theme
 
     public static void Apply(ToolStripDropDown menu)
     {
-        menu.Renderer = IsDark ? new DarkMenuRenderer() : new ToolStripProfessionalRenderer();
-        menu.ForeColor = IsDark ? Text : SystemColors.MenuText;
-        menu.BackColor = IsDark ? Surface : SystemColors.Menu;
+        menu.Renderer = new DarkMenuRenderer();
+        menu.ForeColor = Text;
+        menu.BackColor = Surface;
         foreach (var item in menu.Items.OfType<ToolStripMenuItem>())
         {
             item.ForeColor = menu.ForeColor;
@@ -242,7 +256,7 @@ internal static class Theme
             var r = Rectangle.Inflate(e.ImageRectangle, 2, 2);
             using var back = new SolidBrush(Selection);
             e.Graphics.FillRectangle(back, r);
-            TextRenderer.DrawText(e.Graphics, "✓", e.Item.Font, r, C(P.Dark.Accent),
+            TextRenderer.DrawText(e.Graphics, "✓", e.Item.Font, r, Accent,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 

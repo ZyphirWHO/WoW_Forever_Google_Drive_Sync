@@ -18,13 +18,17 @@ namespace InterfaceSync.Mac.Tests;
 
 public sealed class TestApp : Application
 {
-    public override void Initialize() => Styles.Add(MacTheme.Create());
+    public override void Initialize()
+    {
+        Styles.Add(MacTheme.Create());
+        MacTheme.AddResources(Resources);
+    }
 }
 
 public static class TestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<TestApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+        AppBuilder.Configure<TestApp>().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });   // real text rendering, so the embedded font is exercised
 }
 
 /// <summary>Runs the Mac windows headless (on any OS) against a real SyncService over a Mac-shaped temp layout.</summary>
@@ -130,6 +134,11 @@ public sealed class MacWindowTests : IDisposable
             // The window background is the warm charcoal, not Fluent's near-black.
             Assert.True(Application.Current.TryGetResource("SystemRegionColor", Avalonia.Styling.ThemeVariant.Dark, out var region));
             Assert.Equal(Avalonia.Media.Color.Parse(InterfaceSync.Core.ThemePalette.Dark.Window), region);
+
+            // Headings use the embedded Cinzel font, not a fallback.
+            var heading = Avalonia.Media.FontManager.Current.TryGetGlyphTypeface(new Avalonia.Media.Typeface(MacBrand.Heading, weight: Avalonia.Media.FontWeight.Bold), out var face);
+            Assert.True(heading);
+            Assert.Equal("Cinzel", face!.FamilyName);
 
             window.ChooseAppearance(AppTheme.Light);
             Dispatcher.UIThread.RunJobs();

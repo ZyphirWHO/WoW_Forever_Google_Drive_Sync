@@ -21,10 +21,10 @@ internal sealed class StatusForm : Form
     private readonly IStatusHost _app;
     private SyncService Service => _app.Service;
 
-    private readonly Label _overall = new() { AutoSize = true, Font = new Font(SystemFonts.MessageBoxFont ?? DefaultFont, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) };
+    private readonly Label _overall = new() { AutoSize = true, Font = new Font((SystemFonts.MessageBoxFont ?? DefaultFont).FontFamily, 11f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) };
     private readonly Label _paths = new() { AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
     private readonly ListView _list = new() { View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, Dock = DockStyle.Fill, Height = 130 };
-    private readonly TextBox _logBox = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 8.5f) };
+    private readonly TextBox _logBox = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.FixedSingle };
     private readonly Button _syncNow = new() { Text = "Sync now", AutoSize = true };
     private readonly Button _pause = new() { Text = "Pause syncing", AutoSize = true };
     private readonly Button _resolve = new() { Text = "Choose settings to keep...", AutoSize = true, Enabled = false };
@@ -48,7 +48,7 @@ internal sealed class StatusForm : Form
         Size = new Size(860, 600);
         MinimumSize = new Size(640, 420);
         Font = SystemFonts.MessageBoxFont ?? Font;
-        Padding = new Padding(10);
+        Padding = Padding.Empty;
         Icon = TrayIcons.AppIcon;
 
 
@@ -90,7 +90,8 @@ internal sealed class StatusForm : Form
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
         buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag, about, appearanceLabel, _appearance, _startAtLogin]);
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(14, 10, 14, 12) };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
@@ -99,11 +100,14 @@ internal sealed class StatusForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(_overall, 0, 0);
         layout.Controls.Add(_paths, 0, 1);
-        layout.Controls.Add(_list, 0, 2);
-        layout.Controls.Add(buttons, 0, 3);
-        layout.Controls.Add(new Label { Text = "Recent activity", AutoSize = true, Margin = new Padding(0, 4, 0, 2) }, 0, 4);
-        layout.Controls.Add(_logBox, 0, 5);
+        layout.Controls.Add(new SectionHeader("Game versions") { Dock = DockStyle.Fill }, 0, 2);
+        layout.Controls.Add(_list, 0, 3);
+        layout.Controls.Add(buttons, 0, 4);
+        layout.Controls.Add(new SectionHeader("Recent activity") { Dock = DockStyle.Fill }, 0, 5);
+        layout.Controls.Add(_logBox, 0, 6);
         Controls.Add(layout);
+        Controls.Add(new BrandBanner("Your interface settings, on every computer"));   // docks above the layout
+        Theme.SetPrimary(_syncNow);
 
         Theme.Apply(this);
         Theme.Changed += OnThemeChanged;
@@ -230,7 +234,7 @@ internal sealed class StatusForm : Form
 
     internal static string AboutText =>
         $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\n" +
-        $"Version {ProductInfo.Version}. {ProductInfo.Licence}.";
+        $"Version {ProductInfo.Version}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
 
     internal static void ShowAbout(IWin32Window? owner)
     {

@@ -50,7 +50,7 @@ internal static class Dialogs
     }
 
     internal static string AboutText =>
-        $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\nVersion {ProductInfo.Version}. {ProductInfo.Licence}.";
+        $"{ProductInfo.Tagline}\n\n{ProductInfo.NotAffiliated}\n\n{ProductInfo.TrademarkNotice}\n\nVersion {ProductInfo.Version}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
 
     public static Window About()
     {

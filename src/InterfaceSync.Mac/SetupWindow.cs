@@ -48,6 +48,7 @@ internal sealed class SetupWindow : Window
         "• When you open another computer, it copies in the newer settings before you play.\n" +
         "• Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs.";
     private bool _syncing;
+    private readonly TextBlock _bannerSubtitle;
 
     public SetupWindow(IMacHost host, IStartAtLogin? startAtLogin = null)
     {
@@ -55,17 +56,19 @@ internal sealed class SetupWindow : Window
         _host = host;
         Title = $"{ProductInfo.Name} setup";
         Icon = MacIcons.App;
-        Width = 620;
+        Width = 660;
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-        _start = Dialogs.Button("Start syncing", StartSyncing, isDefault: true);
-        _finish = Dialogs.Button("Finish", () => { Started = true; Close(); }, isDefault: true);
+        _start = MacBrand.Primary(Dialogs.Button("Start syncing", StartSyncing, isDefault: true));
+        _finish = MacBrand.Primary(Dialogs.Button("Finish", () => { Started = true; Close(); }, isDefault: true));
+        (var banner, _bannerSubtitle) = MacBrand.Banner($"Welcome! Let's set up {ProductInfo.Name} on this Mac.");
         _finish.IsEnabled = false;
 
-        _setupPage.Children.Add(Dialogs.Text($"Welcome to {ProductInfo.Name}", 17, FontWeight.SemiBold));
+        _setupPage.Children.Add(MacBrand.Section("How it works"));
         _setupPage.Children.Add(Dialogs.Text(HowItWorks, 12));
-        _setupPage.Children.Add(Dialogs.Text("It found these on this Mac. Check them, then start syncing.", 14, FontWeight.SemiBold));
+        _setupPage.Children.Add(MacBrand.Section("Found on this Mac"));
+        _setupPage.Children.Add(Dialogs.Text("Check these, then start syncing.", 12));
         _setupPage.Children.Add(Row("World of Warcraft:", _wowPath, Dialogs.Button("Change...", () => _ = ChooseWow())));
         _setupPage.Children.Add(Dialogs.Text("Sync these game versions:"));
         _setupPage.Children.Add(_versions);
@@ -96,7 +99,7 @@ internal sealed class SetupWindow : Window
         var root = new StackPanel();
         root.Children.Add(_setupPage);
         root.Children.Add(_progressPage);
-        Content = new Border { Padding = new Thickness(18), Child = root };
+        Content = new StackPanel { Children = { banner, new Border { Padding = new Thickness(20, 8, 20, 18), Child = root } } };
 
         _provider.SelectionChanged += (_, _) => { if (!_filling) ProviderChanged(); };
         Fill();
@@ -236,6 +239,7 @@ internal sealed class SetupWindow : Window
         _syncing = true;
         _setupPage.IsVisible = false;
         _progressPage.IsVisible = true;
+        _bannerSubtitle.Text = "Running the first sync";
         var workers = Service.Workers;
         var rows = workers.Select(w => Dialogs.Text($"{w.Version.FolderName}: waiting...")).ToList();
         foreach (var r in rows) _results.Children.Add(r);
@@ -268,6 +272,7 @@ internal sealed class SetupWindow : Window
     {
         _syncing = false;
         _bar.IsVisible = false;
+        _bannerSubtitle.Text = problems == 0 ? "All set" : "Almost there";
         _progressHeading.Text = versions == 0 ? "Setup complete. No game version is switched on."
             : problems == 0 ? "Setup complete." : "Setup complete, but something needs a look (shown in red).";
         _afterword.Text = $"{ProductInfo.Name} keeps running in the menu bar: its icon at the top right of the screen.\n\n" +
