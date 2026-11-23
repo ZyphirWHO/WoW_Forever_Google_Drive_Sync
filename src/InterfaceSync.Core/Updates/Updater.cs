@@ -50,6 +50,12 @@ public sealed class Updater
     public UpdateState State { get; private set; } = UpdateState.NotChecked;
     public ReleaseInfo? Available { get; private set; }
     public string? Problem { get; private set; }
+
+    /// <summary>The newest published release's version, or null when the project hasn't published one yet.</summary>
+    public string? LatestPublished { get; private set; }
+
+    /// <summary>A CI test build ("3.0.0-dev.44"), not a published release.</summary>
+    public bool IsTestBuild => _current.Contains("-dev", StringComparison.OrdinalIgnoreCase);
     public string CurrentVersion => _current;
 
     /// <summary>Raised (on a background thread) whenever State changes.</summary>
@@ -61,6 +67,11 @@ public sealed class Updater
         UpdateState.Checking => "Checking for updates…",
         UpdateState.Available => $"Version {Available!.Version} is available (you have {_current}).",
         UpdateState.Downloading => $"Downloading version {Available?.Version}…",
+        UpdateState.UpToDate when LatestPublished == null => IsTestBuild
+            ? $"You're on test build {_current}. No release has been published on GitHub yet, so there's nothing to update to; " +
+              "test builds are downloaded from the project's build page."
+            : $"No release has been published on GitHub yet (you have {_current}).",
+        UpdateState.UpToDate when IsTestBuild => $"You're on test build {_current}, which is newer than the latest release ({LatestPublished}).",
         UpdateState.UpToDate => $"You have the latest version ({_current}).",
         UpdateState.Failed => $"Couldn't check for updates: {Problem}",
         _ => _service.Settings.CheckForUpdates ? $"Version {_current}. Checks once a day." : $"Version {_current}. Automatic checks are off.",
@@ -82,6 +93,7 @@ public sealed class Updater
         {
             Set(UpdateState.Checking);
             var latest = await LatestAsync(cancel).ConfigureAwait(false);
+            LatestPublished = latest?.Version;
             _service.SavePreference(s => s.LastUpdateCheckUtc = _clock.UtcNow);
             if (latest != null && IsNewer(latest.Version, _current))
             {

@@ -86,11 +86,26 @@ public sealed class UpdaterTests : IDisposable
         var (updater, github, _) = Make();
         await updater.CheckAsync();                                  // 404: nothing published yet
         Assert.Equal(UpdateState.UpToDate, updater.State);
+        Assert.Contains("No release has been published", updater.Describe());   // not "you have the latest"
+        Assert.DoesNotContain("latest version", updater.Describe());
         github.Routes[Latest] = () => new HttpResponseMessage(HttpStatusCode.OK)
         { Content = new StringContent(ReleaseJson("v3.0.0", "InterfaceSync-Setup-3.0.0.exe", "https://github.com/x", null)) };
         await updater.CheckAsync();
         Assert.Equal(UpdateState.UpToDate, updater.State);
         Assert.Null(updater.Available);
+    }
+
+    [Fact]
+    public async Task A_test_build_says_so_instead_of_claiming_to_be_the_latest_version()
+    {
+        var (updater, github, _) = Make("3.0.0-dev.44");
+        await updater.CheckAsync();
+        Assert.Contains("test build 3.0.0-dev.44", updater.Describe());
+        Assert.Contains("No release has been published", updater.Describe());
+        github.Routes[Latest] = () => new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent(ReleaseJson("v2.9.0", "InterfaceSync-Setup-2.9.0.exe", "https://github.com/x", null)) };
+        await updater.CheckAsync();
+        Assert.Contains("newer than the latest release (2.9.0)", updater.Describe());
     }
 
     [Fact]
