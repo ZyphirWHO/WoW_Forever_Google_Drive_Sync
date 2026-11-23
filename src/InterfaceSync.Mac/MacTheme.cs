@@ -59,8 +59,37 @@ internal static class MacTheme
     /// <summary>Resources the brand controls bind to, so headings follow the theme.</summary>
     public static void AddResources(IResourceDictionary resources)
     {
-        resources.ThemeDictionaries[ThemeVariant.Dark] = new ResourceDictionary { ["InterfaceSyncAccent"] = new SolidColorBrush(C(P.Dark.Accent)) };
-        resources.ThemeDictionaries[ThemeVariant.Light] = new ResourceDictionary { ["InterfaceSyncAccent"] = new SolidColorBrush(C(P.Light.Accent)) };
+        static ResourceDictionary For(string accent, string surface, string border, string muted, string text, string raised, string hover,
+            string good, string info, string warning, string error) => new()
+        {
+            ["InterfaceSyncAccent"] = new SolidColorBrush(C(accent)),
+            ["InterfaceSyncSurface"] = new SolidColorBrush(C(surface)),
+            ["InterfaceSyncBorder"] = new SolidColorBrush(C(border)),
+            ["InterfaceSyncMuted"] = new SolidColorBrush(C(muted)),
+            ["InterfaceSyncText"] = new SolidColorBrush(C(text)),
+            ["InterfaceSyncRaised"] = new SolidColorBrush(C(raised)),
+            ["InterfaceSyncHover"] = new SolidColorBrush(C(hover)),
+            ["InterfaceSyncGood"] = new SolidColorBrush(C(good)),
+            ["InterfaceSyncInfo"] = new SolidColorBrush(C(info)),
+            ["InterfaceSyncWarning"] = new SolidColorBrush(C(warning)),
+            ["InterfaceSyncError"] = new SolidColorBrush(C(error)),
+            // ordinary buttons: raised surface with a hairline border (the gold primary sets its own)
+            ["ButtonBackground"] = new SolidColorBrush(C(raised)),
+            ["ButtonBackgroundPointerOver"] = new SolidColorBrush(C(hover)),
+            ["ButtonBackgroundPressed"] = new SolidColorBrush(C(border)),
+            ["ButtonBorderBrush"] = new SolidColorBrush(C(border)),
+            ["ButtonBorderBrushPointerOver"] = new SolidColorBrush(C(border)),
+            ["ButtonForeground"] = new SolidColorBrush(C(text)),
+            ["ButtonForegroundPointerOver"] = new SolidColorBrush(C(text)),
+            ["ButtonForegroundPressed"] = new SolidColorBrush(C(text)),
+        };
+        resources.ThemeDictionaries[ThemeVariant.Dark] = For(P.Dark.Accent, P.Dark.Surface, P.Dark.Border, P.Dark.Muted, P.Dark.Text, P.Dark.Raised, P.Dark.Hover,
+            "#8FC98A", "#8FB4E6", P.Dark.Warning, P.Dark.Error);
+        resources.ThemeDictionaries[ThemeVariant.Light] = For(P.Light.Accent, P.Light.Surface, P.Light.Border, P.Light.Muted, P.Light.Text, P.Light.Raised, P.Light.Hover,
+            "#2E6B2A", "#2B5C9E", P.Light.Warning, P.Light.Error);
+        // Rounder controls than Fluent's default.
+        resources["ControlCornerRadius"] = new CornerRadius(8);
+        resources["OverlayCornerRadius"] = new CornerRadius(10);
     }
 
     private static Color Mix(string a, string b, double t)

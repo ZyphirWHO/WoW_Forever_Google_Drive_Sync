@@ -15,40 +15,48 @@ using InterfaceSync.Core.Sync;
 namespace InterfaceSync.Mac;
 
 /// <summary>
-/// First run on a Mac: what was found (each with Change...), game versions to sync, the cloud app,
-/// then each version's first sync with its result and a Finish button. Same rules as the Windows window.
+/// First run on a Mac, as a short wizard like the Windows one: Welcome, Your setup, Your settings (only when the
+/// cloud already has settings), Finish, then each version's first sync with its result and a Finish button.
 /// </summary>
 internal sealed class SetupWindow : Window
 {
     private readonly IMacHost _host;
     private SyncService Service => _host.Service;
 
-    private readonly TextBlock _wowPath = Dialogs.Text("");
-    private readonly StackPanel _versions = new() { Margin = new Thickness(0, 0, 0, 8) };
-    private readonly ComboBox _provider = new() { MinWidth = 260, Margin = new Thickness(0, 0, 0, 6) };
-    private readonly TextBlock _cloudPath = Dialogs.Text("");
-    private readonly TextBlock _notes = Dialogs.Text("", 12);
+    private readonly TextBlock _wowPath = Ui.Text("", 12.5, brush: "InterfaceSyncMuted");
+    private readonly StackPanel _versions = new() { Spacing = 2 };
+    private readonly ComboBox _provider = new() { MinWidth = 260 };
+    private readonly TextBlock _cloudPath = Ui.Text("", 12.5, brush: "InterfaceSyncMuted");
+    private readonly TextBlock _notes = Ui.Text("", 12, brush: "InterfaceSyncWarning", bottom: 8);
     private readonly IStartAtLogin? _startup;
-    private readonly CheckBox _startAtLogin = new() { Content = new TextBlock { Text = $"Open {ProductInfo.Name} when I log in to this Mac (recommended)" }, Margin = new Thickness(0, 4, 0, 4) };
-    private readonly TextBlock _startAtLoginNote = Dialogs.Text("", 12);
-    private readonly Button _start;
-    private readonly StackPanel _setupPage = new();
-    private readonly StackPanel _progressPage = new() { IsVisible = false };
-    private readonly TextBlock _progressHeading = Dialogs.Text("Running the first sync...", 15, FontWeight.SemiBold);
-    private readonly StackPanel _results = new();
-    private readonly ProgressBar _bar = new() { IsIndeterminate = true, Margin = new Thickness(0, 8, 0, 8) };
-    private readonly TextBlock _afterword = Dialogs.Text("");
-    private readonly Button _finish;
-    private bool _filling;
-    private readonly StackPanel _choicesPanel = new() { Margin = new Thickness(0, 4, 0, 8) };
+    private readonly ToggleSwitch _startAtLogin = new() { OnContent = null, OffContent = null, MinWidth = 0 };
+    private readonly TextBlock _startAtLoginNote = Ui.Text("", 12, brush: "InterfaceSyncMuted");
+    private readonly ComboBox _appearance = new() { MinWidth = 170 };
+    private readonly TextBlock _summary = Ui.Text("", 13);
+    private readonly TextBlock _choicesIntro = Ui.Text("", 13, brush: "InterfaceSyncMuted", bottom: 12);
+    private readonly StackPanel _choicesPanel = new();
     private readonly List<(string version, RadioButton useCloud, RadioButton useMine)> _choicesMade = [];
+
+    private readonly StackPanel _welcomePage = new();
+    private readonly StackPanel _setupPage = new();
+    private readonly StackPanel _choicesPage = new();
+    private readonly StackPanel _finalPage = new();
+    private readonly StackPanel _progressPage = new() { IsVisible = false };
+    private readonly TextBlock _progressHeading = Ui.Text("Running the first sync...", 20, FontWeight.SemiBold, bottom: 10);
+    private readonly StackPanel _results = new() { Spacing = 4 };
+    private readonly ProgressBar _bar = new() { IsIndeterminate = true, Margin = new Thickness(0, 10, 0, 10) };
+    private readonly TextBlock _afterword = Ui.Text("", 13, brush: "InterfaceSyncMuted");
+
+    private readonly Border _stepsHost = new();
+    private readonly Button _back, _cancel, _next, _finish;
+    private int _pageIndex = -1;
+    private bool _canStart, _syncing, _syncStarted, _filling;
+    private readonly TextBlock _bannerSubtitle;
 
     internal static readonly string HowItWorks =
         "• When you quit the game, this Mac's interface settings (keybindings, macros, addon settings) are copied to your cloud folder.\n" +
         "• When you open another computer, it copies in the newer settings before you play.\n" +
         "• Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs.";
-    private bool _syncing;
-    private readonly TextBlock _bannerSubtitle;
 
     public SetupWindow(IMacHost host, IStartAtLogin? startAtLogin = null)
     {
@@ -56,70 +64,158 @@ internal sealed class SetupWindow : Window
         _host = host;
         Title = $"{ProductInfo.Name} setup";
         Icon = MacIcons.App;
-        Width = 660;
-        SizeToContent = SizeToContent.Height;
+        Width = 700;
+        Height = 760;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-        _start = MacBrand.Primary(Dialogs.Button("Start syncing", StartSyncing, isDefault: true));
-        _finish = MacBrand.Primary(Dialogs.Button("Finish", () => { Started = true; Close(); }, isDefault: true));
-        (var banner, _bannerSubtitle) = MacBrand.Banner($"Welcome! Let's set up {ProductInfo.Name} on this Mac.");
+        _back = Ui.Button("Back", () => ShowPage(_pageIndex - 1));
+        _cancel = Ui.Button("Cancel", Close, ButtonKind.Ghost);
+        _next = Ui.Button("Next", Next, ButtonKind.Primary);
+        _next.IsDefault = true;
+        _finish = Ui.Button("Finish", () => { Started = true; Close(); }, ButtonKind.Primary);
+        _finish.IsVisible = false;
         _finish.IsEnabled = false;
+        (var banner, _bannerSubtitle) = MacBrand.Banner($"Welcome! Let's set up {ProductInfo.Name} on this Mac.");
 
-        _setupPage.Children.Add(MacBrand.Section("How it works"));
-        _setupPage.Children.Add(Dialogs.Text(HowItWorks, 12));
-        _setupPage.Children.Add(MacBrand.Section("Found on this Mac"));
-        _setupPage.Children.Add(Dialogs.Text("Check these, then start syncing.", 12));
-        _setupPage.Children.Add(Row("World of Warcraft:", _wowPath, Dialogs.Button("Change...", () => _ = ChooseWow())));
-        _setupPage.Children.Add(Dialogs.Text("Sync these game versions:"));
-        _setupPage.Children.Add(_versions);
-        _setupPage.Children.Add(Dialogs.Text("Cloud folder:"));
-        _setupPage.Children.Add(_provider);
-        _setupPage.Children.Add(Row("", _cloudPath, Dialogs.Button("Change...", () => _ = ChooseCloud())));
-        _setupPage.Children.Add(_choicesPanel);
-        _setupPage.Children.Add(_notes);
-        if (_startup != null)
-        {
-            var why = _startup.CannotEnableReason;
-            _startAtLogin.IsChecked = why == null;
-            _startAtLogin.IsEnabled = why == null;
-            _startAtLoginNote.Text = why ?? "";
-            _startAtLoginNote.IsVisible = why != null;
-            _startAtLoginNote.Foreground = MacTheme.Muted;
-            _setupPage.Children.Add(_startAtLogin);
-            _setupPage.Children.Add(_startAtLoginNote);
-        }
-        _setupPage.Children.Add(Dialogs.Buttons(Dialogs.Button("Cancel", Close), _start));
+        BuildPages();
+        var pages = new StackPanel { Margin = new Thickness(28, 8, 28, 16) };
+        foreach (var page in AllPages) pages.Children.Add(page);
 
-        _progressPage.Children.Add(_progressHeading);
-        _progressPage.Children.Add(_results);
-        _progressPage.Children.Add(_bar);
-        _progressPage.Children.Add(_afterword);
-        _progressPage.Children.Add(Dialogs.Buttons(_finish));
+        var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { _cancel, _next, _finish } };
+        var footerGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Children = { _back, right } };
+        Grid.SetColumn(right, 1);
+        var footer = new Border { Padding = new Thickness(28, 12), BorderThickness = new Thickness(0, 1, 0, 0), Child = footerGrid };
+        Ui.Res(footer, Border.BorderBrushProperty, "InterfaceSyncBorder");
 
-        var root = new StackPanel();
-        root.Children.Add(_setupPage);
-        root.Children.Add(_progressPage);
-        Content = new StackPanel { Children = { banner, new Border { Padding = new Thickness(20, 8, 20, 18), Child = root } } };
+        var dock = new DockPanel();
+        DockPanel.SetDock(banner, Dock.Top);
+        DockPanel.SetDock(_stepsHost, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(banner);
+        dock.Children.Add(_stepsHost);
+        dock.Children.Add(footer);
+        dock.Children.Add(new ScrollViewer { Content = pages });
+        Content = dock;
 
         _provider.SelectionChanged += (_, _) => { if (!_filling) ProviderChanged(); };
         Fill();
+        ShowPage(0);
     }
 
     /// <summary>True once the player finished setup (Start syncing, then Finish).</summary>
     public bool Started { get; private set; }
 
-    private static Grid Row(string caption, Control value, Control button)
+    private StackPanel[] AllPages => [_welcomePage, _setupPage, _choicesPage, _finalPage, _progressPage];
+
+    private StackPanel[] Pages => _choicesMade.Count > 0
+        ? [_welcomePage, _setupPage, _choicesPage, _finalPage]
+        : [_welcomePage, _setupPage, _finalPage];
+
+    private string[] StepNames => _choicesMade.Count > 0
+        ? ["Welcome", "Your setup", "Your settings", "Finish"]
+        : ["Welcome", "Your setup", "Finish"];
+
+    private static TextBlock PageTitle(string text) => Ui.Text(text, 22, FontWeight.SemiBold, bottom: 2);
+    private static TextBlock Lead(string text) => Ui.Text(text, 13, brush: "InterfaceSyncMuted", bottom: 14);
+
+    private static Control Feature(string icon, string title, string text)
     {
-        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(0, 0, 0, 8) };
-        var label = Dialogs.Text(caption);
-        label.Margin = new Thickness(0, 0, 8, 0);
-        Grid.SetColumn(label, 0);
-        Grid.SetColumn(value, 1);
-        Grid.SetColumn(button, 2);
-        g.Children.Add(label);
-        g.Children.Add(value);
-        g.Children.Add(button);
-        return g;
+        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+        var i = Ui.Icon(icon, 24);
+        i.VerticalAlignment = VerticalAlignment.Top;
+        i.Margin = new Thickness(2, 2, 14, 0);
+        var body = new StackPanel { Spacing = 2, Children = { Ui.Text(title, 14, FontWeight.SemiBold), Ui.Text(text, 12.5, brush: "InterfaceSyncMuted") } };
+        Grid.SetColumn(body, 1);
+        g.Children.Add(i);
+        g.Children.Add(body);
+        return Ui.CardOf(g);
+    }
+
+    private void BuildPages()
+    {
+        _welcomePage.Children.Add(PageTitle($"Welcome to {ProductInfo.Name}"));
+        _welcomePage.Children.Add(Lead("Keep your keybindings, macros and addon settings the same on every computer you play on. Setup takes about a minute."));
+        _welcomePage.Children.Add(Feature(Ui.Cloud, "Saved when you quit",
+            "When you quit the game, this Mac's interface settings are copied to your own cloud folder (Google Drive, OneDrive or Dropbox)."));
+        _welcomePage.Children.Add(Feature(Ui.Sync, "Ready on every computer", "When you open another computer, it copies in the newer settings before you play."));
+        _welcomePage.Children.Add(Feature(Ui.Shield, "Safe by design",
+            "Quit the game on one computer before playing on another. Every change is backed up first, and nothing is synced while the game runs. " +
+            "Your game files and addons themselves are never touched."));
+
+        _setupPage.Children.Add(PageTitle("Check what was found"));
+        _setupPage.Children.Add(Lead($"{ProductInfo.Name} looked for World of Warcraft and your cloud folder on this Mac. If anything is wrong, change it here."));
+        _setupPage.Children.Add(Ui.Card(
+            Ui.Header(Ui.Game, "World of Warcraft", Ui.Button("Change...", () => _ = ChooseWow())),
+            _wowPath, Ui.Text("Game versions to sync", 13, FontWeight.SemiBold), _versions));
+        _setupPage.Children.Add(Ui.Card(
+            Ui.Header(Ui.Cloud, "Cloud folder", Ui.Button("Change...", () => _ = ChooseCloud())),
+            _provider, Ui.Text("Your settings are kept in", 13, FontWeight.SemiBold), _cloudPath));
+        _setupPage.Children.Add(_notes);
+
+        _choicesPage.Children.Add(PageTitle("Which settings should this Mac use?"));
+        _choicesPage.Children.Add(_choicesIntro);
+        _choicesPage.Children.Add(_choicesPanel);
+
+        _finalPage.Children.Add(PageTitle("Almost done"));
+        _finalPage.Children.Add(Lead("A couple of preferences, then the first sync runs."));
+        if (_startup != null)
+        {
+            var why = _startup.CannotEnableReason;
+            _startAtLogin.IsChecked = why == null;
+            _startAtLogin.IsEnabled = why == null;
+            _startAtLoginNote.Text = why ?? $"Open {ProductInfo.Name} when you log in (recommended), so your settings are always synced when you quit the game.";
+            _finalPage.Children.Add(Ui.Card(Ui.Header(Ui.Power, "Start automatically", _startAtLogin), _startAtLoginNote));
+        }
+        _appearance.ItemsSource = MacApp.ThemeChoices.Select(c => c.Label).ToList();
+        _appearance.SelectedIndex = Array.FindIndex(MacApp.ThemeChoices, c => c.Theme == MacTheme.Mode);
+        _appearance.SelectionChanged += (_, _) =>
+        {
+            if (_appearance.SelectedIndex < 0) return;
+            var chosen = MacApp.ThemeChoices[_appearance.SelectedIndex].Theme;
+            if (chosen != MacTheme.Mode) MacApp.ChooseTheme(_host, chosen);
+        };
+        _finalPage.Children.Add(Ui.Card(Ui.Header(Ui.Paint, "Appearance", _appearance)));
+        _finalPage.Children.Add(Ui.Card(Ui.Header(Ui.Check, "Ready to sync"), _summary));
+
+        _progressPage.Children.Add(_progressHeading);
+        _progressPage.Children.Add(Ui.CardOf(_results));
+        _progressPage.Children.Add(_bar);
+        _progressPage.Children.Add(_afterword);
+    }
+
+    private void ShowPage(int index)
+    {
+        if (_syncStarted) return;
+        _pageIndex = Math.Clamp(index, 0, Pages.Length - 1);
+        var current = Pages[_pageIndex];
+        foreach (var page in AllPages) page.IsVisible = page == current;
+        _stepsHost.Child = Ui.Steps(StepNames, _pageIndex);
+        if (current == _finalPage) UpdateSummary();
+        UpdateFooter();
+    }
+
+    private void UpdateFooter()
+    {
+        if (_syncStarted || _pageIndex < 0) return;
+        bool last = _pageIndex == Pages.Length - 1;
+        _back.IsVisible = _pageIndex > 0;
+        _next.Content = last ? "Start syncing" : "Next";
+        _next.IsEnabled = _pageIndex == 0 || _canStart;
+    }
+
+    private void Next()
+    {
+        if (_pageIndex == Pages.Length - 1) { if (_canStart) StartSyncing(); }
+        else ShowPage(_pageIndex + 1);
+    }
+
+    private void UpdateSummary()
+    {
+        var versions = _choices.Where(c => c.Box.IsChecked == true).Select(c => c.Version.FolderName).ToList();
+        var provider = Service.Drive?.Provider.DisplayName() ?? Service.EffectiveProvider().DisplayName();
+        _summary.Text = versions.Count == 0
+            ? "No game version is ticked. Go back and tick at least one."
+            : $"{string.Join(", ", versions)} will sync through {provider}. Click Start syncing to run the first sync now.";
     }
 
     private sealed record VersionChoice(GameVersion Version, CheckBox Box);
@@ -143,7 +239,7 @@ internal sealed class SetupWindow : Window
             _choices.Add(new VersionChoice(v, box));
             _versions.Children.Add(box);
         }
-        if (_choices.Count == 0) _versions.Children.Add(Dialogs.Text("No game version that has been played on this Mac was found.", 12));
+        if (_choices.Count == 0) _versions.Children.Add(Ui.Text("No game version that has been played on this Mac was found.", 12, brush: "InterfaceSyncMuted"));
 
         var provider = drive?.Provider ?? Service.EffectiveProvider();
         var all = Service.DetectAllProviders();
@@ -161,8 +257,10 @@ internal sealed class SetupWindow : Window
         if (drive is { Found: true })
             notes.Add($"{drive.Provider.DisplayName()} can keep files online-only. {drive.Provider.KeepOfflineHint(Core.Abstractions.HostOs.MacOS)}");
         _notes.Text = string.Join("\n\n", notes);
+        _notes.IsVisible = notes.Count > 0;
         FillChoices();
         UpdateStart();
+        if (_pageIndex >= 0) ShowPage(Math.Min(_pageIndex, Pages.Length - 1));
     }
 
     /// <summary>Per version whose cloud copy already has settings: download them, or upload this Mac's instead (newer preselected).</summary>
@@ -173,21 +271,23 @@ internal sealed class SetupWindow : Window
         var previews = Service.PreviewFirstSync().Where(p => p.NeedsChoice).ToList();
         _choicesPanel.IsVisible = previews.Count > 0;
         if (previews.Count == 0) return;
-        _choicesPanel.Children.Add(Dialogs.Text($"{previews[0].ProviderName} already has settings from another computer. For each game version, choose which to keep:", 13, FontWeight.SemiBold));
+        _choicesIntro.Text = $"{previews[0].ProviderName} already has settings from another computer. For each game version, pick which settings " +
+                             "this Mac should use. The newer copy is picked for you, and the other is backed up either way.";
         foreach (var p in previews)
         {
             var group = $"first-sync-{p.Version}";
             var useCloud = new RadioButton { GroupName = group, Content = new TextBlock { Text = p.CloudOptionText("Mac"), TextWrapping = TextWrapping.Wrap }, IsChecked = p.Suggested == FirstSyncChoice.UseCloud };
             var useMine = new RadioButton { GroupName = group, Content = new TextBlock { Text = p.LocalOptionText("Mac"), TextWrapping = TextWrapping.Wrap }, IsChecked = p.Suggested == FirstSyncChoice.UseThisComputer };
-            _choicesPanel.Children.Add(Dialogs.Text(p.Version, 12, FontWeight.SemiBold));
-            _choicesPanel.Children.Add(useCloud);
-            _choicesPanel.Children.Add(useMine);
+            _choicesPanel.Children.Add(Ui.Card(Ui.Text(p.Version, 14, FontWeight.SemiBold, bottom: 2), useCloud, useMine));
             _choicesMade.Add((p.Version, useCloud, useMine));
         }
     }
 
-    private void UpdateStart() =>
-        _start.IsEnabled = Service.Wow is { Found: true } && Service.Drive is { Found: true } && _choices.Any(c => c.Box.IsChecked == true);
+    private void UpdateStart()
+    {
+        _canStart = Service.Wow is { Found: true } && Service.Drive is { Found: true } && _choices.Any(c => c.Box.IsChecked == true);
+        UpdateFooter();
+    }
 
     private void ProviderChanged()
     {
@@ -237,11 +337,14 @@ internal sealed class SetupWindow : Window
         ApplyStartAtLogin();
 
         _syncing = true;
-        _setupPage.IsVisible = false;
-        _progressPage.IsVisible = true;
+        _syncStarted = true;
+        foreach (var page in AllPages) page.IsVisible = page == _progressPage;
+        _stepsHost.Child = Ui.Steps(StepNames, StepNames.Length);
+        _back.IsVisible = _next.IsVisible = _cancel.IsVisible = false;
+        _finish.IsVisible = true;
         _bannerSubtitle.Text = "Running the first sync";
         var workers = Service.Workers;
-        var rows = workers.Select(w => Dialogs.Text($"{w.Version.FolderName}: waiting...")).ToList();
+        var rows = workers.Select(w => Ui.Text($"{w.Version.FolderName}: waiting...", 13)).ToList();
         foreach (var r in rows) _results.Children.Add(r);
 
         _host.Run(() =>
@@ -274,7 +377,7 @@ internal sealed class SetupWindow : Window
         _bar.IsVisible = false;
         _bannerSubtitle.Text = problems == 0 ? "All set" : "Almost there";
         _progressHeading.Text = versions == 0 ? "Setup complete. No game version is switched on."
-            : problems == 0 ? "Setup complete." : "Setup complete, but something needs a look (shown in red).";
+            : problems == 0 ? "You're all set." : "Setup complete, but something needs a look (shown in red).";
         _afterword.Text = $"{ProductInfo.Name} keeps running in the menu bar: its icon at the top right of the screen.\n\n" +
                           "What to do now: just play. When you quit the game, your settings are copied to the cloud within a minute. " +
                           $"On your other computer, open {ProductInfo.Name} with the game closed and it copies them in. " +
@@ -287,12 +390,14 @@ internal sealed class SetupWindow : Window
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         if (_syncing) { e.Cancel = true; return; }        // never close mid-copy
-        if (_progressPage.IsVisible) Started = true;       // closing after the sync counts as Finish
+        if (_syncStarted) Started = true;                  // closing after the sync counts as Finish
         base.OnClosing(e);
     }
 
     // For the headless UI tests.
-    internal bool CanStart => _start.IsEnabled;
+    internal bool CanStart => _canStart;
+    internal string CurrentStep => _syncStarted ? "Syncing" : StepNames[_pageIndex];
+    internal void ClickNext() => Next();
     internal IReadOnlyList<string> ChoiceVersions => _choicesMade.Select(c => c.version).ToList();
     internal void ChooseThisComputer(string version) => _choicesMade.First(c => c.version == version).useMine.IsChecked = true;
     internal int VersionCount => _choices.Count;
@@ -315,7 +420,7 @@ internal sealed class SetupWindow : Window
 
     internal bool StartAtLoginChecked { get => _startAtLogin.IsChecked == true; set => _startAtLogin.IsChecked = value; }
 
-    internal void ClickStart() => StartSyncing();
+    internal void ClickStart() { if (_canStart) StartSyncing(); }
     internal bool IsFinished => _finish.IsEnabled;
     internal IReadOnlyList<string> Results => _results.Children.OfType<TextBlock>().Select(t => t.Text ?? "").ToList();
 }

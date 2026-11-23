@@ -170,6 +170,25 @@ public sealed class MacWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void Setup_is_a_wizard_that_walks_through_its_steps()
+    {
+        var (service, _) = MakeService(setupComplete: false);
+        var window = new SetupWindow(new Host(service));
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Welcome", window.CurrentStep);
+        window.ClickNext();
+        Assert.Equal("Your setup", window.CurrentStep);
+        window.ClickNext();
+        Assert.Equal("Finish", window.CurrentStep);               // empty cloud: no "Your settings" step
+        window.ClickNext();                                       // Start syncing
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.IsFinished);
+        Assert.Equal("Syncing", window.CurrentStep);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void Status_window_lists_each_version()
     {
         var (service, _) = MakeService(setupComplete: true);

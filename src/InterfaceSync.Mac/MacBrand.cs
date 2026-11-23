@@ -117,3 +117,176 @@ internal static class MacBrand
         return button;
     }
 }
+
+/// <summary>The modern building blocks: cards, vector icons, status pills, the step indicator and button kinds.</summary>
+internal static class Ui
+{
+    public static T Res<T>(T c, AvaloniaProperty property, string key) where T : Control
+    {
+        c.Bind(property, c.GetResourceObservable(key));
+        return c;
+    }
+
+    public static TextBlock Text(string text, double size = 13, FontWeight weight = FontWeight.Normal, string? brush = null, double bottom = 0)
+    {
+        var t = new TextBlock { Text = text, FontSize = size, FontWeight = weight, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, bottom) };
+        if (brush != null) Res(t, TextBlock.ForegroundProperty, brush);
+        return t;
+    }
+
+    public static Border Card(params Control[] children)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        foreach (var c in children) stack.Children.Add(c);
+        return CardOf(stack);
+    }
+
+    public static Border CardOf(Control child)
+    {
+        var b = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), Padding = new Thickness(16, 12), Margin = new Thickness(0, 0, 0, 12), Child = child };
+        Res(b, Border.BackgroundProperty, "InterfaceSyncSurface");
+        Res(b, Border.BorderBrushProperty, "InterfaceSyncBorder");
+        return b;
+    }
+
+    /// <summary>A card's heading: icon, title, and an optional control on the right.</summary>
+    public static Grid Header(string icon, string title, Control? right = null)
+    {
+        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(0, 0, 0, 2) };
+        var i = Icon(icon, 18);
+        i.Margin = new Thickness(0, 0, 10, 0);
+        var t = Text(title, 14, FontWeight.SemiBold);
+        t.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(t, 1);
+        g.Children.Add(i);
+        g.Children.Add(t);
+        if (right != null) { right.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(right, 2); g.Children.Add(right); }
+        return g;
+    }
+
+    // 24x24 line icons, drawn here (original).
+    public const string Cloud = "M7,19 A5,5 0 0 1 6.5,9.1 A7,7 0 0 1 19.6,9 A5,5 0 0 1 18,19 Z";
+    public const string Sync = "M4.5,12 A7.5,7.5 0 0 1 17.8,7.3 M18.5,3.5 V7.8 H14.2 M19.5,12 A7.5,7.5 0 0 1 6.2,16.7 M5.5,20.5 V16.2 H9.8";
+    public const string Shield = "M12,2.5 L19.5,5.5 V11 C19.5,15.8 16.3,19.6 12,21.5 C7.7,19.6 4.5,15.8 4.5,11 V5.5 Z";
+    public const string Game = "M7.5,7 H16.5 A4.5,4.5 0 0 1 16.5,16 H7.5 A4.5,4.5 0 0 1 7.5,7 Z M7,11.5 H10 M8.5,10 V13 M15,11 H15.1 M17,12.5 H17.1";
+    public const string Power = "M12,3 V11 M7.2,6.2 A8,8 0 1 0 16.8,6.2";
+    public const string Paint = "M12,3.5 A8.5,8.5 0 1 0 12,20.5 A8.5,8.5 0 1 0 12,3.5 Z M12,3.5 V20.5";
+    public const string Check = "M5,12.5 L10,17.5 L19,7";
+    public const string Warning = "M12,3.5 L21.5,20 H2.5 Z M12,9.5 V14 M12,16.8 V17";
+    public const string Clock = "M12,3.5 A8.5,8.5 0 1 1 11.99,3.5 M12,7.5 V12 L15,14";
+    public const string Pause = "M9,6 V18 M15,6 V18";
+    public const string Folder = "M3.5,6.5 H9.5 L11.5,8.5 H20.5 V18.5 H3.5 Z";
+    public const string Info = "M12,3.5 A8.5,8.5 0 1 1 11.99,3.5 M12,11 V16.5 M12,7.8 V8";
+
+    public static Avalonia.Controls.Shapes.Path Icon(string data, double size = 18, string brush = "InterfaceSyncAccent")
+    {
+        var p = new Avalonia.Controls.Shapes.Path
+        {
+            Data = Geometry.Parse(data), Width = size, Height = size, Stretch = Stretch.Uniform, StrokeThickness = 1.8,
+            StrokeLineCap = PenLineCap.Round, StrokeJoin = PenLineJoin.Round, VerticalAlignment = VerticalAlignment.Center,
+        };
+        Res(p, Avalonia.Controls.Shapes.Shape.StrokeProperty, brush);
+        return p;
+    }
+
+    /// <summary>A small rounded tag: coloured dot and text.</summary>
+    public static Border Pill(string text, string brush)
+    {
+        var dot = new Avalonia.Controls.Shapes.Ellipse { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center };
+        Res(dot, Avalonia.Controls.Shapes.Shape.FillProperty, brush);
+        var label = new TextBlock { Text = text, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 300 };
+        var b = new Border
+        {
+            CornerRadius = new CornerRadius(11), BorderThickness = new Thickness(1), Padding = new Thickness(9, 3, 11, 3),
+            Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { dot, label } },
+        };
+        Res(b, Border.BorderBrushProperty, brush);
+        b.Background = Brushes.Transparent;
+        return b;
+    }
+
+    public static string ToneBrush(StatusTone tone) => tone switch
+    {
+        StatusTone.Good => "InterfaceSyncGood",
+        StatusTone.Busy => "InterfaceSyncInfo",
+        StatusTone.Attention => "InterfaceSyncError",
+        StatusTone.Paused => "InterfaceSyncMuted",
+        _ => "InterfaceSyncWarning",
+    };
+
+    public static string ToneIcon(StatusTone tone) => tone switch
+    {
+        StatusTone.Good => Check,
+        StatusTone.Busy => Sync,
+        StatusTone.Attention => Warning,
+        StatusTone.Paused => Pause,
+        _ => Clock,
+    };
+
+    /// <summary>Numbered dots joined by lines; done and current in gold.</summary>
+    public static Control Steps(string[] steps, int current)
+    {
+        var g = new Grid { Margin = new Thickness(40, 14, 40, 6) };
+        for (int i = 0; i < steps.Length; i++) g.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        for (int i = 0; i < steps.Length; i++)
+        {
+            bool done = i < current, now = i == current;
+            var circle = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(11), BorderThickness = new Thickness(1.5), HorizontalAlignment = HorizontalAlignment.Center };
+            Res(circle, Border.BorderBrushProperty, done || now ? "InterfaceSyncAccent" : "InterfaceSyncBorder");
+            if (done || now) Res(circle, Border.BackgroundProperty, "InterfaceSyncAccent");
+            circle.Child = new TextBlock
+            {
+                Text = done ? "✓" : (i + 1).ToString(), FontSize = 11, FontWeight = now ? FontWeight.Bold : FontWeight.Normal,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                Foreground = done || now ? MacBrand.Brush(ThemePalette.Banner.OnGold) : null,
+            };
+            if (!(done || now)) Res((TextBlock)circle.Child, TextBlock.ForegroundProperty, "InterfaceSyncMuted");
+            var label = Text(steps[i], 11.5, now ? FontWeight.SemiBold : FontWeight.Normal, now ? "InterfaceSyncText" : "InterfaceSyncMuted");
+            label.TextAlignment = TextAlignment.Center;
+            label.Margin = new Thickness(0, 4, 0, 0);
+            var cell = new StackPanel { Children = { circle, label } };
+            if (i < steps.Length - 1)
+            {
+                // a line from this dot's centre to the next one's: the middle half of a two-column span
+                var line = new Border { Height = 2, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(14, 10, 14, 0) };
+                Res(line, Border.BackgroundProperty, done ? "InterfaceSyncAccent" : "InterfaceSyncBorder");
+                var span = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), Children = { line } };
+                Grid.SetColumn(line, 1);
+                Grid.SetColumnSpan(line, 2);
+                Grid.SetColumn(span, i);
+                Grid.SetColumnSpan(span, 2);
+                g.Children.Add(span);
+            }
+            Grid.SetColumn(cell, i);
+            g.Children.Add(cell);
+        }
+        return g;
+    }
+
+    /// <summary>A button's content: text, with an icon before it when given.</summary>
+    public static object ButtonContent(string label, string? icon, ButtonKind kind = ButtonKind.Secondary)
+    {
+        if (icon == null) return label;
+        var i = Icon(icon, 15, kind == ButtonKind.Ghost ? "InterfaceSyncAccent" : "InterfaceSyncText");
+        if (kind == ButtonKind.Primary) i.Stroke = MacBrand.Brush(ThemePalette.Banner.OnGold);
+        return new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7, Children = { i, new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center } } };
+    }
+
+    public static Button Button(string label, Action onClick, ButtonKind kind = ButtonKind.Secondary, string? icon = null)
+    {
+        var content = ButtonContent(label, icon, kind);
+        var b = new Button { Content = content, Padding = new Thickness(14, 7), MinHeight = 34, VerticalContentAlignment = VerticalAlignment.Center };
+        b.Click += (_, _) => onClick();
+        if (kind == ButtonKind.Primary) MacBrand.Primary(b);
+        if (kind == ButtonKind.Ghost)
+        {
+            b.Resources["ButtonBackground"] = Brushes.Transparent;
+            b.Resources["ButtonBorderBrush"] = Brushes.Transparent;
+            b.Resources["ButtonBorderBrushPointerOver"] = Brushes.Transparent;
+            Res(b, Avalonia.Controls.Button.ForegroundProperty, "InterfaceSyncAccent");
+        }
+        return b;
+    }
+}
+
+internal enum ButtonKind { Secondary, Primary, Ghost }

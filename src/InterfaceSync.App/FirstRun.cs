@@ -31,6 +31,7 @@ internal sealed class FirstRun : Form
     private readonly ModernButton _next = new("Next", ButtonKind.Primary);
     private readonly ModernButton _finish = new("Finish", ButtonKind.Primary) { Visible = false, Enabled = false };
     private int _page;
+    private bool _keepOffered;
     private bool _canStart;
 
     // pages
@@ -346,7 +347,8 @@ internal sealed class FirstRun : Form
                 : drive.MyDrivePath!
             : $"Not found: choose your {provider.DisplayName()} folder";
         _cloudPath.Text = drive is { Found: true } ? PathUtil.Join(drive.MyDrivePath!, CloudLayout.AppFolderName) : "-";
-        _keepOnDevice.Visible = _service.CanKeepOnDevice;
+        _keepOffered = _service.CanKeepOnDevice;   // not .Visible: that is false while its page is hidden
+        _keepOnDevice.Visible = _keepOffered;
         _keepOnDevice.Text = $"Always keep the {CloudLayout.AppFolderName} folder on this device (recommended)";
 
         _versions.Items.Clear();
@@ -459,7 +461,7 @@ internal sealed class FirstRun : Form
     internal IReadOnlyList<string> ProviderChoices => _provider.Items.Cast<object>().Select(o => o.ToString()!).ToList();
     internal void ChooseProvider(CloudProvider p) => _provider.SelectedIndex = Array.IndexOf(CloudProviders.All, p);
     internal string CloudFolderText => _drivePath.Text;
-    internal bool KeepOnDeviceOffered => _keepOnDevice.Visible;
+    internal bool KeepOnDeviceOffered => _keepOffered;
     internal bool KeepOnDeviceTicked => _keepOnDevice.Checked;
 
     private string? PickFolder(string description)
@@ -482,7 +484,7 @@ internal sealed class FirstRun : Form
         settings.SetupComplete = true;
         settings.CloudProvider ??= _service.EffectiveProvider();
         _service.SaveSettings(settings);
-        if (_keepOnDevice.Visible && _keepOnDevice.Checked) _service.KeepCloudFolderOnDevice();
+        if (_keepOffered && _keepOnDevice.Checked) _service.KeepCloudFolderOnDevice();
         ApplyStartAtLogin();
         ShowProgressAndSync();
     }

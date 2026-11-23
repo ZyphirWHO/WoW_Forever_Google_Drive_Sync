@@ -220,7 +220,7 @@ internal sealed class MacApp : Application, IMacHost
 
     private void ShowStatus()
     {
-        if (_status == null) _status = new StatusWindow(this);
+        if (_status == null) _status = new StatusWindow(this, _startup);
         _status.Show();
         _status.Activate();
         _status.Refresh();
