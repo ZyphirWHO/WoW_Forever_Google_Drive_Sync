@@ -8,6 +8,7 @@ using InterfaceSync.Core.Abstractions;
 using InterfaceSync.Core.Logging;
 using InterfaceSync.Core.Platform;
 using InterfaceSync.Core.Service;
+using InterfaceSync.Core.Settings;
 
 namespace InterfaceSync.Mac;
 
@@ -26,6 +27,7 @@ internal sealed class MacApp : Application, IMacHost
     private TrayIcon? _tray;
     private NativeMenuItem? _headline;
     private NativeMenuItem? _pause;
+    private readonly Dictionary<AppTheme, NativeMenuItem> _themeItems = [];
     private StatusWindow? _status;
     private Timer? _timer;
     private FileLog? _log;
@@ -34,7 +36,7 @@ internal sealed class MacApp : Application, IMacHost
     public bool StartAsRoot { get; set; }
     public SyncService Service { get; private set; } = null!;
 
-    public override void Initialize() => Styles.Add(new FluentTheme());
+    public override void Initialize() => Styles.Add(MacTheme.Create());
 
     public override void OnFrameworkInitializationCompleted()
     {
@@ -59,6 +61,8 @@ internal sealed class MacApp : Application, IMacHost
         _log = new FileLog(fs, clock, paths.Logs);
         if (moved != null) _log.Info(moved);
         Service = new SyncService(fs, new NoRegistry(), new MacProcessList(), env, clock, _log, paths, Environment.MachineName);
+        MacTheme.Changed += OnThemeChanged;
+        MacTheme.Apply(Service.Settings.Theme);
         Service.Changed += () => Dispatcher.UIThread.Post(RefreshTray);
         Service.NoticeRaised += notice => Dispatcher.UIThread.Post(() => ShowNotice(notice));
 
@@ -76,6 +80,14 @@ internal sealed class MacApp : Application, IMacHost
         sync.Click += (_, _) => Run(Service.SyncNow);
         _pause = new NativeMenuItem("Pause syncing") { ToggleType = NativeMenuItemToggleType.CheckBox };
         _pause.Click += (_, _) => Run(() => Service.SetPaused(!Service.Settings.Paused));
+        var appearance = new NativeMenuItem("Appearance") { Menu = new NativeMenu() };
+        foreach (var (theme, label) in ThemeChoices)
+        {
+            var item = new NativeMenuItem(label) { ToggleType = NativeMenuItemToggleType.Radio, IsChecked = theme == Service.Settings.Theme };
+            item.Click += (_, _) => ChooseTheme(theme);
+            _themeItems[theme] = item;
+            appearance.Menu.Items.Add(item);
+        }
         var about = new NativeMenuItem($"About {ProductInfo.Name}");
         about.Click += (_, _) => Dialogs.About().Show();
         var quit = new NativeMenuItem($"Quit {ProductInfo.Name}");
@@ -85,6 +97,7 @@ internal sealed class MacApp : Application, IMacHost
         menu.Items.Add(open);
         menu.Items.Add(sync);
         menu.Items.Add(_pause);
+        menu.Items.Add(appearance);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(about);
         menu.Items.Add(quit);
@@ -113,6 +126,24 @@ internal sealed class MacApp : Application, IMacHost
             return;
         }
         StartPolling();
+    }
+
+    internal static readonly (AppTheme Theme, string Label)[] ThemeChoices =
+        [(AppTheme.System, "Match macOS"), (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark")];
+
+    /// <summary>Applies at once and saves the choice for next time.</summary>
+    internal static void ChooseTheme(IMacHost host, AppTheme theme)
+    {
+        MacTheme.Apply(theme);
+        host.Run(() => host.Service.SetTheme(theme));
+    }
+
+    private void ChooseTheme(AppTheme theme) => ChooseTheme(this, theme);
+
+    private void OnThemeChanged()
+    {
+        foreach (var (t, item) in _themeItems) item.IsChecked = t == MacTheme.Mode;
+        _status?.Refresh();
     }
 
     private void StartPolling() => _timer ??= new Timer(_ => Poll(), null, TimeSpan.Zero, SyncService.PollInterval);

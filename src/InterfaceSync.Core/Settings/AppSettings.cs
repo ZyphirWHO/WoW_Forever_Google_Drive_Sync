@@ -15,6 +15,9 @@ public enum FirstSyncChoice
     UseThisComputer,
 }
 
+/// <summary>Window colours: follow the computer's light/dark setting, or always one of them.</summary>
+public enum AppTheme { System, Light, Dark }
+
 public enum AddonMode { Off /*, CopyWhenClosed — planned for 2.1 */ }
 
 /// <summary>%LOCALAPPDATA%\InterfaceSync\settings.json: user overrides and choices. Detected paths are re-detected every start.</summary>
@@ -41,6 +44,7 @@ public sealed class AppSettings
     public Dictionary<string, string> CloudFolderNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public bool Paused { get; set; }
+    public AppTheme Theme { get; set; } = AppTheme.System;
     public bool SetupComplete { get; set; }
     public AddonMode AddonMode { get; set; } = AddonMode.Off;
     public DateTime? LastUpdateCheckUtc { get; set; }

@@ -3,6 +3,8 @@ using InterfaceSync.Core.Abstractions;
 using InterfaceSync.Core.Logging;
 using InterfaceSync.Core.Platform;
 using InterfaceSync.Core.Service;
+using InterfaceSync.Core.Settings;
+using Microsoft.Win32;
 
 namespace InterfaceSync.App;
 
@@ -13,6 +15,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private readonly TrayIcons _icons = new();
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _pauseItem;
+    private readonly ContextMenuStrip _menu;
+    private readonly Dictionary<AppTheme, ToolStripMenuItem> _themeItems = [];
     private readonly FileLog _log;
     private readonly IRegistry _registry = new WindowsRegistry();
     private readonly EventWaitHandle _showEvent;
@@ -40,10 +44,18 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         Service.NoticeRaised += notice => OnUi(() => ShowNotice(notice));
 
         _pauseItem = new ToolStripMenuItem("Pause syncing", null, (_, _) => TogglePause());
-        var menu = new ContextMenuStrip();
+        var menu = _menu = new ContextMenuStrip();
+        var appearance = new ToolStripMenuItem("Appearance");
+        foreach (var (theme, label) in ThemeChoices)
+        {
+            var item = new ToolStripMenuItem(label, null, (_, _) => ChooseTheme(theme));
+            _themeItems[theme] = item;
+            appearance.DropDownItems.Add(item);
+        }
         menu.Items.Add(new ToolStripMenuItem("Open status", null, (_, _) => ShowStatus()) { Font = new Font(menu.Font, FontStyle.Bold) });
         menu.Items.Add(new ToolStripMenuItem("Sync now", null, (_, _) => RunInBackground(Service.SyncNow)));
         menu.Items.Add(_pauseItem);
+        menu.Items.Add(appearance);
         menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => StatusForm.ShowAbout(null)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
@@ -55,6 +67,9 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             ContextMenuStrip = menu,
             Visible = true,
         };
+        Theme.Changed += ApplyThemeToMenu;
+        Theme.Set(Service.Settings.Theme);
+        SystemEvents.UserPreferenceChanged += OnWindowsPreferenceChanged;
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowStatus(); };
         _tray.BalloonTipClicked += (_, _) => ShowStatus();
 
@@ -137,6 +152,31 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         _status.RefreshView();
     }
 
+    internal static readonly (AppTheme Theme, string Label)[] ThemeChoices =
+        [(AppTheme.System, "Match Windows"), (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark")];
+
+    /// <summary>Applies at once and saves the choice for next time.</summary>
+    internal static void ChooseTheme(SyncService service, AppTheme theme)
+    {
+        Theme.Set(theme);
+        Task.Run(() => service.SetTheme(theme));
+    }
+
+    private void ChooseTheme(AppTheme theme) => ChooseTheme(Service, theme);
+
+    private void ApplyThemeToMenu()
+    {
+        foreach (var (theme, item) in _themeItems) item.Checked = theme == Theme.Mode;
+        Theme.Apply(_menu);
+    }
+
+    /// <summary>Follows Windows' light/dark switch while "Match Windows" is chosen.</summary>
+    private void OnWindowsPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category == UserPreferenceCategory.General && Theme.Mode == AppTheme.System)
+            OnUi(() => { if (Theme.IsDark != Theme.WindowsAppsUseDark()) Theme.Refresh(); });
+    }
+
     private void TogglePause() => RunInBackground(() => Service.SetPaused(!Service.Settings.Paused));
 
     public void Run(Action work, Action? afterOnUi = null) => RunInBackground(work, afterOnUi);
@@ -191,6 +231,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         if (disposing)
         {
             _exiting = true;
+            SystemEvents.UserPreferenceChanged -= OnWindowsPreferenceChanged;
+            Theme.Changed -= ApplyThemeToMenu;
             _timer?.Dispose();
             _tray.Dispose();
             _icons.Dispose();

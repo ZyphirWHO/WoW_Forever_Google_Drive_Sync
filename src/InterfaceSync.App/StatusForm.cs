@@ -2,6 +2,7 @@ using InterfaceSync.Core;
 using System.Diagnostics;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Sync;
+using InterfaceSync.Core.Settings;
 
 namespace InterfaceSync.App;
 
@@ -25,6 +26,7 @@ internal sealed class StatusForm : Form
     private readonly Button _syncNow = new() { Text = "Sync now", AutoSize = true };
     private readonly Button _pause = new() { Text = "Pause syncing", AutoSize = true };
     private readonly Button _resolve = new() { Text = "Choose settings to keep...", AutoSize = true, Enabled = false };
+    private readonly ComboBox _appearance = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, Margin = new Padding(3, 4, 3, 3) };
     private bool _allowClose;
 
     public StatusForm(IStatusHost app)
@@ -64,8 +66,17 @@ internal sealed class StatusForm : Form
             MessageBox.Show(this, "Diagnostics copied. Paste them into your message or GitHub issue.", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
         };
 
+        foreach (var (_, label) in TrayApp.ThemeChoices) _appearance.Items.Add(label);
+        SelectAppearance();
+        _appearance.SelectedIndexChanged += (_, _) =>
+        {
+            var chosen = TrayApp.ThemeChoices[Math.Max(0, _appearance.SelectedIndex)].Theme;
+            if (chosen != Theme.Mode) TrayApp.ChooseTheme(Service, chosen);
+        };
+        var appearanceLabel = new Label { Text = "Appearance:", AutoSize = true, Margin = new Padding(12, 8, 0, 0) };
+
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
-        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag, about]);
+        buttons.Controls.AddRange([_syncNow, _pause, _resolve, changeCloud, openLog, openBackups, copyDiag, about, appearanceLabel, _appearance]);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -81,6 +92,36 @@ internal sealed class StatusForm : Form
         layout.Controls.Add(new Label { Text = "Recent activity", AutoSize = true, Margin = new Padding(0, 4, 0, 2) }, 0, 4);
         layout.Controls.Add(_logBox, 0, 5);
         Controls.Add(layout);
+
+        Theme.Apply(this);
+        Theme.Changed += OnThemeChanged;
+    }
+
+    private void OnThemeChanged()
+    {
+        if (IsDisposed) return;
+        SelectAppearance();
+        RefreshView();
+    }
+
+    private void SelectAppearance()
+    {
+        var index = Array.FindIndex(TrayApp.ThemeChoices, c => c.Theme == Theme.Mode);
+        if (_appearance.SelectedIndex != index) _appearance.SelectedIndex = index;
+    }
+
+    /// <summary>The selected appearance (for tests).</summary>
+    internal AppTheme SelectedAppearance => TrayApp.ThemeChoices[_appearance.SelectedIndex].Theme;
+
+    internal void ChooseAppearance(AppTheme theme) =>
+        _appearance.SelectedIndex = Array.FindIndex(TrayApp.ThemeChoices, c => c.Theme == theme);
+
+    internal ListView VersionList => _list;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) Theme.Changed -= OnThemeChanged;
+        base.Dispose(disposing);
     }
 
     public void AllowClose() => _allowClose = true;
@@ -102,7 +143,7 @@ internal sealed class StatusForm : Form
         if (IsDisposed || !Visible) return;
 
         _overall.Text = Service.StateText;
-        _overall.ForeColor = Service.State == OverallState.NeedsAttention ? Color.FromArgb(180, 30, 30) : SystemColors.ControlText;
+        Theme.SetRole(_overall, Service.State == OverallState.NeedsAttention ? TextRole.Error : TextRole.Normal);
         var wow = Service.Wow?.Found == true ? string.Join("; ", Service.Wow.Installs.Select(i => i.Root)) : "not found";
         var drive = Service.Drive?.MyDrivePath ?? "not found";
         _paths.Text = $"World of Warcraft: {wow}{Environment.NewLine}{Service.ProviderName}: {drive}{Environment.NewLine}Log: {Service.Paths.Logs}";
@@ -123,12 +164,12 @@ internal sealed class StatusForm : Form
                 Format(s.LastPullUtc),
                 notes,
             ]) { Tag = w };
-            if (w.Status is SyncStatus.NeedsAttention or SyncStatus.Error) item.ForeColor = Color.FromArgb(180, 30, 30);
+            if (w.Status is SyncStatus.NeedsAttention or SyncStatus.Error) item.ForeColor = Theme.Error;
             _list.Items.Add(item);
             if (w.Version.FolderName == selected) item.Selected = true;
         }
         foreach (var v in Service.Versions.Where(v => !Service.IsEnabled(v)))
-            _list.Items.Add(new ListViewItem([v.FolderName, v.CanEnable ? "Off" : "Not played on this PC yet", "", "", ""]) { ForeColor = SystemColors.GrayText });
+            _list.Items.Add(new ListViewItem([v.FolderName, v.CanEnable ? "Off" : "Not played on this PC yet", "", "", ""]) { ForeColor = Theme.Muted });
         _list.EndUpdate();
 
         _pause.Text = Service.Settings.Paused ? "Resume syncing" : "Pause syncing";

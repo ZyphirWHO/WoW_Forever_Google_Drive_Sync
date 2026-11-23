@@ -23,7 +23,7 @@ internal sealed class FirstRun : Form
     private bool _filling;
     private readonly CheckBox _keepOnDevice = new() { AutoSize = true, Margin = new Padding(0, 2, 0, 4), Visible = false };
     private readonly CheckedListBox _versions = new() { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false, Height = 110 };
-    private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0), ForeColor = Color.FromArgb(140, 70, 0) };
+    private readonly Label _notes = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
     private readonly Button _start = new() { Text = "Start syncing", AutoSize = true };
     private readonly FlowLayoutPanel _choicesPanel = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 8) };
     private readonly List<(string version, RadioButton useCloud, RadioButton useMine)> _choices = [];
@@ -106,6 +106,8 @@ internal sealed class FirstRun : Form
             + (e.NewValue == CheckState.Checked ? 1 : 0)
             - (e.CurrentValue == CheckState.Checked ? 1 : 0));
         Fill();
+        Theme.SetRole(_notes, TextRole.Warning);
+        Theme.Apply(this);
     }
 
     /// <summary>Shows the window; true when the player started syncing.</summary>
@@ -334,7 +336,7 @@ internal sealed class FirstRun : Form
                 {
                     var item = _results.Items[row];
                     item.SubItems[1].Text = text;
-                    if (problem) item.ForeColor = Color.FromArgb(180, 30, 30);
+                    if (problem) item.ForeColor = Theme.Error;
                 });
             }
             Post(() => FinishProgress(workers.Count, problems));

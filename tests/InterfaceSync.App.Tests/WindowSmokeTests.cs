@@ -248,6 +248,50 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
+    public void Appearance_switches_the_open_window_to_dark_and_back_and_is_saved()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true), ("_ptr_", false));
+        service.Poll();
+        OnSta(() =>
+        {
+            try
+            {
+                Theme.Set(AppTheme.Light);
+                using var form = new StatusForm(new TestHost(service));
+                form.Show();
+                Application.DoEvents();
+                Assert.False(form.VersionList.OwnerDraw);
+
+                form.ChooseAppearance(AppTheme.Dark);
+                Application.DoEvents();
+                Assert.True(Theme.IsDark);
+                Assert.Equal(Theme.Window, form.BackColor);
+                Assert.Equal(Theme.Surface, form.VersionList.BackColor);
+                Assert.True(form.VersionList.OwnerDraw);   // dark headers and selection
+                var button = AllControls(form).OfType<Button>().First();
+                Assert.Equal(FlatStyle.Flat, button.FlatStyle);
+                using (var bmp = new System.Drawing.Bitmap(form.Width, form.Height)) form.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (service.Settings.Theme != AppTheme.Dark && DateTime.UtcNow < deadline) Thread.Sleep(20);
+                Assert.Equal(AppTheme.Dark, service.Settings.Theme);
+
+                form.ChooseAppearance(AppTheme.Light);
+                Application.DoEvents();
+                Assert.False(Theme.IsDark);
+                Assert.False(form.VersionList.OwnerDraw);
+                Assert.Equal(FlatStyle.Standard, AllControls(form).OfType<Button>().First().FlatStyle);
+                form.AllowClose();
+                form.Close();
+            }
+            finally { Theme.Set(AppTheme.System); }
+        });
+    }
+
+    private static IEnumerable<Control> AllControls(Control c) =>
+        c.Controls.Cast<Control>().SelectMany(x => AllControls(x).Prepend(x));
+
+    [Fact]
     public void Every_tray_state_has_its_own_embedded_icon_and_the_app_icon_has_all_sizes()
     {
         OnSta(() =>

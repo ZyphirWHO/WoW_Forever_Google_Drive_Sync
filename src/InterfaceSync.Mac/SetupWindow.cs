@@ -118,7 +118,7 @@ internal sealed class SetupWindow : Window
         {
             if (!v.CanEnable) { notLaunched.Add(v.FolderName); continue; }
             bool on = !Service.Settings.EnabledVersions.TryGetValue(v.FolderName, out var saved) || saved;
-            var box = new CheckBox { Content = v.FolderName + (v.ClientVersion != null ? $"  ({v.ClientVersion})" : ""), IsChecked = on };
+            var box = new CheckBox { Content = new TextBlock { Text = v.FolderName + (v.ClientVersion != null ? $"  ({v.ClientVersion})" : "") }, IsChecked = on };   // TextBlock: a string would turn "_retail_" into a shortcut, showing "retail_"
             box.IsCheckedChanged += (_, _) => UpdateStart();
             _choices.Add(new VersionChoice(v, box));
             _versions.Children.Add(box);
@@ -239,7 +239,7 @@ internal sealed class SetupWindow : Window
                 Dispatcher.UIThread.Post(() =>
                 {
                     row.Text = $"{w.Version.FolderName}: {text}";
-                    if (problem) row.Foreground = Brushes.Firebrick;
+                    if (problem) row.Foreground = MacTheme.Error;
                 });
             }
             Dispatcher.UIThread.Post(() => FinishProgress(workers.Count, problems));

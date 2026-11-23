@@ -7,6 +7,7 @@ using InterfaceSync.Core;
 using InterfaceSync.Core.Detection;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Sync;
+using InterfaceSync.Core.Settings;
 
 namespace InterfaceSync.Mac;
 
@@ -22,6 +23,7 @@ internal sealed class StatusWindow : Window
     private readonly Button _pause;
     private readonly Button _resolve;
     private readonly ComboBox _moveTo = new() { MinWidth = 180 };
+    private readonly ComboBox _appearance = new() { MinWidth = 150 };
     private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, Height = 220, FontFamily = new FontFamily("Menlo, monospace"), FontSize = 11 };
     private bool _allowClose;
 
@@ -49,6 +51,16 @@ internal sealed class StatusWindow : Window
         move.Children.Add(new TextBlock { Text = "Move my settings to:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
         move.Children.Add(_moveTo);
         move.Children.Add(Dialogs.Button("Move", Move));
+        move.Children.Add(new TextBlock { Text = "Appearance:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(24, 0, 8, 0) });
+        move.Children.Add(_appearance);
+        _appearance.ItemsSource = MacApp.ThemeChoices.Select(c => c.Label).ToList();
+        _appearance.SelectedIndex = Array.FindIndex(MacApp.ThemeChoices, c => c.Theme == MacTheme.Mode);
+        _appearance.SelectionChanged += (_, _) =>
+        {
+            if (_appearance.SelectedIndex < 0) return;
+            var chosen = MacApp.ThemeChoices[_appearance.SelectedIndex].Theme;
+            if (chosen != MacTheme.Mode) MacApp.ChooseTheme(_host, chosen);
+        };
 
         var root = new StackPanel();
         root.Children.Add(_overall);
@@ -71,10 +83,15 @@ internal sealed class StatusWindow : Window
         base.OnClosing(e);
     }
 
+    /// <summary>For tests: pick an appearance as the player would.</summary>
+    internal void ChooseAppearance(AppTheme theme) => _appearance.SelectedIndex = Array.FindIndex(MacApp.ThemeChoices, c => c.Theme == theme);
+
     public void Refresh()
     {
+        var index = Array.FindIndex(MacApp.ThemeChoices, c => c.Theme == MacTheme.Mode);
+        if (_appearance.SelectedIndex != index) _appearance.SelectedIndex = index;
         _overall.Text = Service.StateText;
-        _overall.Foreground = Service.State == OverallState.NeedsAttention ? Brushes.Firebrick : null;
+        _overall.Foreground = Service.State == OverallState.NeedsAttention ? MacTheme.Error : null;
         var wow = Service.Wow?.Found == true ? string.Join("; ", Service.Wow.Installs.Select(i => i.Root)) : "not found";
         _paths.Text = $"World of Warcraft: {wow}\n{Service.ProviderName}: {Service.Drive?.MyDrivePath ?? "not found"}\nLog: {Service.Paths.Logs}";
 
@@ -85,11 +102,11 @@ internal sealed class StatusWindow : Window
             var note = s.Conflict != null ? " · choose which settings to keep" : s.PendingPush ? " · upload pending" : s.LastError is { } err ? $" · {err}" : "";
             var row = Dialogs.Text($"{w.Version.FolderName}: {(string.IsNullOrEmpty(w.StatusText) ? w.Status.ToString() : w.StatusText)}" +
                                    $"   (last upload {Dialogs.Format(s.LastPushUtc)}, last download {Dialogs.Format(s.LastPullUtc)}){note}", 12);
-            if (w.Status is SyncStatus.NeedsAttention or SyncStatus.Error) row.Foreground = Brushes.Firebrick;
+            if (w.Status is SyncStatus.NeedsAttention or SyncStatus.Error) row.Foreground = MacTheme.Error;
             _rows.Children.Add(row);
         }
         foreach (var v in Service.Versions.Where(v => !Service.IsEnabled(v)))
-            _rows.Children.Add(new TextBlock { Text = $"{v.FolderName}: {(v.CanEnable ? "off" : "not played on this Mac yet")}", Foreground = Brushes.Gray, FontSize = 12 });
+            _rows.Children.Add(new TextBlock { Text = $"{v.FolderName}: {(v.CanEnable ? "off" : "not played on this Mac yet")}", Foreground = MacTheme.Muted, FontSize = 12 });
 
         _pause.Content = Service.Settings.Paused ? "Resume syncing" : "Pause syncing";
         _resolve.IsEnabled = Service.Workers.Any(w => w.State.Conflict != null);

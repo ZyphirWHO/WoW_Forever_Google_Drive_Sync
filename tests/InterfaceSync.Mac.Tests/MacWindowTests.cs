@@ -18,7 +18,7 @@ namespace InterfaceSync.Mac.Tests;
 
 public sealed class TestApp : Application
 {
-    public override void Initialize() => Styles.Add(new FluentTheme());
+    public override void Initialize() => Styles.Add(MacTheme.Create());
 }
 
 public static class TestAppBuilder
@@ -112,6 +112,31 @@ public sealed class MacWindowTests : IDisposable
         Assert.True(window.IsFinished);
         Assert.Equal("mac settings", File.ReadAllText(Path.Combine(cloud, "macros-cache.txt")));    // newer one preselected: this Mac's
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Appearance_switches_to_the_soft_dark_palette_and_back_and_is_saved()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        var window = new StatusWindow(new Host(service));
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            window.ChooseAppearance(AppTheme.Dark);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(Avalonia.Styling.ThemeVariant.Dark, Application.Current!.ActualThemeVariant);
+            Assert.Equal(AppTheme.Dark, service.Settings.Theme);
+            // The window background is the warm charcoal, not Fluent's near-black.
+            Assert.True(Application.Current.TryGetResource("SystemRegionColor", Avalonia.Styling.ThemeVariant.Dark, out var region));
+            Assert.Equal(Avalonia.Media.Color.Parse(InterfaceSync.Core.ThemePalette.Dark.Window), region);
+
+            window.ChooseAppearance(AppTheme.Light);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(Avalonia.Styling.ThemeVariant.Light, Application.Current.ActualThemeVariant);
+            Assert.Equal(AppTheme.Light, service.Settings.Theme);
+        }
+        finally { MacTheme.Apply(AppTheme.System); window.AllowClose(); }
     }
 
     [AvaloniaFact]

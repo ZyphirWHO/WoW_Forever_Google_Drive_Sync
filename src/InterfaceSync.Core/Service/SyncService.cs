@@ -193,6 +193,18 @@ public sealed class SyncService
         UpdateOverall();
     }
 
+    /// <summary>Saves the window colour choice (the windows apply it themselves).</summary>
+    public void SetTheme(AppTheme theme)
+    {
+        lock (_gate)
+        {
+            if (Settings.Theme == theme) return;
+            Settings.Theme = theme;
+            _settingsStore.Save(Settings);
+        }
+        _log.Info($"Appearance set to {ThemePalette.Describe(theme)}.");
+    }
+
     public SyncOutcome Resolve(VersionSync worker, KeepChoice keep)
     {
         SyncOutcome outcome;
