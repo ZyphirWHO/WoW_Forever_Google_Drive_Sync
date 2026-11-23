@@ -136,8 +136,11 @@ jobs:
           $zipHash = (Get-FileHash "out/$id-$v.zip" -Algorithm SHA256).Hash
           Copy-Item "installer/$id-Setup-$v.exe" "out/"
           $setupHash = (Get-FileHash "out/$id-Setup-$v.exe" -Algorithm SHA256).Hash
+          # "What's new" for this version, written by hand in docs/releases/<version>.md (optional).
+          $whatsNew = if (Test-Path "docs/releases/$v.md") { Get-Content -Raw "docs/releases/$v.md" } else { "" }
           @"
-          $name $v
+          $whatsNew
+          ### Files
 
           Built by GitHub Actions from commit $env:GITHUB_SHA of this repository, with a build-provenance attestation.
 

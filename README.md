@@ -6,8 +6,8 @@ and addon settings) through your own Google Drive, OneDrive or Dropbox.
 Interface Sync is an independent, free, open-source tool. It is not affiliated with, endorsed by or
 sponsored by Blizzard Entertainment, Inc.
 
-> **Status: 3.0 in development.** Detection, the sync engine and the tray app are built and tested.
-> There is no release yet.
+> **Download** the latest version from the [Releases page](https://github.com/ZyphirWHO/WoW_Forever_Google_Drive_Sync/releases/latest):
+> `InterfaceSync-Setup-<version>.exe` for Windows, the `.dmg` for your Mac. Releases marked *Pre-release* are test builds.
 
 ## How it works
 
