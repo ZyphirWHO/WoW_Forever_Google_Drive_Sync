@@ -31,7 +31,8 @@ jobs:
           dotnet test tests/InterfaceSync.App.Tests --configuration Release --no-build --filter Screenshots_for_review
           Get-ChildItem screenshots/*.png | ForEach-Object {
             "SCREENSHOT-BEGIN $($_.Name)"
-            [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName))
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName))
+            for ($i = 0; $i -lt $b64.Length; $i += 4000) { $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i)) }   # long log lines are dropped
             "SCREENSHOT-END"
           }
 
