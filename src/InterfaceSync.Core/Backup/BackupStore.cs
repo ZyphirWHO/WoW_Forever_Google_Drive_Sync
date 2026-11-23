@@ -11,12 +11,12 @@ public sealed record BackupInfo(string VersionFolder, string Path, DateTime Crea
 }
 
 /// <summary>
-/// Timestamped copies under %LOCALAPPDATA%\InterfaceSync\Backups\&lt;version&gt;\, newest 10 kept per version.
+/// Timestamped copies under %LOCALAPPDATA%\InterfaceSync\Backups\&lt;version&gt;\, at most 5 kept per game version.
 /// Every overwrite or delete in a game folder is preceded by one of these.
 /// </summary>
 public sealed class BackupStore
 {
-    public const int KeepPerVersion = 10;
+    public const int KeepPerVersion = 5;
     private const string StampFormat = "yyyyMMdd-HHmmss-fff";
 
     private readonly IFileSystem _fs;
@@ -84,14 +84,36 @@ public sealed class BackupStore
     }
 
     /// <summary>
-    /// Keeps the newest 10 per version, counting cloud-copy backups ("cloud-...") and this PC's backups
-    /// separately, so frequent push backups never push out the backups of this PC's own settings.
+    /// Keeps at most 5 backups per game version, the newest ones, and deletes the rest. Three are always among the 5:
+    /// the newest backup of this PC's own settings, of the cloud copy, and of a "settings changed in two places"
+    /// copy you chose not to keep. So a run of uploads can never purge the last backup of this PC's settings, or the
+    /// copy you set aside in a conflict. Returns how many were deleted.
     /// </summary>
-    private void Prune(string versionFolder, string reason)
+    public int Prune(string versionFolder, string? reason = null)
     {
-        bool cloud = IsCloudReason(reason);
-        foreach (var old in List(versionFolder).Where(b => IsCloudReason(b.Reason) == cloud).Skip(KeepPerVersion))
-            _fs.DeleteDirectory(old.Path);
+        var all = List(versionFolder);
+        if (all.Count <= KeepPerVersion) return 0;
+        var mustKeep = new[]
+        {
+            all.FirstOrDefault(b => !IsCloudReason(b.Reason)),
+            all.FirstOrDefault(b => IsCloudReason(b.Reason)),
+            all.FirstOrDefault(b => b.Reason.Contains("conflict", StringComparison.OrdinalIgnoreCase)),
+        }.OfType<BackupInfo>().Distinct().ToList();
+        var keep = mustKeep.Concat(all.Where(b => !mustKeep.Contains(b))).Take(KeepPerVersion).ToHashSet();
+        int deleted = 0;
+        foreach (var old in all.Where(b => !keep.Contains(b)))
+        {
+            try { _fs.DeleteDirectory(old.Path); deleted++; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // tried again next time
+        }
+        return deleted;
+    }
+
+    /// <summary>Prunes every game version's backups (at start, so folders from earlier builds shrink to 5 too).</summary>
+    public int PruneAll()
+    {
+        if (!_fs.DirectoryExists(Root)) return 0;
+        return _fs.EnumerateDirectories(Root).Sum(dir => Prune(PathUtil.Name(dir)));
     }
 
     private static bool SameFiles(List<ManifestEntry> a, List<ManifestEntry> b)

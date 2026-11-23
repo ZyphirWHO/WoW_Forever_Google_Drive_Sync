@@ -94,7 +94,7 @@ public sealed class RetryNoiseTests : IDisposable
 
         for (int i = 0; i < 40; i++) Assert.Equal(SyncOutcome.Failed, laptop.PollAfter(TimeSpan.FromSeconds(15)));
 
-        var backup = Assert.Single(laptop.Backups.List("_forever_"));               // was: 40, pruned to the newest 10
+        var backup = Assert.Single(laptop.Backups.List("_forever_"));               // was: 40, pruned to the newest 5
         Assert.Equal("the laptop's own settings", File.ReadAllText(Path.Combine(backup.Path, "PLAYER#1", "macros-cache.txt")));
         Assert.Single(laptop.Log.Lines, l => l.Message.Contains("first sync on this PC"));
         Assert.Single(laptop.Log.Lines, l => l.Message.Contains("backed up this PC's settings"));

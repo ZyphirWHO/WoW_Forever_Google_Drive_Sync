@@ -526,7 +526,7 @@ public sealed class SyncEngineTests : IDisposable
     }
 
     [Fact]
-    public void Backups_are_pruned_to_the_newest_ten_per_version()
+    public void Backups_are_pruned_to_the_newest_five_per_version()
     {
         var a = _world.Pc("HomePC");
         for (int i = 0; i < 13; i++)
@@ -536,9 +536,67 @@ public sealed class SyncEngineTests : IDisposable
             a.Backups.Create("_retail_", a.AccountPath, $"test-{i}");
         }
         var list = a.Backups.List("_retail_");
-        Assert.Equal(10, list.Count);
-        Assert.Equal("test-12", list[0].Reason);
-        Assert.Equal("test-3", list[^1].Reason);
+        Assert.Equal(5, list.Count);
+        Assert.Equal(["test-12", "test-11", "test-10", "test-9", "test-8"], list.Select(b => b.Reason));
+    }
+
+    [Fact]
+    public void A_run_of_uploads_never_purges_the_last_backup_of_this_PCs_own_settings()
+    {
+        var a = _world.Pc("HomePC");
+        a.WriteSetting(@"PLAYER#1\macros-cache.txt", "mine");
+        a.Backups.Create("_retail_", a.AccountPath, "before-pull");
+        for (int i = 0; i < 8; i++)
+        {
+            _world.Clock.Advance(TimeSpan.FromMinutes(1));
+            a.WriteSetting(@"PLAYER#1\macros-cache.txt", $"cloud {i}");
+            a.Backups.Create("_retail_", a.AccountPath, $"cloud-before-push-{i}");
+        }
+        var list = a.Backups.List("_retail_");
+        Assert.Equal(5, list.Count);
+        Assert.Contains(list, b => b.Reason == "before-pull");                       // kept although it's the oldest
+        Assert.Equal(4, list.Count(b => InterfaceSync.Core.Backup.BackupStore.IsCloudReason(b.Reason)));
+        Assert.Equal("cloud-before-push-7", list[0].Reason);
+    }
+
+    [Fact]
+    public void The_copy_set_aside_in_a_conflict_survives_later_uploads()
+    {
+        var a = _world.Pc("HomePC");
+        a.WriteSetting(@"PLAYER#1\macros-cache.txt", "mine");
+        a.Backups.Create("_retail_", a.AccountPath, "before-pull");
+        _world.Clock.Advance(TimeSpan.FromMinutes(1));
+        a.WriteSetting(@"PLAYER#1\macros-cache.txt", "the other PC's");
+        a.Backups.Create("_retail_", a.AccountPath, "cloud-copy-conflict");
+        for (int i = 0; i < 8; i++)
+        {
+            _world.Clock.Advance(TimeSpan.FromMinutes(1));
+            a.WriteSetting(@"PLAYER#1\macros-cache.txt", $"upload {i}");
+            a.Backups.Create("_retail_", a.AccountPath, $"cloud-before-push-{i}");
+        }
+        var reasons = a.Backups.List("_retail_").Select(b => b.Reason).ToList();
+        Assert.Equal(5, reasons.Count);
+        Assert.Contains("before-pull", reasons);
+        Assert.Contains("cloud-copy-conflict", reasons);
+        Assert.Equal(["cloud-before-push-7", "cloud-before-push-6", "cloud-before-push-5"], reasons.Where(r => r.StartsWith("cloud-before-push")));
+    }
+
+    [Fact]
+    public void Backups_left_by_earlier_builds_are_trimmed_to_five_when_the_app_starts()
+    {
+        var a = _world.Pc("HomePC");
+        var root = a.Backups.Root;
+        for (int i = 0; i < 12; i++)
+        {
+            var dir = Path.Combine(root, "_retail_", $"20261101-1200{i:00}-000-before-pull", "PLAYER#1");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "macros-cache.txt"), $"old {i}");
+        }
+        Directory.CreateDirectory(Path.Combine(root, "_retail_", "notes-kept-by-the-player"));   // not a backup: left alone
+        Assert.Equal(7, a.Backups.PruneAll());
+        Assert.Equal(5, a.Backups.List("_retail_").Count);
+        Assert.True(Directory.Exists(Path.Combine(root, "_retail_", "notes-kept-by-the-player")));
+        Assert.Equal(0, a.Backups.PruneAll());
     }
 
     // ---------------------------------------------------------------- long run

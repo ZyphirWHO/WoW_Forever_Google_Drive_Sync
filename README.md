@@ -17,6 +17,8 @@ sponsored by Blizzard Entertainment, Inc.
   The cloud app carries it to your other PCs. Use the same cloud app on every PC.
 - On your other PC, Interface Sync copies the newer settings in, but only while that game version is closed.
 - Every overwrite, on your PC or in the cloud, is preceded by a backup in `%LOCALAPPDATA%\InterfaceSync\Backups`.
+  At most 5 are kept per game version; older ones are deleted. The newest backup of this PC's own settings, of the
+  cloud copy, and of a copy you set aside in a "changed in two places" choice are always among the 5.
 - `WTF\Config.wtf` (graphics and machine settings) is never synced. Addon files themselves are not synced:
   keep them the same with CurseForge (or your addon manager); their settings sync with `WTF\Account`.
 - It never asks for administrator rights and runs no scripts.

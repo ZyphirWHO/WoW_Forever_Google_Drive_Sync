@@ -109,6 +109,16 @@ public sealed class SyncService
     {
         _startedUtc = _clock.UtcNow;
         _log.Info($"{ProductInfo.Name} {ProductInfo.DisplayVersion} started on {_machineName} as {_env.UserName}.");
+        try
+        {
+            if (_backups.PruneAll() is > 0 and var removed)
+                _log.Info($"Backups: kept the newest {BackupStore.KeepPerVersion} per game version and removed {removed} older one{(removed == 1 ? "" : "s")}.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Warn($"Couldn't tidy old backups: {e.Message}"); }
+        // Installers downloaded by the updater have done their job once the app runs again.
+        var updates = PathUtil.Join(Paths.Data, "Updates");
+        try { if (_fs.DirectoryExists(updates)) _fs.DeleteDirectory(updates); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // still in use: next start
         lock (_gate) Redetect(reason: null);
         UpdateOverall();
     }
