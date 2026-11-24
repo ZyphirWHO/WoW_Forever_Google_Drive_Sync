@@ -22,7 +22,7 @@
     <!-- The NEXT release's version. CI test builds are "<this>-dev.<run>", so they count as newer than the last
          release (3.0.0) and older than this one. After publishing a release, raise it (3.0.1 -> 3.0.2 ...).
          The release itself takes its version from the tag or the "Run workflow" box, not from here. -->
-    <Version>3.0.1</Version>
+    <Version>3.1.0</Version>
     <Product>$(ProductDisplayName)</Product>
     <Description>$(ProductDisplayName)</Description>
     <Company>$(ProductDisplayName) contributors</Company>

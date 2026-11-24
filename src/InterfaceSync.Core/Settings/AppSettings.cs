@@ -15,6 +15,16 @@ public enum FirstSyncChoice
     UseThisComputer,
 }
 
+/// <summary>Which pop-up notifications to show (the tray icon always shows the state).</summary>
+public enum NotificationLevel
+{
+    /// <summary>Also when settings were downloaded from another computer.</summary>
+    All,
+    /// <summary>Only when something needs you: changed in two places, a sync problem, an update.</summary>
+    Important,
+    Off,
+}
+
 /// <summary>Window colours: follow the computer's light/dark setting, or always one of them.</summary>
 public enum AppTheme { System, Light, Dark }
 
@@ -45,6 +55,9 @@ public sealed class AppSettings
     /// <summary>Optional mapping game version folder → cloud folder name, for data written by v1.1.</summary>
     public Dictionary<string, string> CloudFolderNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>"Choose what syncs": per game version folder, the characters and addons this computer leaves out.</summary>
+    public Dictionary<string, Sync.SyncRules> SyncRules { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public bool Paused { get; set; }
 
     /// <summary>When a timed pause ends ("Pause for 1 hour"); null while paused means until resumed.</summary>
@@ -55,6 +68,14 @@ public sealed class AppSettings
     /// <summary>Look for a newer release on GitHub once a day.</summary>
     public bool CheckForUpdates { get; set; } = true;
     public bool SetupComplete { get; set; }
+
+    public NotificationLevel Notifications { get; set; } = NotificationLevel.Important;
+
+    /// <summary>The version whose "What's new" was last shown (e.g. "3.1.0").</summary>
+    public string? LastSeenVersion { get; set; }
+
+    /// <summary>Interface language ("en", "de", "fr", "es", "pt"); null = the computer's language.</summary>
+    public string? Language { get; set; }
     public AddonMode AddonMode { get; set; } = AddonMode.Off;
     public DateTime? LastUpdateCheckUtc { get; set; }
 
@@ -98,6 +119,7 @@ public sealed class SettingsStore
             s.EnabledVersions = new(s.EnabledVersions, StringComparer.OrdinalIgnoreCase);
             s.CloudFolderNames = new(s.CloudFolderNames, StringComparer.OrdinalIgnoreCase);
             s.FirstSyncChoices = new(s.FirstSyncChoices ?? [], StringComparer.OrdinalIgnoreCase);
+            s.SyncRules = new(s.SyncRules ?? [], StringComparer.OrdinalIgnoreCase);
             if (s.SchemaVersion < 2)
             {
                 // 3.0 starts in dark mode; earlier builds defaulted to "match the computer".

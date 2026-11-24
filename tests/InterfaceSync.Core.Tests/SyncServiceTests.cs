@@ -381,4 +381,31 @@ public sealed class SyncServiceTests : IDisposable
         Assert.True(me.IsThisComputer);
         Assert.Equal(2, me.Versions.Count);
     }
+
+    [Fact]
+    public void Whats_new_shows_once_after_an_update_but_not_on_a_new_install()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var fresh = Service(s => s.SetupComplete = false);
+        Assert.Null(fresh.TakeWhatsNew());                       // new install: recorded, not shown
+
+        var upgraded = Service();                                // set up by an earlier version, never saw these notes
+        Assert.NotNull(upgraded.TakeWhatsNew());
+        Assert.Null(upgraded.TakeWhatsNew());                    // only once
+        Assert.Equal(ReleaseNotes.BaseVersion(ProductInfo.DisplayVersion), upgraded.Settings.LastSeenVersion);
+    }
+
+    [Fact]
+    public void Report_a_problem_hides_paths_and_names()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var s = Service();
+        s.Start();
+        s.Poll();
+        var text = s.RedactedDiagnostics();
+        Assert.DoesNotContain(_root, text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HomePC", text);
+        Assert.Contains("<this computer>", text);
+        Assert.Contains("<World of Warcraft folder>", text);
+    }
 }

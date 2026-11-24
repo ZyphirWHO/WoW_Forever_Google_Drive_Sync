@@ -5,6 +5,10 @@
     <AssemblyTitle>$(ProductDisplayName) core</AssemblyTitle>
   </PropertyGroup>
   <ItemGroup>
+    <!-- "What's new" in the app: the release notes of each version. -->
+    <EmbeddedResource Include="..\..\docs\release-notes\*.md" LogicalName="release-notes/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="InterfaceSync.Core.Tests" />
   </ItemGroup>
 </Project>

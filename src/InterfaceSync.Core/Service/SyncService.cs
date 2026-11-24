@@ -28,7 +28,7 @@ public sealed class AppPaths
 /// <summary>The tray icon's colour.</summary>
 public enum OverallState { InSync, Syncing, Waiting, NeedsAttention, Paused }
 
-public enum NoticeKind { Conflict, SyncFailed, DriveNotFound, WowNotFound, LogFailed }
+public enum NoticeKind { Conflict, SyncFailed, DriveNotFound, WowNotFound, LogFailed, Downloaded }
 
 /// <summary>Something the player needs to act on (shown as a Windows notification).</summary>
 public sealed record Notice(NoticeKind Kind, string Title, string Message);
@@ -602,16 +602,33 @@ public sealed class SyncService
                 var cloud = new CloudLayout(myDrive, folderName, Drive.Provider);
                 var worker = new VersionSync(version, cloud, _fs, _clock, _backups, _states, _log, _machineName,
                     () => Watcher.IsRunning(version), _timing) { Paused = Settings.Paused };
-                worker.Activity += Activity.Add;
+                worker.Activity += OnActivity;
                 worker.GameStarted += OnGameStarted;
                 workers.Add(worker);
             }
         }
         _workers = workers;
+        foreach (var w in workers) w.Rules = RulesFor(w.Version.FolderName);
         foreach (var w in workers)
             w.NoteClientVersion(Versions.FirstOrDefault(v => PathUtil.SamePath(v.FolderPath, w.Version.FolderPath))?.ClientVersion);
         ApplyFirstSyncChoices();
     }
+
+    private void OnActivity(ActivityEntry entry)
+    {
+        Activity.Add(entry);
+        if (entry.Kind == ActivityKind.Downloaded)
+            Raise(new Notice(NoticeKind.Downloaded, $"{entry.Version.Trim('_')}: settings downloaded",
+                entry.Headline + "."));
+    }
+
+    /// <summary>Whether a notice is shown as a pop-up at the player's notification setting.</summary>
+    public static bool ShouldShow(NoticeKind kind, NotificationLevel level) => level switch
+    {
+        NotificationLevel.Off => false,
+        NotificationLevel.Important => kind != NoticeKind.Downloaded,
+        _ => true,
+    };
 
     /// <summary>The game just started: read Battle.net's version again, so an update is noticed before it runs.</summary>
     private void OnGameStarted(VersionSync worker)
@@ -624,6 +641,34 @@ public sealed class SyncService
             worker.NoteClientVersion(fresh.FirstOrDefault(v => PathUtil.SamePath(v.FolderPath, worker.Version.FolderPath))?.ClientVersion);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    // ------------------------------------------------------------------ choose what syncs
+
+    public SyncRules RulesFor(string versionFolder) =>
+        Settings.SyncRules.TryGetValue(versionFolder, out var r) && r != null ? r : SyncRules.None;
+
+    /// <summary>Saves what this computer leaves out for a game version; the next sync applies it.</summary>
+    public void SetRules(VersionSync worker, SyncRules rules)
+    {
+        lock (_gate)
+        {
+            if (rules.IsEmpty) Settings.SyncRules.Remove(worker.Version.FolderName);
+            else Settings.SyncRules[worker.Version.FolderName] = rules.Copy();
+            TrySaveSettings();
+            worker.Rules = RulesFor(worker.Version.FolderName);
+        }
+        _log.Info($"{worker.Version.FolderName}: {rules.Describe() ?? "everything syncs on this computer"}" +
+                  (rules.IsEmpty ? "." : $" (characters: {string.Join(", ", rules.Characters.DefaultIfEmpty("none"))}; addons: {string.Join(", ", rules.Addons.DefaultIfEmpty("none"))})."));
+        UpdateOverall();
+    }
+
+    /// <summary>The characters and addons a game version has, on this computer and in the cloud.</summary>
+    public SyncChoices ChoicesFor(VersionSync worker)
+    {
+        var paths = FolderScanner.Scan(_fs, worker.Version.AccountPath).Manifest.Entries.Select(e => e.RelativePath)
+            .Concat(FolderScanner.Scan(_fs, worker.Cloud.Account).Manifest.Entries.Select(e => e.RelativePath));
+        return SyncChoices.From(paths);
     }
 
     // ------------------------------------------------------------------ snapshots and computers
@@ -747,6 +792,42 @@ public sealed class SyncService
 
     /// <summary>The app's log, for the windows' own messages (start at login and the like).</summary>
     public ILog Log => _log;
+
+    /// <summary>
+    /// The diagnostics with personal details replaced (home folder, computer and account names, full folder paths),
+    /// for "Report a problem": the player still reviews them on GitHub before anything is sent.
+    /// </summary>
+    public string RedactedDiagnostics()
+    {
+        var paths = new List<(string, string)>
+        {
+            (Paths.Data, $"%LOCALAPPDATA%\\{ProductInfo.Id}"),
+            (_env.LocalAppData, "%LOCALAPPDATA%"),
+            (_env.UserProfile, "~"),
+        };
+        if (Drive?.MyDrivePath is { } drive) paths.Add((drive, $"<{ProviderName} folder>"));
+        foreach (var install in Wow?.Installs ?? []) paths.Add((install.Root, "<World of Warcraft folder>"));
+        var names = new List<(string, string)> { (_machineName, "<this computer>"), (_env.UserName, "<user>") };
+        return Feedback.Redact(Diagnostics(), paths, names);
+    }
+
+    /// <summary>
+    /// The release notes to show once after an update ("What's new"), or null. A new install records its version
+    /// without showing anything; later versions show their notes the first time they run.
+    /// </summary>
+    public string? TakeWhatsNew()
+    {
+        var current = ReleaseNotes.BaseVersion(ProductInfo.DisplayVersion);
+        string? seen;
+        lock (_gate)
+        {
+            seen = Settings.LastSeenVersion;
+            if (seen == current) return null;
+            Settings.LastSeenVersion = current;
+            TrySaveSettings();
+        }
+        return seen == null && !Settings.SetupComplete ? null : ReleaseNotes.For(current);
+    }
 
     /// <summary>Paths, versions and the last 200 log lines, for "Copy diagnostics".</summary>
     public string Diagnostics()

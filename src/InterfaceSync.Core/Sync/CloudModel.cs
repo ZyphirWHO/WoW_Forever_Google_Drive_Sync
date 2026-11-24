@@ -183,6 +183,9 @@ public sealed class VersionState
 
     /// <summary>The game's version when last seen (Battle.net's product.db), to notice a game update.</summary>
     public string? LastClientVersion { get; set; }
+
+    /// <summary>The "choose what syncs" rules the last sync used (null: everything synced).</summary>
+    public SyncRules? AppliedRules { get; set; }
 }
 
 public sealed class StateStore

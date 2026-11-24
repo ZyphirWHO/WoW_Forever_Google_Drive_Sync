@@ -6,6 +6,7 @@ Builds the Interface Sync icons from assets/icon/app.svg.
     app.ico            sizes 16, 20, 24, 32, 40, 48, 64, 256 (exe icon, Start menu, taskbar)
     crest.png          256 px (the emblem in the window banner)
     tray-<state>.ico   sizes 16, 20, 24, 32, 40, 48 (notification area, 100-300% scaling)
+    tray-syncing-N.ico the three frames of the syncing animation
   macOS (src/InterfaceSync.Mac/Icons, packaging/macos):
     tray-<state>.png   44 px (menu bar, drawn at 22 pt on Retina screens)
     app.png            256 px (window icon)
@@ -56,6 +57,14 @@ BADGES = {
 }
 
 
+# Animation while syncing: the three dots light up in turn (tray-syncing-1..3.ico, Windows only).
+def syncing_frame(lit: int) -> str:
+    dots = "".join(
+        f'<circle cx="{x}" cy="47" r="{3.1 if i == lit else 2.3}" fill="#FFFFFF" fill-opacity="{1 if i == lit else 0.55}"/>'
+        for i, x in enumerate((40.5, 47, 53.5)))
+    return RING + '<circle cx="47" cy="47" r="13" fill="#1A73E8"/>' + dots
+
+
 def render(svg: str, size: int) -> bytes:
     png = cairosvg.svg2png(bytestring=svg.encode("utf-8"), output_width=size, output_height=size)
     # Normalise through Pillow so every entry is 32-bit RGBA PNG.
@@ -84,6 +93,8 @@ def main() -> None:
     (OUT / "crest.png").write_bytes(render(MASTER, 256))   # the banner emblem
     for state, badge in BADGES.items():
         write_ico(OUT / f"tray-{state}.ico", MASTER.replace("<!-- BADGE -->", badge), TRAY_SIZES)
+    for frame in range(3):
+        write_ico(OUT / f"tray-syncing-{frame + 1}.ico", MASTER.replace("<!-- BADGE -->", syncing_frame(frame)), TRAY_SIZES)
     # macOS
     MAC_OUT.mkdir(parents=True, exist_ok=True)
     MAC_PACKAGE.mkdir(parents=True, exist_ok=True)

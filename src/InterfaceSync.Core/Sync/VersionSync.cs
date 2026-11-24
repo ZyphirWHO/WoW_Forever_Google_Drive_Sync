@@ -98,6 +98,15 @@ public sealed class VersionSync
     public string StatusText { get; private set; } = "";
     public bool Paused { get; set; }
 
+    /// <summary>"Choose what syncs": what this computer leaves out (set by the service from the settings).</summary>
+    public SyncRules Rules { get; set; } = SyncRules.None;
+
+    /// <summary>The rules this sync runs with (see <see cref="ChooseRules"/>).</summary>
+    private SyncRules _active = SyncRules.None;
+
+    /// <summary>This computer's settings, without what it leaves out.</summary>
+    private FolderScan ScanLocal() => _active.Keep(FolderScanner.Scan(_fs, LocalAccount));
+
     /// <summary>Raised after each upload, download, restore or conflict, for the activity timeline.</summary>
     public event Action<ActivityEntry>? Activity;
 
@@ -119,7 +128,8 @@ public sealed class VersionSync
         lock (_gate)
         {
             var cloud = ReadCloud();
-            var local = FolderScanner.Scan(_fs, LocalAccount).Manifest;
+            _active = Rules;
+            var local = ScanLocal().Manifest;
             bool cloudHasData = cloud.Readiness is CloudReadiness.Ready or CloudReadiness.Incomplete or CloudReadiness.OnlineOnly or CloudReadiness.Writing;
             return new FirstSyncPreview(
                 Version.FolderName, Cloud.ProviderName, State.Joined, cloudHasData,
@@ -219,9 +229,10 @@ public sealed class VersionSync
         CheckCloudFolderChange();
         if (!State.Joined) return FirstJoin();
 
-        var local = FolderScanner.Scan(_fs, LocalAccount);
-        bool localChanged = !local.Manifest.IsEquivalentTo(State.LocalManifest);
         var cloud = ReadCloud();
+        if (ChooseRules(cloud) is { } included) return included;
+        var local = ScanLocal();
+        bool localChanged = !local.Manifest.IsEquivalentTo(_active.Keep(State.LocalManifest));
 
         if (State.PendingPush || localChanged)
         {
@@ -241,7 +252,15 @@ public sealed class VersionSync
 
         if (cloud.Readiness == CloudReadiness.Ready && cloud.CommitId != State.LastCommitId)
         {
-            var cloudNewest = cloud.Files!.NewestUtc;
+            // The cloud moved on only in what this computer leaves out (or to the same settings): nothing to download.
+            if (_active.Keep(cloud.Files).IsEquivalentTo(local.Manifest))
+            {
+                State.LastCommitId = cloud.CommitId;
+                Save();
+                SetIdle();
+                return SyncOutcome.NothingToDo;
+            }
+            var cloudNewest = _active.Keep(cloud.Files).NewestUtc;
             var localNewest = local.Manifest.NewestUtc;
             if (localNewest == null || (cloudNewest != null && cloudNewest.Value >= localNewest.Value + _timing.PullMargin))
                 return Pull(cloud, force: false, reason: "before-pull");
@@ -260,6 +279,44 @@ public sealed class VersionSync
         SetIdle();
         if (manual) _log.Info($"{Name}: already in sync.");
         return SyncOutcome.NothingToDo;
+    }
+
+    /// <summary>
+    /// Picks the "choose what syncs" rules for this sync. Leaving more out applies at once (those files are simply
+    /// ignored). Switching something back on waits until this computer is in step with the cloud, then downloads the
+    /// cloud's copy of just those files (this computer's are backed up first), so an old local copy is never uploaded
+    /// over the one the other computers share. Returns the outcome when it did that download, else null.
+    /// </summary>
+    private SyncOutcome? ChooseRules(CloudSnapshot cloud)
+    {
+        var applied = State.AppliedRules ?? SyncRules.None;
+        if (applied.SameAs(Rules) || !applied.IncludesLessThan(Rules) || !State.Joined
+            || cloud.Readiness is CloudReadiness.Missing or CloudReadiness.Empty)
+        {
+            _active = Rules;
+            if (!applied.SameAs(Rules))
+            {
+                State.AppliedRules = Rules.IsEmpty ? null : Rules.Copy();
+                Save();
+            }
+            return null;
+        }
+
+        if (cloud.Readiness == CloudReadiness.Ready && cloud.CommitId == State.LastCommitId)
+        {
+            _active = Rules;
+            var outcome = Pull(cloud, force: true, reason: "before-sync-again", only: p => applied.Excludes(p) && !Rules.Excludes(p));
+            if (outcome == SyncOutcome.Pulled)
+            {
+                State.AppliedRules = Rules.IsEmpty ? null : Rules.Copy();
+                Save();
+            }
+            return outcome;
+        }
+
+        // Not in step yet: sync as before (leaving out both old and new choices) and switch back on next time.
+        _active = applied.Union(Rules);
+        return null;
     }
 
     /// <summary>
@@ -298,6 +355,8 @@ public sealed class VersionSync
     private SyncOutcome FirstJoin()
     {
         var cloud = ReadCloud();
+        _active = Rules;
+        State.AppliedRules = Rules.IsEmpty ? null : Rules.Copy();
         switch (cloud.Readiness)
         {
             case CloudReadiness.Ready when FirstSyncChoice == Settings.FirstSyncChoice.UseCloud:
@@ -307,16 +366,16 @@ public sealed class VersionSync
             case CloudReadiness.Ready when FirstSyncChoice == Settings.FirstSyncChoice.UseThisComputer:
             {
                 LogOnce($"{Name}: first sync on this computer. As chosen in setup, this computer's settings replace the ones in {Cloud.ProviderName} (backed up first).");
-                return Push(FolderScanner.Scan(_fs, LocalAccount), cloud, force: true);
+                return Push(ScanLocal(), cloud, force: true);
             }
 
             case CloudReadiness.Ready:
             {
                 // A copy with newer settings than the cloud's may mean this PC's cloud folder is out of date, or that
                 // this PC was played last: never decide silently. Ask, with both dates and PC names.
-                var mine = FolderScanner.Scan(_fs, LocalAccount);
+                var mine = ScanLocal();
                 var localNewest = mine.Manifest.NewestUtc;
-                var cloudNewest = cloud.Files!.NewestUtc;
+                var cloudNewest = _active.Keep(cloud.Files).NewestUtc;
                 if (localNewest != null && (cloudNewest == null || localNewest.Value > cloudNewest.Value + Manifest.TimeTolerance))
                 {
                     var from = cloud.Commit?.PushedBy is { Length: > 0 } by ? by : "an older version (no PC recorded)";
@@ -339,7 +398,7 @@ public sealed class VersionSync
                 return SyncOutcome.Waiting;
 
             default: // Missing or Empty
-                var local = FolderScanner.Scan(_fs, LocalAccount);
+                var local = ScanLocal();
                 if (local.Manifest.IsEmpty)
                 {
                     SetStatus(SyncStatus.Idle, "Nothing to sync yet: launch this game version once");
@@ -413,7 +472,7 @@ public sealed class VersionSync
         var replaced = local.Manifest.Entries
             .Where(e => cloudFiles.TryGetValue(e.RelativePath, out var c) && !Manifest.SameFile(e, c))
             .Select(e => cloudFiles[e.RelativePath]);
-        var removed = cloudScan.Manifest.Entries.Where(e => !localLookup.ContainsKey(e.RelativePath));
+        var removed = cloudScan.Manifest.Entries.Where(e => !localLookup.ContainsKey(e.RelativePath) && !_active.Excludes(e.RelativePath));
         var atRisk = replaced.Concat(removed).ToList();
         if (cloud.Commit == null && FolderScanner.AllFiles(_fs, Cloud.Account).Count > 0)
         {
@@ -442,7 +501,7 @@ public sealed class VersionSync
         }
 
         // Mirror deletions (already backed up above).
-        var toDelete = cloudScan.Manifest.Entries.Where(e => !localLookup.ContainsKey(e.RelativePath)).ToList();
+        var toDelete = cloudScan.Manifest.Entries.Where(e => !localLookup.ContainsKey(e.RelativePath) && !_active.Excludes(e.RelativePath)).ToList();
         if (toDelete.Count > 0)
         {
             foreach (var e in toDelete) _fs.DeleteFile(PathUtil.FromRelative(Cloud.Account, e.RelativePath));
@@ -459,7 +518,9 @@ public sealed class VersionSync
             CommitId = commitId,
             PushedBy = _machineName,
             PushedAtUtc = pushedAt,
-            Files = local.Manifest.Entries,
+            // What this computer leaves out stays in the cloud as other computers uploaded it.
+            Files = local.Manifest.Entries.Concat(cloudScan.Manifest.Entries.Where(e => _active.Excludes(e.RelativePath)))
+                .OrderBy(e => e.RelativePath, StringComparer.OrdinalIgnoreCase).ToList(),
         }.Write(_fs, Cloud.CommitFile);
         if (_fs.FileExists(Cloud.LegacyCommitFile)) _fs.DeleteFile(Cloud.LegacyCommitFile); // superseded by the file just written
 
@@ -483,7 +544,7 @@ public sealed class VersionSync
 
     // ------------------------------------------------------------------ pull
 
-    private SyncOutcome Pull(CloudSnapshot cloud, bool force, string reason)
+    private SyncOutcome Pull(CloudSnapshot cloud, bool force, string reason, Func<string, bool>? only = null)
     {
         if (cloud.Readiness != CloudReadiness.Ready)
         {
@@ -496,17 +557,20 @@ public sealed class VersionSync
             return SyncOutcome.Waiting;
 
         SetStatus(SyncStatus.Syncing, "Downloading settings");
-        var files = cloud.Files!;
-        var localScan = FolderScanner.Scan(_fs, LocalAccount);
+        // Only what this computer syncs (and, when switching something back on, only that).
+        bool Wanted(string path) => only == null || only(path);
+        var files = _active.Keep(cloud.Files);
+        var localScan = ScanLocal();
         var localFiles = localScan.Manifest.ToLookup();
 
         // Only what differs is written: the cloud files that are new or changed, and the local files the cloud no
         // longer has are removed. Unchanged files aren't touched (no SSD writes, no Drive downloads).
         var cloudLookup = files.ToLookup();
-        var changed = files.Entries.Where(e => !(localFiles.TryGetValue(e.RelativePath, out var l) && Manifest.SameFile(e, l))).ToList();
-        var removed = localScan.Manifest.Entries.Where(l => !cloudLookup.ContainsKey(l.RelativePath)).ToList();
+        var changed = files.Entries.Where(e => Wanted(e.RelativePath) && !(localFiles.TryGetValue(e.RelativePath, out var l) && Manifest.SameFile(e, l))).ToList();
+        // Switching something back on never deletes: files only this computer has are uploaded by the next sync.
+        var removed = only != null ? [] : localScan.Manifest.Entries.Where(l => !cloudLookup.ContainsKey(l.RelativePath)).ToList();
         var atRisk = localScan.Manifest.Entries
-            .Where(l => !cloudLookup.TryGetValue(l.RelativePath, out var c) || !Manifest.SameFile(l, c))
+            .Where(l => Wanted(l.RelativePath) && (cloudLookup.TryGetValue(l.RelativePath, out var c) ? !Manifest.SameFile(l, c) : only == null))
             .ToList();
 
         // Back up exactly the local files about to be replaced or removed.
@@ -585,17 +649,31 @@ public sealed class VersionSync
                 CommitId = cloud.CommitId!,
                 PushedBy = $"{_machineName} (adopted existing data)",
                 PushedAtUtc = _clock.UtcNow,
-                Files = files.Entries,
+                Files = cloud.Files!.Entries,
             }.Write(_fs, Cloud.CommitFile);
             _log.Info($"{Name}: the existing cloud settings (no {ProductInfo.Name} commit file, e.g. from v1.1) were used, and a commit file was written for them.");
         }
 
+        State.LastPullUtc = _clock.UtcNow;
+        if (only != null)
+        {
+            // Just the files switched back on: the rest stays as it was (including a pending upload).
+            var after = ScanLocal().Manifest.Entries.Where(e => only(e.RelativePath) && cloudLookup.ContainsKey(e.RelativePath));
+            var kept = (State.LocalManifest?.Entries ?? []).Where(e => !only(e.RelativePath) && !_active.Excludes(e.RelativePath));
+            State.LocalManifest = new Manifest { Entries = kept.Concat(after).OrderBy(e => e.RelativePath, StringComparer.OrdinalIgnoreCase).ToList() };
+            ClearError();
+            Save();
+            var back = changed.Concat(removed).Select(e => e.RelativePath).ToList();
+            _log.Info($"{Name}: now syncing {(back.Count > 0 ? SettingsItem.Summarize(back) : "what you switched back on")} again; downloaded the cloud's copy ({back.Count} file(s)).");
+            if (back.Count > 0) Record(ActivityEntry.ForFiles(_clock.UtcNow, Name, ActivityKind.Downloaded, back, cloud.Commit?.PushedBy is { Length: > 0 } w && w != _machineName ? w : null));
+            SetIdle();
+            return SyncOutcome.Pulled;
+        }
         State.Joined = true;
         State.PendingPush = false;
-        State.LastPullUtc = _clock.UtcNow;
         State.LastCommitId = cloud.CommitId;
         State.CloudFolder = Cloud.VersionRoot;
-        State.LocalManifest = FolderScanner.Scan(_fs, LocalAccount).Manifest;
+        State.LocalManifest = ScanLocal().Manifest;
         State.Conflict = null;
         ClearError();
         Save();
@@ -649,9 +727,11 @@ public sealed class VersionSync
                 if (keep == KeepChoice.Local)
                 {
                     _log.Info($"{Name}: you chose to keep this PC's settings. Uploading them.");
-                    return Push(FolderScanner.Scan(_fs, LocalAccount), cloud, force: true);
+                    _active = (State.AppliedRules ?? SyncRules.None).Union(Rules);
+                    return Push(ScanLocal(), cloud, force: true);
                 }
                 _log.Info($"{Name}: you chose to keep the cloud settings. Downloading them (this PC's are backed up first).");
+                _active = (State.AppliedRules ?? SyncRules.None).Union(Rules);
                 return Pull(cloud, force: true, reason: "before-keep-cloud");
             });
         }
