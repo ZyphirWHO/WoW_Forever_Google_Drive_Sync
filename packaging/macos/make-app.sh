@@ -57,7 +57,13 @@ ditto "$APP" "$DMG_SRC/$NAME.app"
 ln -s /Applications "$DMG_SRC/Applications"
 cp "$ROOT/packaging/guides/mac.html" "$DMG_SRC/How to open $NAME.html"
 DMG="$OUT/$ID-$VERSION-macos-${RID#osx-}.dmg"
-hdiutil create -volname "$NAME" -srcfolder "$DMG_SRC" -fs HFS+ -format UDZO -ov "$DMG" >/dev/null
+# hdiutil sometimes fails with "Resource busy" on build machines (a transient disk-arbitration race): retry.
+for attempt in 1 2 3 4 5; do
+  if hdiutil create -volname "$NAME" -srcfolder "$DMG_SRC" -fs HFS+ -format UDZO -ov "$DMG" >/dev/null; then break; fi
+  if [ "$attempt" = 5 ]; then echo "hdiutil create failed 5 times" >&2; exit 1; fi
+  echo "hdiutil create failed (attempt $attempt); retrying in $((attempt * 5)) s" >&2
+  sleep $((attempt * 5))
+done
 hdiutil verify "$DMG" >/dev/null
 echo "Built $DMG"
 shasum -a 256 "$DMG"

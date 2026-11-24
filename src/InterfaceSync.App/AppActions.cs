@@ -2,6 +2,8 @@ using InterfaceSync.Core;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Sync;
 
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.App;
 
 /// <summary>Things both the status window and the settings window (and the tray menu) can do.</summary>
@@ -16,7 +18,7 @@ internal static class AppActions
         ProviderChangeResult? result = null;
         app.Run(
             () => result = app.Service.ChangeProvider(target, null, keep),
-            () => ThemedDialog.Show(owner, result?.Message ?? "Nothing changed.", null, result?.Changed == true ? DialogKind.Info : DialogKind.Warning));
+            () => ThemedDialog.Show(owner, result?.Message ?? L.T("Nothing changed."), null, result?.Changed == true ? DialogKind.Info : DialogKind.Warning));
     }
 
     public static void OpenBackups(IWin32Window owner, IStatusHost app, VersionSync worker)
@@ -41,7 +43,7 @@ internal static class AppActions
         {
             menu.Items.Clear();
             if (app.Service.Settings.Paused)
-                menu.Items.Add(new ToolStripMenuItem("Resume syncing", null, (_, _) => app.Run(() => app.Service.SetPaused(false))));
+                menu.Items.Add(new ToolStripMenuItem(L.T("Resume syncing"), null, (_, _) => app.Run(() => app.Service.SetPaused(false))));
             else
                 foreach (var (label, until) in StatusWords.PauseChoices(DateTime.UtcNow))
                     menu.Items.Add(new ToolStripMenuItem(label, null, (_, _) => app.Run(() => app.Service.SetPaused(true, until))));
@@ -66,10 +68,8 @@ internal static class AppActions
     public static void ReportProblem(IWin32Window? owner, IStatusHost app)
     {
         if (!ThemedDialog.Ask(owner,
-                "This opens a new issue on GitHub with the diagnostics filled in: versions, what was found and the recent " +
-                "log, with your folder paths, computer name and user name replaced by placeholders. Nothing is sent until " +
-                "you check it, describe what happened and click Submit. You need a free GitHub account.",
-                "Open GitHub", "Cancel", "Report a problem"))
+                L.T("This opens a new issue on GitHub with the diagnostics filled in: versions, what was found and the recent log, with your folder paths, computer name and user name replaced by placeholders. Nothing is sent until you check it, describe what happened and click Submit. You need a free GitHub account."),
+                L.T("Open GitHub"), "Cancel", "Report a problem"))
             return;
         string text = "";
         app.Run(() => text = app.Service.RedactedDiagnostics(), () => Ui.OpenLink(Feedback.IssueUrl(text)));
@@ -78,7 +78,7 @@ internal static class AppActions
     public static void CopyDiagnostics(IWin32Window? owner, IStatusHost app)
     {
         Clipboard.SetText(app.Service.Diagnostics());
-        ThemedDialog.Info(owner, "Paste them into your message or GitHub issue. They include your folder paths.", "Diagnostics copied");
+        ThemedDialog.Info(owner, L.T("Paste them into your message or GitHub issue. They include your folder paths."), L.T("Diagnostics copied"));
     }
 
     public static void ShowWhatsNew(IWin32Window? owner, string? notes = null)
@@ -86,8 +86,8 @@ internal static class AppActions
         notes ??= ReleaseNotes.Current;
         if (notes == null) { Ui.OpenLink(Feedback.ReleasesPage); return; }
         if (ThemedDialog.AutoAnswer) return;
-        using var d = new TextWindow($"What's new in {ProductInfo.Name} {ReleaseNotes.BaseVersion(ProductInfo.DisplayVersion)}",
-            ReleaseNotes.ToPlainText(notes), monospace: false, link: ("All releases", Feedback.ReleasesPage));
+        using var d = new TextWindow(L.F("What's new in {0} {1}", ProductInfo.Name, ReleaseNotes.BaseVersion(ProductInfo.DisplayVersion)),
+            ReleaseNotes.ToPlainText(notes), monospace: false, link: (L.T("All releases"), Feedback.ReleasesPage));
         if (owner == null) d.StartPosition = FormStartPosition.CenterScreen;
         d.ShowDialog(owner);
     }
@@ -95,8 +95,8 @@ internal static class AppActions
     public static void ViewLog(IWin32Window? owner, IStatusHost app)
     {
         var lines = app.Service.RecentLog(500).Reverse().Select(l => l.ToString());
-        using var d = new TextWindow("Log (newest first)", string.Join(Environment.NewLine, lines), monospace: true,
-            link: ("Open log folder", new Uri(app.Service.Paths.Logs)));
+        using var d = new TextWindow(L.T("Log (newest first)"), string.Join(Environment.NewLine, lines), monospace: true,
+            link: (L.T("Open log folder"), new Uri(app.Service.Paths.Logs)));
         d.ShowDialog(owner);
     }
 }
@@ -124,7 +124,7 @@ internal sealed class TextWindow : Form
             Font = monospace ? new Font("Consolas", 9f) : new Font(Font.FontFamily, 10f),
         };
         if (monospace) box.ScrollBars = ScrollBars.Both;
-        var close = new ModernButton("Close", ButtonKind.Primary) { DialogResult = DialogResult.OK, Margin = new Padding(8, 0, 0, 0) };
+        var close = new ModernButton(L.T("Close"), ButtonKind.Primary) { DialogResult = DialogResult.OK, Margin = new Padding(8, 0, 0, 0) };
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
         buttons.Controls.Add(close);
         if (link is { } l)

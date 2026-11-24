@@ -15,6 +15,8 @@ using InterfaceSync.Core.Settings;
 using InterfaceSync.Core.Sync;
 using InterfaceSync.Core.Updates;
 
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.Mac;
 
 /// <summary>Things the status window, the settings window and the menu can all do.</summary>
@@ -28,7 +30,7 @@ internal static class MacActions
             if (from?.Launcher is { } launcher) await launcher.LaunchDirectoryInfoAsync(new DirectoryInfo(folder));
             else System.Diagnostics.Process.Start("open", $"\"{folder}\"");
         }
-        catch (Exception e) { Dialogs.Message($"Couldn't open {folder}: {e.Message}", warning: true).Show(); }
+        catch (Exception e) { Dialogs.Message(L.F("Couldn't open {0}: {1}", folder, e.Message), warning: true).Show(); }
     }
 
     public static async void OpenLink(TopLevel? from, Uri page)
@@ -47,7 +49,7 @@ internal static class MacActions
         Window? w = null;
         var go = Ui.Button(yesLabel, () => { w!.Close(); yes(); }, ButtonKind.Primary);
         go.IsDefault = true;
-        var cancel = Ui.Button("Cancel", () => w!.Close(), ButtonKind.Ghost);
+        var cancel = Ui.Button(L.T("Cancel"), () => w!.Close(), ButtonKind.Ghost);
         cancel.IsCancel = true;
         w = new Window
         {
@@ -64,11 +66,9 @@ internal static class MacActions
     }
 
     public static void ReportProblem(TopLevel? from, IMacHost host) =>
-        Ask("Report a problem",
-            "This opens a new issue on GitHub with the diagnostics filled in: versions, what was found and the recent log, with your " +
-            "folder paths, computer name and user name replaced by placeholders. Nothing is sent until you check it, describe what " +
-            "happened and click Submit. You need a free GitHub account.",
-            "Open GitHub", () =>
+        Ask(L.T("Report a problem"),
+            L.T("This opens a new issue on GitHub with the diagnostics filled in: versions, what was found and the recent log, with your folder paths, computer name and user name replaced by placeholders. Nothing is sent until you check it, describe what happened and click Submit. You need a free GitHub account."),
+            L.T("Open GitHub"), () =>
             {
                 string text = "";
                 host.Run(() => text = host.Service.RedactedDiagnostics(), () => OpenLink(from, Feedback.IssueUrl(text)));
@@ -78,22 +78,22 @@ internal static class MacActions
     {
         if (from?.Clipboard is not { } clipboard) return;
         await clipboard.SetTextAsync(host.Service.Diagnostics());
-        Dialogs.Message("Paste them into your message or GitHub issue. They include your folder paths.", "Diagnostics copied").Show();
+        Dialogs.Message(L.T("Paste them into your message or GitHub issue. They include your folder paths."), L.T("Diagnostics copied")).Show();
     }
 
     public static void ShowWhatsNew(TopLevel? from, string? notes = null)
     {
         notes ??= ReleaseNotes.Current;
         if (notes == null) { OpenLink(from, Feedback.ReleasesPage); return; }
-        new TextWindow($"What's new in {ProductInfo.Name} {ReleaseNotes.BaseVersion(ProductInfo.DisplayVersion)}", ReleaseNotes.ToPlainText(notes), false,
-            ("All releases", () => OpenLink(from, Feedback.ReleasesPage))).Show();
+        new TextWindow(L.F("What's new in {0} {1}", ProductInfo.Name, ReleaseNotes.BaseVersion(ProductInfo.DisplayVersion)), ReleaseNotes.ToPlainText(notes), false,
+            (L.T("All releases"), () => OpenLink(from, Feedback.ReleasesPage))).Show();
     }
 
     public static void ViewLog(IMacHost host)
     {
         var lines = host.Service.RecentLog(500).Reverse().Select(l => l.ToString());
         TextWindow? w = null;
-        w = new TextWindow("Log (newest first)", string.Join("\n", lines), true, ("Open log folder", () => OpenFolder(w, host.Service.Paths.Logs)));
+        w = new TextWindow(L.T("Log (newest first)"), string.Join("\n", lines), true, ("Open log folder", () => OpenFolder(w, host.Service.Paths.Logs)));
         w.Show();
     }
 
@@ -131,7 +131,7 @@ internal sealed class TextWindow : Window
             BorderThickness = new Thickness(0), Background = Brushes.Transparent,
         };
         AutomationProperties.SetName(box, title);
-        var close = Ui.Button("Close", Close, ButtonKind.Primary);
+        var close = Ui.Button(L.T("Close"), Close, ButtonKind.Primary);
         close.IsDefault = close.IsCancel = true;
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         if (extra is { } e) buttons.Children.Add(Ui.Button(e.Label, e.Click, ButtonKind.Ghost));
@@ -168,7 +168,7 @@ internal sealed class InputWindow : Window
         AutomationProperties.SetName(_box, heading);
         var save = Ui.Button(ok, () => { var v = Value; if (v.Length == 0) return; Close(); done(v); }, ButtonKind.Primary);
         save.IsDefault = true;
-        var cancel = Ui.Button("Cancel", Close, ButtonKind.Ghost);
+        var cancel = Ui.Button(L.T("Cancel"), Close, ButtonKind.Ghost);
         cancel.IsCancel = true;
         _box.TextChanged += (_, _) => save.IsEnabled = Value.Length > 0;
         Content = new StackPanel { Margin = new Thickness(22, 20, 22, 16), Spacing = 8, Children =
@@ -206,7 +206,7 @@ internal sealed class SettingsWindow : Window
         _startup = startup;
         _updater = updater;
         _checkForUpdates = checkForUpdates;
-        Title = $"{ProductInfo.Name} Settings";
+        Title = $"{ProductInfo.Name}: {L.T("Settings")}";
         Icon = MacIcons.App;
         Width = 860;
         Height = 640;
@@ -214,10 +214,10 @@ internal sealed class SettingsWindow : Window
         MinHeight = 460;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-        _nav.ItemsSource = PageNames.Select((n, i) => new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(4, 6), Children = { Ui.Icon(PageIcons[i], 16), Ui.Text(n, 13.5) } }).ToList();
-        AutomationProperties.SetName(_nav, "Settings pages");
+        _nav.ItemsSource = PageNames.Select((n, i) => new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(4, 6), Children = { Ui.Icon(PageIcons[i], 16), Ui.Text(L.T(n), 13.5) } }).ToList();
+        AutomationProperties.SetName(_nav, L.T("Settings pages"));
         _nav.SelectionChanged += (_, _) => { if (_nav.SelectedIndex >= 0 && PageNames[_nav.SelectedIndex] != _current) ShowPage(PageNames[_nav.SelectedIndex]); };
-        var (banner, _) = MacBrand.Banner("Settings", () => { MacApp.ToggleTheme(_host); ShowPage(_current); });
+        var (banner, _) = MacBrand.Banner(L.T("Settings"), () => { MacApp.ToggleTheme(_host); ShowPage(_current); });
         var divider = new Border { Width = 1 };
         Ui.Res(divider, Border.BackgroundProperty, "InterfaceSyncBorder");
         var dock = new DockPanel();
@@ -245,7 +245,7 @@ internal sealed class SettingsWindow : Window
         _nav.SelectedIndex = Array.IndexOf(PageNames, name);
         _page.Children.Clear();
         _titles.Clear();
-        _page.Children.Add(MacBrand.Section(name));
+        _page.Children.Add(MacBrand.Section(L.T(name)));
         foreach (var row in name switch
                  {
                      "General" => General(),
@@ -295,18 +295,35 @@ internal sealed class SettingsWindow : Window
 
     private IEnumerable<Control> General()
     {
-        yield return Row(Ui.Paint, "Appearance", "Dark is easy on the eyes at night; light suits a bright room. The sun/moon switch at the top of every window does the same.",
-            Choice("Appearance", ["Dark", "Light"], MacTheme.IsDark ? 0 : 1, i => { MacApp.ChooseTheme(_host, i == 0 ? AppTheme.Dark : AppTheme.Light); ShowPage("General"); }));
+        yield return Row(Ui.Paint, L.T("Appearance"), L.T("Dark is easy on the eyes at night; light suits a bright room. The sun/moon switch at the top of every window does the same."),
+            Choice(L.T("Appearance"), [L.T("Dark"), L.T("Light")], MacTheme.IsDark ? 0 : 1, i => { MacApp.ChooseTheme(_host, i == 0 ? AppTheme.Dark : AppTheme.Light); ShowPage("General"); }));
         if (_startup != null)
         {
             var toggle = new ToggleSwitch { OnContent = null, OffContent = null, MinWidth = 0, IsChecked = _startup.IsEnabled };
             AutomationProperties.SetName(toggle, _startup.Label);
             toggle.IsCheckedChanged += (_, _) => { ToggleStartAtLogin(toggle.IsChecked == true); };
-            yield return Row(Ui.Power, _startup.Label, $"Start {ProductInfo.Name} quietly in the menu bar when you log in, so your settings are up to date before you play.", toggle);
+            yield return Row(Ui.Power, _startup.Label, L.F("Start {0} quietly in the menu bar when you log in, so your settings are up to date before you play.", ProductInfo.Name), toggle);
         }
-        yield return Row(Ui.Info, "Notifications",
-            "\"Only when needed\": settings changed in two places, a sync problem, or an update (shown at the top of the menu, and the status window opens for a choice). \"All\" also notes downloads.",
-            Choice("Notifications", ["All", "Only when needed", "None"], (int)_host.Service.Settings.Notifications,
+        var languages = new ComboBox { MinWidth = 180, ItemsSource = new[] { L.T("Same as macOS") }.Concat(L.Languages.Select(l => l.Name)).ToList() };
+        AutomationProperties.SetName(languages, L.T("Language"));
+        var chosen = _host.Service.Settings.Language;
+        languages.SelectedIndex = chosen == null ? 0 : 1 + Array.FindIndex(L.Languages, l => l.Code == chosen);
+        languages.SelectionChanged += (_, _) =>
+        {
+            var code = languages.SelectedIndex <= 0 ? null : L.Languages[languages.SelectedIndex - 1].Code;
+            if (code == _host.Service.Settings.Language) return;
+            _host.Service.SavePreference(s => s.Language = code);
+            L.Use(code);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                ShowPage("General");
+                Dialogs.Message(L.F("Restart {0} to see the new language everywhere (the menu and windows already open).", ProductInfo.Name), L.T("Language changed")).Show();
+            });
+        };
+        yield return Row(Ui.Info, L.T("Language"), L.T("German, French, Spanish and Portuguese translations are new: if something reads oddly, please tell us with Report a problem."), languages);
+        yield return Row(Ui.Info, L.T("Notifications"),
+            L.T("\"Only when needed\": settings changed in two places, a sync problem, or an update (shown at the top of the menu, and the status window opens for a choice). \"All\" also notes downloads."),
+            Choice(L.T("Notifications"), [L.T("All"), L.T("Only when needed"), L.T("None")], (int)_host.Service.Settings.Notifications,
                 i => { _host.Service.SavePreference(s => s.Notifications = (NotificationLevel)i); ShowPage("General"); }));
     }
 
@@ -322,18 +339,18 @@ internal sealed class SettingsWindow : Window
             }
             else if (!on && _startup.IsEnabled) { _startup.Disable(); _host.Service.Log.Info($"{_startup.Label}: off."); }
         }
-        catch (Exception e) { Dialogs.Message($"Couldn't change {_startup.Label}: {e.Message}", warning: true).Show(); }
+        catch (Exception e) { Dialogs.Message(L.F("Couldn't change {0}: {1}", _startup.Label, e.Message), warning: true).Show(); }
     }
 
     private IEnumerable<Control> SyncPage()
     {
         var s = _host.Service.Settings;
         var pauseText = s.Paused
-            ? s.PausedUntilUtc is { } until ? $"Paused until {StatusWords.Until(until, DateTime.UtcNow)}. Nothing is uploaded or downloaded until then." : "Paused until you resume it."
-            : "Syncing is on. Pause it for a while to try something out without it reaching your other computers.";
+            ? s.PausedUntilUtc is { } until ? L.F("Paused until {0}. Nothing is uploaded or downloaded until then.", StatusWords.Until(until, DateTime.UtcNow)) : L.T("Paused until you resume it.")
+            : L.T("Syncing is on. Pause it for a while if you want to try something out without it reaching your other computers.");
         Button pause = null!;
-        pause = Ui.Button(s.Paused ? "Resume" : "Pause…", () => MacActions.Pause(pause, _host, () => ShowPage("Sync")), s.Paused ? ButtonKind.Primary : ButtonKind.Secondary, s.Paused ? Ui.Sync : Ui.Pause);
-        yield return Row(Ui.Pause, "Pause syncing", pauseText, pause);
+        pause = Ui.Button(s.Paused ? L.T("Resume") : L.T("Pause…"), () => MacActions.Pause(pause, _host, () => ShowPage("Sync")), s.Paused ? ButtonKind.Primary : ButtonKind.Secondary, s.Paused ? Ui.Sync : Ui.Pause);
+        yield return Row(Ui.Pause, L.T("Pause syncing"), pauseText, pause);
 
         foreach (var v in _host.Service.Versions)
         {
@@ -341,10 +358,10 @@ internal sealed class SettingsWindow : Window
             var worker = _host.Service.Workers.FirstOrDefault(w => PathUtil.SamePath(w.Version.FolderPath, v.FolderPath));
             bool on = _host.Service.IsEnabled(v);
             var toggle = new ToggleSwitch { OnContent = null, OffContent = null, MinWidth = 0, IsChecked = on, IsEnabled = v.CanEnable };
-            AutomationProperties.SetName(toggle, $"Sync {v.FolderName}");
+            AutomationProperties.SetName(toggle, L.F("Sync {0}", v.FolderName));
             toggle.IsCheckedChanged += (_, _) => SetVersionEnabled(version, toggle.IsChecked == true);
             var controls = new List<Control>();
-            if (worker != null) controls.Add(Ui.Button("Choose what syncs…", () =>
+            if (worker != null) controls.Add(Ui.Button(L.T("Choose what syncs…"), () =>
             {
                 var w = new SyncChoicesWindow(_host.Service, worker, rules => _host.Run(() => _host.Service.SetRules(worker, rules), () => ShowPage("Sync")));
                 w.Show();
@@ -352,12 +369,12 @@ internal sealed class SettingsWindow : Window
             controls.Add(toggle);
             var rules = _host.Service.RulesFor(v.FolderName).Describe();
             yield return Row(Ui.Game, v.FolderName + (v.ClientVersion != null ? $"   {v.ClientVersion}" : ""),
-                !v.CanEnable ? "Not played on this Mac yet. Launch it once to sync it."
-                : !on ? "Not synced on this Mac."
-                : rules ?? "Everything syncs: keybindings, macros, chat and addon settings of every character.", [.. controls]);
+                !v.CanEnable ? L.T("Not played on this Mac yet. Launch it once to sync it.")
+                : !on ? L.T("Not synced on this Mac.")
+                : rules ?? L.T("Everything syncs: keybindings, macros, chat and addon settings of every character."), [.. controls]);
         }
-        yield return Row(Ui.Shield, "The one rule",
-            "Quit the game on one computer before playing on another. Settings are synced only while the game is closed, so two computers playing at once can't both win; you'd be asked which to keep.");
+        yield return Row(Ui.Shield, L.T("The one rule"),
+            L.T("Quit the game on one computer before playing on another. Settings are synced only while the game is closed, so two computers playing at once can't both win; you'd be asked which to keep."));
     }
 
     private void SetVersionEnabled(GameVersion v, bool on)
@@ -376,25 +393,25 @@ internal sealed class SettingsWindow : Window
     {
         var service = _host.Service;
         var folder = service.Drive?.MyDrivePath is { } d ? PathUtil.Join(d, CloudLayout.AppFolderName) : null;
-        var move = new ComboBox { MinWidth = 150, PlaceholderText = "Move to…", ItemsSource = CloudProviders.All.Select(p => p.DisplayName()).ToList() };
-        AutomationProperties.SetName(move, "Move to another cloud app");
+        var move = new ComboBox { MinWidth = 150, PlaceholderText = L.T("Move to…"), ItemsSource = CloudProviders.All.Select(p => p.DisplayName()).ToList() };
+        AutomationProperties.SetName(move, L.T("Move to another cloud app"));
         var controls = new List<Control>();
-        if (folder != null) controls.Add(Ui.Button("Open", () => MacActions.OpenFolder(this, folder), ButtonKind.Ghost, Ui.Folder));
+        if (folder != null) controls.Add(Ui.Button(L.T("Open"), () => MacActions.OpenFolder(this, folder), ButtonKind.Ghost, Ui.Folder));
         controls.Add(move);
-        controls.Add(Ui.Button("Move", () =>
+        controls.Add(Ui.Button(L.T("Move"), () =>
         {
             if (move.SelectedIndex < 0) return;
             var target = CloudProviders.All[move.SelectedIndex];
             ProviderChangeResultHolder result = new();
             _host.Run(() => result.Value = service.ChangeProvider(target, null, keepOnDevice: false),
-                () => { Dialogs.Message(result.Value?.Message ?? "Nothing changed.").Show(); ShowPage("Cloud"); });
+                () => { Dialogs.Message(result.Value?.Message ?? L.T("Nothing changed.")).Show(); ShowPage("Cloud"); });
         }));
         yield return Row(Ui.Cloud, service.ProviderName,
-            folder != null ? $"Your settings are kept in {folder}. Only this folder is ever written to." : $"{service.ProviderName} wasn't found. Is its app running and signed in?",
+            folder != null ? L.F("Your settings are kept in {0}. Only this folder is ever written to.", folder) : L.F("{0} wasn't found. Is its app running and signed in?", service.ProviderName),
             [.. controls]);
         var provider = service.Drive?.Provider ?? service.EffectiveProvider();
-        yield return Row(Ui.Folder, "Keep it on this Mac",
-            $"Your cloud app must keep the {CloudLayout.AppFolderName} folder on this Mac, not online only. {provider.KeepOfflineHint(HostOs.MacOS)}");
+        yield return Row(Ui.Folder, L.T("Keep it on this Mac"),
+            L.F("Your cloud app must keep the {0} folder on this Mac, not online only.", CloudLayout.AppFolderName) + " " + provider.KeepOfflineHint(HostOs.MacOS));
     }
 
     private sealed class ProviderChangeResultHolder { public Core.Service.ProviderChangeResult? Value; }
@@ -404,18 +421,18 @@ internal sealed class SettingsWindow : Window
         var service = _host.Service;
         long bytes = 0;
         try { bytes = FolderScanner.AllFiles(new PhysicalFileSystem(), service.Paths.Backups).Sum(f => f.Size); } catch (Exception) { }
-        yield return Row(Ui.Clock, "How backups work",
-            $"Before anything on this Mac or in the cloud is replaced, the files are copied to a backup first. The newest {Core.Backup.BackupStore.KeepPerVersion} are kept per game version, " +
-            $"plus your snapshots (kept until you delete them) and a copy made before each of the last {Core.Backup.BackupStore.KeepGameUpdates} game updates. Backups use {FormatSize(bytes)}.",
-            Ui.Button("Open folder", () => MacActions.OpenFolder(this, service.Paths.Backups), ButtonKind.Ghost, Ui.Folder));
+        yield return Row(Ui.Clock, L.T("How backups work"),
+            L.F("Before anything on this Mac or in the cloud is replaced, the files are copied to a backup first. The newest {0} are kept per game version, plus your snapshots (kept until you delete them) and a copy made before each of the last {1} game updates. Backups use {2}.",
+                Core.Backup.BackupStore.KeepPerVersion, Core.Backup.BackupStore.KeepGameUpdates, FormatSize(bytes)),
+            Ui.Button(L.T("Open folder"), () => MacActions.OpenFolder(this, service.Paths.Backups), ButtonKind.Ghost, Ui.Folder));
         foreach (var w in service.Workers)
         {
             var worker = w;
             var list = service.Backups.List(w.Version.FolderName);
             int regular = list.Count(b => !b.Pinned && !b.GameUpdate), snaps = list.Count(b => b.Pinned);
             yield return Row(Ui.Game, w.Version.FolderName,
-                $"{regular} backup{(regular == 1 ? "" : "s")}, {snaps} snapshot{(snaps == 1 ? "" : "s")}, {list.Count(b => b.GameUpdate)} from game updates.",
-                Ui.Button("Backups and snapshots…", () => new RestoreWindow(_host, worker, () => ShowPage("Backups")).Show()));
+                StatusWords.BackupCounts(list),
+                Ui.Button(L.T("Backups and snapshots…"), () => new RestoreWindow(_host, worker, () => ShowPage("Backups")).Show()));
         }
     }
 
@@ -432,7 +449,7 @@ internal sealed class SettingsWindow : Window
         if (_updater != null)
         {
             var auto = new ToggleSwitch { OnContent = null, OffContent = null, MinWidth = 0, IsChecked = service.Settings.CheckForUpdates };
-            AutomationProperties.SetName(auto, "Check for updates automatically");
+            AutomationProperties.SetName(auto, L.T("Check for updates automatically"));
             auto.IsCheckedChanged += (_, _) =>
             {
                 var on = auto.IsChecked == true;
@@ -440,29 +457,29 @@ internal sealed class SettingsWindow : Window
                 if (on) _ = _updater.CheckAsync();
             };
             var status = _updater.Describe() + (service.Settings.LastUpdateCheckUtc is { } at && _updater.State != UpdateState.Checking
-                ? $" Last checked {StatusWords.Ago(at, DateTime.UtcNow)}." : "");
-            yield return Row(Ui.Sync, "Check for updates", $"{status} Checks GitHub once a day. Your settings are kept when you update.",
-                Ui.Button("Check now", () => (_checkForUpdates ?? (() => _ = _updater.CheckAsync()))()), auto);
+                ? " " + L.F("Last checked {0}.", StatusWords.Ago(at, DateTime.UtcNow)) : "");
+            yield return Row(Ui.Sync, L.T("Check for updates"), status + " " + L.T("Checks GitHub once a day. Your settings are kept when you update."),
+                Ui.Button(L.T("Check now"), () => (_checkForUpdates ?? (() => _ = _updater.CheckAsync()))()), auto);
         }
-        yield return Row(Ui.Info, $"Version {ProductInfo.DisplayVersion}",
+        yield return Row(Ui.Info, L.F("Version {0}", ProductInfo.DisplayVersion),
             ProductInfo.DisplayVersion.Contains("-dev", StringComparison.OrdinalIgnoreCase)
-                ? "This is a test build: it offers newer test builds and releases." : "See what changed in this version.",
-            Ui.Button("What's new", () => MacActions.ShowWhatsNew(this)), Ui.Button("All releases", () => MacActions.OpenLink(this, Feedback.ReleasesPage), ButtonKind.Ghost));
+                ? L.T("This is a test build: it updates to newer test builds and releases.") : L.T("See what changed in this version."),
+            Ui.Button(L.T("What's new"), () => MacActions.ShowWhatsNew(this)), Ui.Button(L.T("All releases"), () => MacActions.OpenLink(this, Feedback.ReleasesPage), ButtonKind.Ghost));
     }
 
     private IEnumerable<Control> AdvancedPage()
     {
         var service = _host.Service;
-        yield return Row(Ui.Info, "Help and questions", "How syncing works, what to do when settings changed in two places, online-only files and more.",
-            Ui.Button("Open help", () => MacActions.OpenLink(this, Feedback.HelpPage)));
-        yield return Row(Ui.Warning, "Report a problem", "Opens a GitHub issue with the diagnostics filled in (folder names only). You check it before anything is sent.",
-            Ui.Button("Report a problem…", () => MacActions.ReportProblem(this, _host)));
-        yield return Row(Ui.Clock, "Log", $"Everything {ProductInfo.Name} did, in plain words. Kept for {FileLog.KeepDays} days.",
-            Ui.Button("View log", () => MacActions.ViewLog(_host)), Ui.Button("Open folder", () => MacActions.OpenFolder(this, service.Paths.Logs), ButtonKind.Ghost, Ui.Folder));
-        yield return Row(Ui.Info, "Diagnostics", "Paths, versions and the recent log, to paste into a message when asking for help.",
-            Ui.Button("Copy diagnostics", () => MacActions.CopyDiagnostics(this, _host)));
-        yield return Row(Ui.Folder, "Data folder", $"Settings, sync state and backups: {service.Paths.Data}",
-            Ui.Button("Open", () => MacActions.OpenFolder(this, service.Paths.Data), ButtonKind.Ghost, Ui.Folder));
+        yield return Row(Ui.Info, L.T("Help and questions"), L.T("How syncing works, what to do when settings changed in two places, online-only files and more."),
+            Ui.Button(L.T("Open help"), () => MacActions.OpenLink(this, Feedback.HelpPage)));
+        yield return Row(Ui.Warning, L.T("Report a problem"), L.T("Opens a GitHub issue with the diagnostics filled in (folder names only). You check it before anything is sent."),
+            Ui.Button(L.T("Report a problem…"), () => MacActions.ReportProblem(this, _host)));
+        yield return Row(Ui.Clock, L.T("Log"), L.F("Everything {0} did, in plain words. Kept for {1} days.", ProductInfo.Name, FileLog.KeepDays),
+            Ui.Button(L.T("View log"), () => MacActions.ViewLog(_host)), Ui.Button(L.T("Open folder"), () => MacActions.OpenFolder(this, service.Paths.Logs), ButtonKind.Ghost, Ui.Folder));
+        yield return Row(Ui.Info, L.T("Diagnostics"), L.T("Paths, versions and the recent log, to paste into a message when asking for help."),
+            Ui.Button(L.T("Copy diagnostics"), () => MacActions.CopyDiagnostics(this, _host)));
+        yield return Row(Ui.Folder, L.T("Data folder"), L.F("Settings, sync state and backups: {0}", service.Paths.Data),
+            Ui.Button(L.T("Open"), () => MacActions.OpenFolder(this, service.Paths.Data), ButtonKind.Ghost, Ui.Folder));
     }
 }
 
@@ -474,7 +491,7 @@ internal sealed class SyncChoicesWindow : Window
 
     public SyncChoicesWindow(Core.Service.SyncService service, VersionSync worker, Action<SyncRules> save)
     {
-        Title = $"{worker.Version.FolderName}: choose what syncs";
+        Title = L.F("{0}: choose what syncs", worker.Version.FolderName);
         Icon = MacIcons.App;
         Width = 720;
         Height = 560;
@@ -506,22 +523,20 @@ internal sealed class SyncChoicesWindow : Window
         }
 
         var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };
-        var left = Column("Characters", choices.Characters.Select(c => (c.Key, c.Label, !current.Characters.Contains(c.Key, StringComparer.OrdinalIgnoreCase))), true, "No characters yet: log in with one first.");
-        var right = Column("Addons", choices.Addons.Select(a => (a, a, !current.Addons.Contains(a, StringComparer.OrdinalIgnoreCase))), false, "No addon settings yet.");
+        var left = Column(L.T("Characters"), choices.Characters.Select(c => (c.Key, c.Label, !current.Characters.Contains(c.Key, StringComparer.OrdinalIgnoreCase))), true, L.T("No characters yet: log in with one first."));
+        var right = Column(L.T("Addons"), choices.Addons.Select(a => (a, a, !current.Addons.Contains(a, StringComparer.OrdinalIgnoreCase))), false, L.T("No addon settings yet."));
         Grid.SetColumn(right, 1);
         columns.Children.Add(left);
         columns.Children.Add(right);
 
-        var ok = Ui.Button("Save", () => { Close(); save(Rules); }, ButtonKind.Primary);
+        var ok = Ui.Button(L.T("Save"), () => { Close(); save(Rules); }, ButtonKind.Primary);
         ok.IsDefault = true;
-        var cancel = Ui.Button("Cancel", Close, ButtonKind.Ghost);
+        var cancel = Ui.Button(L.T("Cancel"), Close, ButtonKind.Ghost);
         cancel.IsCancel = true;
         var header = new StackPanel { Spacing = 6, Margin = new Thickness(0, 0, 0, 10), Children =
         {
-            Ui.Text($"Choose what syncs: {worker.Version.FolderName}", 18, FontWeight.SemiBold),
-            Ui.Text("Ticked characters and addons sync on this Mac. Untick one to keep this Mac's own settings for it: they aren't uploaded " +
-                    "or replaced, and the cloud copy stays as it is for your other computers. Account-wide settings (keybindings, macros) always sync. " +
-                    "Ticking one again downloads the cloud's copy, after backing up this Mac's.", 12.5, brush: "InterfaceSyncMuted"),
+            Ui.Text(L.F("Choose what syncs: {0}", worker.Version.FolderName), 18, FontWeight.SemiBold),
+            Ui.Text(L.T("Ticked characters and addons sync on this Mac. Untick one to keep this Mac's own settings for it: they aren't uploaded or replaced, and the cloud copy stays as it is for your other computers. Account-wide settings (keybindings, macros) always sync. Ticking one again downloads the cloud's copy, after backing up this Mac's."), 12.5, brush: "InterfaceSyncMuted"),
         } };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Children = { cancel, ok } };
         var dock = new DockPanel { Margin = new Thickness(22, 18) };
@@ -552,7 +567,7 @@ internal sealed class ActivityWindow : Window
 
     public ActivityWindow(IMacHost host)
     {
-        Title = $"{ProductInfo.Name}: activity";
+        Title = $"{ProductInfo.Name}: {L.T("Activity")}";
         Icon = MacIcons.App;
         Width = 760;
         Height = 560;
@@ -571,14 +586,14 @@ internal sealed class ActivityWindow : Window
                 day = heading;
                 list.Children.Add(Ui.Text(heading, 12, FontWeight.SemiBold, "InterfaceSyncAccent", bottom: 2));
             }
-            list.Children.Add(Line(e, $"{e.Utc.ToLocalTime():HH:mm} · {e.Version}{(e.FileCount > 0 ? $" · {e.FileCount} file{(e.FileCount == 1 ? "" : "s")}" : "")}"));
+            list.Children.Add(Line(e, $"{e.Utc.ToLocalTime().ToString("t", L.Culture)} · {e.Version}{(e.FileCount > 0 ? " · " + L.N(e.FileCount, "{0} file", "{0} files") : "")}"));
         }
-        if (_entries.Count == 0) list.Children.Add(Ui.Text("Nothing synced yet.", 13, brush: "InterfaceSyncMuted"));
-        var close = Ui.Button("Close", Close, ButtonKind.Primary);
+        if (_entries.Count == 0) list.Children.Add(Ui.Text(L.T("Nothing synced yet."), 13, brush: "InterfaceSyncMuted"));
+        var close = Ui.Button(L.T("Close"), Close, ButtonKind.Primary);
         close.IsDefault = close.IsCancel = true;
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0),
-            Children = { Ui.Button("Technical log", () => MacActions.ViewLog(host), ButtonKind.Ghost, Ui.Clock), close } };
-        var heading2 = Ui.Text("Activity", 18, FontWeight.SemiBold, bottom: 10);
+            Children = { Ui.Button(L.T("Technical log"), () => MacActions.ViewLog(host), ButtonKind.Ghost, Ui.Clock), close } };
+        var heading2 = Ui.Text(L.T("Activity"), 18, FontWeight.SemiBold, bottom: 10);
         var card = Ui.CardOf(new ScrollViewer { Content = list });
         card.Margin = new Thickness(0);
         var dock = new DockPanel { Margin = new Thickness(22, 18) };
@@ -612,20 +627,20 @@ internal sealed class ActivityWindow : Window
         var b = new Button { Content = g, Background = Brushes.Transparent, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(6, 4) };
         b.Resources["ButtonBackground"] = Brushes.Transparent;
         AutomationProperties.SetName(b, e.Headline);
-        AutomationProperties.SetHelpText(b, $"{detail}. Press to see the files.");
+        AutomationProperties.SetHelpText(b, $"{detail}. {L.T("Press Enter to see the files.")}");
         b.Click += (_, _) => new TextWindow(e.Headline, DetailsText(e), false).Show();
         return b;
     }
 
     internal static string DetailsText(ActivityEntry e)
     {
-        var lines = new List<string> { e.Headline, $"{e.Version} · {e.Utc.ToLocalTime():f}", "" };
+        var lines = new List<string> { e.Headline, $"{e.Version} · {e.Utc.ToLocalTime().ToString("f", L.Culture)}", "" };
         foreach (var group in e.Files.Select(SettingsItem.Parse).GroupBy(i => i.Area, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            lines.Add(group.Key);
+            lines.Add(L.T(group.Key));
             foreach (var item in group) lines.Add($"    {item.RelativePath.Replace('\\', '/')}{(item.CharacterLabel is { } c ? $"   ({c})" : "")}");
         }
-        if (e.FileCount > e.Files.Count) lines.Add($"…and {e.FileCount - e.Files.Count} more");
+        if (e.FileCount > e.Files.Count) lines.Add("…" + L.F("and {0} more", e.FileCount - e.Files.Count));
         return string.Join("\n", lines);
     }
 }

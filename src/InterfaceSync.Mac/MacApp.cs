@@ -11,6 +11,8 @@ using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Settings;
 using InterfaceSync.Core.Updates;
 
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.Mac;
 
 /// <summary>What the windows need from the app: the service and a way to run work off the UI thread.</summary>
@@ -74,6 +76,7 @@ internal sealed class MacApp : Application, IMacHost
         _startup = new MacStartAtLogin(fs, env.UserProfile, Environment.ProcessPath ?? "", ProductInfo.BundleId);
         try { if (_startup.Repair() is { } repaired) _log.Info(repaired); }
         catch (Exception e) { _log.Warn($"Couldn't update Open at Login: {e.Message}"); }
+        L.Use(Service.Settings.Language);   // before any window or menu text is made
         MacTheme.Changed += OnThemeChanged;
         MacTheme.Apply(Service.Settings.Theme);
         Service.Changed += () => Dispatcher.UIThread.Post(RefreshTray);
@@ -88,22 +91,22 @@ internal sealed class MacApp : Application, IMacHost
     private void BuildTray(IClassicDesktopStyleApplicationLifetime desktop)
     {
         var menu = new NativeMenu();
-        _headline = new NativeMenuItem($"{ProductInfo.Name}: starting") { IsEnabled = false };
-        var open = new NativeMenuItem("Open status...");
+        _headline = new NativeMenuItem($"{ProductInfo.Name}: {L.T("starting")}") { IsEnabled = false };
+        var open = new NativeMenuItem(L.T("Open status..."));
         open.Click += (_, _) => ShowStatus();
-        var sync = new NativeMenuItem("Sync now");
+        var sync = new NativeMenuItem(L.T("Sync now"));
         sync.Click += (_, _) => Run(Service.SyncNow);
-        _pause = new NativeMenuItem("Pause syncing") { Menu = new NativeMenu() };
+        _pause = new NativeMenuItem(L.T("Pause syncing")) { Menu = new NativeMenu() };
         _pause.Menu.Opening += (_, _) => FillPauseMenu();
         FillPauseMenu();
-        var settings = new NativeMenuItem("Settings...") { Gesture = new Avalonia.Input.KeyGesture(Avalonia.Input.Key.OemComma, Avalonia.Input.KeyModifiers.Meta) };
+        var settings = new NativeMenuItem(L.T("Settings...")) { Gesture = new Avalonia.Input.KeyGesture(Avalonia.Input.Key.OemComma, Avalonia.Input.KeyModifiers.Meta) };
         settings.Click += (_, _) => { ShowStatus(); _status?.OpenSettings(); };
-        var help = new NativeMenuItem("Help") { Menu = new NativeMenu() };
-        var helpPage = new NativeMenuItem("Help and Questions");
+        var help = new NativeMenuItem(L.T("Help")) { Menu = new NativeMenu() };
+        var helpPage = new NativeMenuItem(L.T("Help and Questions"));
         helpPage.Click += (_, _) => MacActions.OpenLink(null, Feedback.HelpPage);
-        var whatsNew = new NativeMenuItem("What's New");
+        var whatsNew = new NativeMenuItem(L.T("What's New"));
         whatsNew.Click += (_, _) => MacActions.ShowWhatsNew(null);
-        var report = new NativeMenuItem("Report a Problem...");
+        var report = new NativeMenuItem(L.T("Report a Problem..."));
         report.Click += (_, _) => MacActions.ReportProblem(null, this);
         help.Menu.Items.Add(helpPage);
         help.Menu.Items.Add(whatsNew);
@@ -111,13 +114,13 @@ internal sealed class MacApp : Application, IMacHost
         _startupItem = new NativeMenuItem(_startup!.Label) { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = _startup.IsEnabled };
         _startupItem.Click += (_, _) => ToggleStartAtLogin();
         menu.Opening += (_, _) => { if (_startupItem != null) _startupItem.IsChecked = _startup.IsEnabled; };
-        _darkItem = new NativeMenuItem("Dark Mode") { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = MacTheme.IsDark };
+        _darkItem = new NativeMenuItem(L.T("Dark Mode")) { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = MacTheme.IsDark };
         _darkItem.Click += (_, _) => ToggleTheme(this);
-        var updates = new NativeMenuItem("Check for Updates...");
+        var updates = new NativeMenuItem(L.T("Check for Updates..."));
         updates.Click += (_, _) => { ShowStatus(); _status?.CheckForUpdates(); };
-        var about = new NativeMenuItem($"About {ProductInfo.Name}");
+        var about = new NativeMenuItem(L.F("About {0}", ProductInfo.Name));
         about.Click += (_, _) => Dialogs.About().Show();
-        var quit = new NativeMenuItem($"Quit {ProductInfo.Name}");
+        var quit = new NativeMenuItem(L.F("Quit {0}", ProductInfo.Name));
         quit.Click += (_, _) => Quit(desktop);
         menu.Items.Add(_headline);
         menu.Items.Add(new NativeMenuItemSeparator());
@@ -153,8 +156,7 @@ internal sealed class MacApp : Application, IMacHost
         m.Items.Clear();
         if (Service?.Settings.Paused == true)
         {
-            var until = Service.Settings.PausedUntilUtc is { } u ? $" (paused until {StatusWords.Until(u, DateTime.UtcNow)})" : "";
-            var resume = new NativeMenuItem($"Resume Syncing{until}");
+            var resume = new NativeMenuItem(Service.Settings.PausedUntilUtc is { } u ? L.F("Resume syncing (paused until {0})", StatusWords.Until(u, DateTime.UtcNow)) : L.T("Resume syncing"));
             resume.Click += (_, _) => Run(() => Service.SetPaused(false));
             m.Items.Add(resume);
             return;
@@ -213,7 +215,7 @@ internal sealed class MacApp : Application, IMacHost
             && Service.Settings.Notifications != NotificationLevel.Off)
         {
             _announcedUpdate = r.Version;
-            if (_headline != null) _headline.Header = $"{ProductInfo.Name} {r.Version} is available";
+            if (_headline != null) _headline.Header = L.F("{0} {1} is available", ProductInfo.Name, r.Version);
         }
     }
 
@@ -262,9 +264,9 @@ internal sealed class MacApp : Application, IMacHost
         bool syncing = Service.State == OverallState.Syncing;
         if (syncing != _animation.IsEnabled) _animation.IsEnabled = syncing;
         if (!syncing) _tray.Icon = MacIcons.For(Service.State);
-        _tray.ToolTipText = StatusWords.Tooltip(Service.StateText, StatusWords.LastSynced(Service.Workers), DateTime.UtcNow);
-        if (_headline != null) _headline.Header = $"{ProductInfo.Name}: {Service.StateText}";
-        if (_pause != null) _pause.Header = Service.Settings.Paused ? "Syncing Paused" : "Pause Syncing";
+        _tray.ToolTipText = StatusWords.Tooltip(StatusWords.StateText(Service, DateTime.UtcNow), StatusWords.LastSynced(Service.Workers), DateTime.UtcNow);
+        if (_headline != null) _headline.Header = $"{ProductInfo.Name}: {StatusWords.StateText(Service, DateTime.UtcNow)}";
+        if (_pause != null) _pause.Header = Service.Settings.Paused ? L.T("Syncing paused") : L.T("Pause syncing");
         FillPauseMenu();
         _status?.Refresh();
     }

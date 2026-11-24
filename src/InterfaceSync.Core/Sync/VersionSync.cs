@@ -771,7 +771,7 @@ public sealed class VersionSync
                 return null;
             }
             _log.Info($"{Name}: saved the snapshot \"{snap.SnapshotName}\" ({snap.FileCount} files, {snap.Path}).");
-            Record(new ActivityEntry { Utc = snap.CreatedUtc, Version = Name, Kind = ActivityKind.Snapshot,
+            Record(new ActivityEntry { Utc = snap.CreatedUtc, Version = Name, Kind = ActivityKind.Snapshot, Name = snap.SnapshotName,
                 Summary = $"Saved the snapshot \"{snap.SnapshotName}\"", FileCount = snap.FileCount });
             return snap;
         }
@@ -800,7 +800,7 @@ public sealed class VersionSync
                 if (snap != null)
                 {
                     _log.Info($"{Name}: the game was updated ({previous} → {clientVersion}). Saved a copy of the settings first ({snap.Path}).");
-                    Record(new ActivityEntry { Utc = snap.CreatedUtc, Version = Name, Kind = ActivityKind.GameUpdated,
+                    Record(new ActivityEntry { Utc = snap.CreatedUtc, Version = Name, Kind = ActivityKind.GameUpdated, Name = clientVersion,
                         Summary = $"Game updated to {clientVersion}: saved a copy of the settings", FileCount = snap.FileCount });
                 }
             }

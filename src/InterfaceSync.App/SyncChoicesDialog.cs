@@ -2,6 +2,8 @@ using InterfaceSync.Core;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Sync;
 
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.App;
 
 /// <summary>
@@ -10,13 +12,13 @@ namespace InterfaceSync.App;
 /// </summary>
 internal sealed class SyncChoicesDialog : Form
 {
-    private readonly CheckedListBox _characters = new() { CheckOnClick = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, AccessibleName = "Characters that sync" };
-    private readonly CheckedListBox _addons = new() { CheckOnClick = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, AccessibleName = "Addons that sync" };
+    private readonly CheckedListBox _characters = new() { CheckOnClick = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, AccessibleName = L.T("Characters that sync") };
+    private readonly CheckedListBox _addons = new() { CheckOnClick = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, AccessibleName = L.T("Addons that sync") };
     private readonly List<string> _characterKeys = [];
 
     public SyncChoicesDialog(SyncService service, VersionSync worker)
     {
-        Text = $"{worker.Version.FolderName}: choose what syncs";
+        Text = L.F("{0}: choose what syncs", worker.Version.FolderName);
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(760, 560);
         MinimumSize = new Size(560, 420);
@@ -35,11 +37,9 @@ internal sealed class SyncChoicesDialog : Form
         foreach (var addon in choices.Addons)
             _addons.Items.Add(addon, !current.Addons.Contains(addon, StringComparer.OrdinalIgnoreCase));
 
-        var title = Ui.Text($"Choose what syncs: {worker.Version.FolderName}", bold: true, size: 14f);
+        var title = Ui.Text(L.F("Choose what syncs: {0}", worker.Version.FolderName), bold: true, size: 14f);
         title.Margin = new Padding(0, 0, 0, 4);
-        var note = Ui.Text("Ticked characters and addons sync on this computer. Untick one to keep this computer's own " +
-                           "settings for it: they aren't uploaded or replaced, and the cloud copy stays as it is for your other computers. " +
-                           "Account-wide settings (keybindings, macros) always sync. Ticking one again downloads the cloud's copy, after backing up this computer's.",
+        var note = Ui.Text(L.T("Ticked characters and addons sync on this computer. Untick one to keep this computer's own settings for it: they aren't uploaded or replaced, and the cloud copy stays as it is for your other computers. Account-wide settings (keybindings, macros) always sync. Ticking one again downloads the cloud's copy, after backing up this computer's."),
             TextRole.Muted);
         note.MaximumSize = new Size(700, 0);
         note.Margin = new Padding(0, 0, 0, 12);
@@ -56,7 +56,7 @@ internal sealed class SyncChoicesDialog : Form
             else frame.Controls.Add(list);
             var head = Ui.Text(heading, bold: true);
             head.Margin = new Padding(0, 0, 0, 6);
-            var all = new ModernButton("All", ButtonKind.Ghost) { Height = 26, Margin = new Padding(8, 0, 0, 0) };
+            var all = new ModernButton(L.T("All"), ButtonKind.Ghost) { Height = 26, Margin = new Padding(8, 0, 0, 0) };
             all.Click += (_, _) => { for (int i = 0; i < list.Items.Count; i++) list.SetItemChecked(i, true); };
             var col = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = new Padding(0, 0, 8, 0) };
             col.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -69,11 +69,11 @@ internal sealed class SyncChoicesDialog : Form
         var columns = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
         columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        columns.Controls.Add(Column("Characters", _characters, "No characters yet: log in with one first."), 0, 0);
-        columns.Controls.Add(Column("Addons", _addons, "No addon settings yet."), 1, 0);
+        columns.Controls.Add(Column(L.T("Characters"), _characters, L.T("No characters yet: log in with one first.")), 0, 0);
+        columns.Controls.Add(Column(L.T("Addons"), _addons, L.T("No addon settings yet.")), 1, 0);
 
-        var save = new ModernButton("Save", ButtonKind.Primary) { DialogResult = DialogResult.OK, Margin = new Padding(8, 0, 0, 0) };
-        var cancel = new ModernButton("Cancel", ButtonKind.Ghost) { DialogResult = DialogResult.Cancel, Margin = new Padding(8, 0, 0, 0) };
+        var save = new ModernButton(L.T("Save"), ButtonKind.Primary) { DialogResult = DialogResult.OK, Margin = new Padding(8, 0, 0, 0) };
+        var cancel = new ModernButton(L.T("Cancel"), ButtonKind.Ghost) { DialogResult = DialogResult.Cancel, Margin = new Padding(8, 0, 0, 0) };
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
         buttons.Controls.AddRange([save, cancel]);
 

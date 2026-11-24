@@ -8,6 +8,8 @@ using InterfaceSync.Core.Updates;
 using Microsoft.Win32;
 using System.Diagnostics;
 
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.App;
 
 /// <summary>The tray icon and its menu. All sync work runs on a background timer, never on the UI thread.</summary>
@@ -49,41 +51,42 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         Application.ThreadException += (_, e) => OnUnexpected(e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => _log.Error($"Unexpected error: {e.ExceptionObject}");
         Service = new SyncService(fs, _registry, new WindowsProcessList(), env, clock, _log, paths, Environment.MachineName);
+        L.Use(Service.Settings.Language);   // before any window or menu text is made
         Service.Changed += () => OnUi(RefreshTray);
         Updater = new Updater(Service, Http, clock);
         Updater.Changed += () => OnUi(OnUpdateChanged);
         Service.NoticeRaised += notice => OnUi(() => ShowNotice(notice));
 
-        _pauseItem = new ToolStripMenuItem("Pause syncing");
+        _pauseItem = new ToolStripMenuItem(L.T("Pause syncing"));
         _pauseItem.DropDownOpening += (_, _) => FillPauseMenu();
         _pauseItem.DropDownItems.Add("…");
         _startup = new WindowsStartAtLogin(_registry, Environment.ProcessPath ?? Application.ExecutablePath, Path.GetTempPath());
         _startupItem = new ToolStripMenuItem(_startup.Label, null, (_, _) => ToggleStartAtLogin(_startup, _log, null));
         var menu = _menu = new ContextMenuStrip();
         menu.Opening += (_, _) => _startupItem.Checked = _startup.IsEnabled;
-        _darkItem = new ToolStripMenuItem("Dark mode", null, (_, _) => ToggleTheme(Service));
-        menu.Items.Add(new ToolStripMenuItem("Open status", null, (_, _) => ShowStatus()) { Font = new Font(menu.Font, FontStyle.Bold) });
-        menu.Items.Add(new ToolStripMenuItem("Sync now", null, (_, _) => RunInBackground(Service.SyncNow)));
+        _darkItem = new ToolStripMenuItem(L.T("Dark mode"), null, (_, _) => ToggleTheme(Service));
+        menu.Items.Add(new ToolStripMenuItem(L.T("Open status"), null, (_, _) => ShowStatus()) { Font = new Font(menu.Font, FontStyle.Bold) });
+        menu.Items.Add(new ToolStripMenuItem(L.T("Sync now"), null, (_, _) => RunInBackground(Service.SyncNow)));
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => { ShowStatus(); _status?.OpenSettings(); }));
+        menu.Items.Add(new ToolStripMenuItem(L.T("Settings…"), null, (_, _) => { ShowStatus(); _status?.OpenSettings(); }));
         menu.Items.Add(_startupItem);
         menu.Items.Add(_darkItem);
-        menu.Items.Add(new ToolStripMenuItem("Check for updates", null, (_, _) => { ShowStatus(); _status?.CheckForUpdates(); }));
-        var help = new ToolStripMenuItem("Help");
-        help.DropDownItems.Add(new ToolStripMenuItem("Help and questions", null, (_, _) => Ui.OpenLink(Feedback.HelpPage)));
-        help.DropDownItems.Add(new ToolStripMenuItem("What's new", null, (_, _) => AppActions.ShowWhatsNew(_status)));
-        help.DropDownItems.Add(new ToolStripMenuItem("Report a problem…", null, (_, _) => AppActions.ReportProblem(_status, this)));
+        menu.Items.Add(new ToolStripMenuItem(L.T("Check for updates"), null, (_, _) => { ShowStatus(); _status?.CheckForUpdates(); }));
+        var help = new ToolStripMenuItem(L.T("Help"));
+        help.DropDownItems.Add(new ToolStripMenuItem(L.T("Help and questions"), null, (_, _) => Ui.OpenLink(Feedback.HelpPage)));
+        help.DropDownItems.Add(new ToolStripMenuItem(L.T("What's new"), null, (_, _) => AppActions.ShowWhatsNew(_status)));
+        help.DropDownItems.Add(new ToolStripMenuItem(L.T("Report a problem…"), null, (_, _) => AppActions.ReportProblem(_status, this)));
         help.DropDownItems.Add(new ToolStripSeparator());
-        help.DropDownItems.Add(new ToolStripMenuItem("About", null, (_, _) => StatusForm.ShowAbout(null)));
+        help.DropDownItems.Add(new ToolStripMenuItem(L.T("About"), null, (_, _) => StatusForm.ShowAbout(null)));
         menu.Items.Add(help);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
+        menu.Items.Add(new ToolStripMenuItem(L.T("Exit"), null, (_, _) => Exit()));
 
         _tray = new NotifyIcon
         {
             Icon = _icons.For(OverallState.Waiting),
-            Text = $"{ProductInfo.Name}: starting",
+            Text = $"{ProductInfo.Name}: {L.T("starting")}",
             ContextMenuStrip = menu,
             Visible = true,
         };
@@ -119,8 +122,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
                 return;
             }
             Service.TakeWhatsNew();   // a new install: nothing to announce, just remember the version
-            _tray.ShowBalloonTip(8_000, $"{ProductInfo.Name} is running",
-                "It syncs on its own when you close the game. Click the W icon by the clock to see its status.", ToolTipIcon.Info);
+            _tray.ShowBalloonTip(8_000, L.F("{0} is running", ProductInfo.Name),
+                L.T("It syncs on its own when you close the game. Click the W icon by the clock to see its status."), ToolTipIcon.Info);
         }
         else if (!_startInTray || _justUpdated)
         {
@@ -131,7 +134,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         {
             _status?.ShowUpdated();
             if (Service.Settings.Notifications != NotificationLevel.Off)
-                _tray.ShowBalloonTip(6_000, $"{ProductInfo.Name} was updated", $"You now have version {ProductInfo.DisplayVersion}.", ToolTipIcon.Info);
+                _tray.ShowBalloonTip(6_000, L.F("{0} was updated", ProductInfo.Name), L.F("You now have version {0}.", ProductInfo.DisplayVersion), ToolTipIcon.Info);
         }
         _timer = new System.Threading.Timer(_ => Poll(), null, TimeSpan.Zero, SyncService.PollInterval);
     }
@@ -164,7 +167,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         bool syncing = Service.State == OverallState.Syncing;
         if (syncing != _animation.Enabled) _animation.Enabled = syncing;
         if (!syncing) _tray.Icon = _icons.For(Service.State);
-        _tray.Text = StatusWords.Tooltip(Service.StateText, StatusWords.LastSynced(Service.Workers), DateTime.UtcNow);
+        _tray.Text = StatusWords.Tooltip(StatusWords.StateText(Service, DateTime.UtcNow), StatusWords.LastSynced(Service.Workers), DateTime.UtcNow);
         _pauseItem.Checked = Service.Settings.Paused;
         _status?.RefreshView();
     }
@@ -186,8 +189,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         _pauseItem.DropDownItems.Clear();
         if (Service.Settings.Paused)
         {
-            var until = Service.Settings.PausedUntilUtc is { } u ? $" (paused until {StatusWords.Until(u, DateTime.UtcNow)})" : "";
-            _pauseItem.DropDownItems.Add(new ToolStripMenuItem($"Resume syncing{until}", null, (_, _) => RunInBackground(() => Service.SetPaused(false))));
+            var label = Service.Settings.PausedUntilUtc is { } u ? L.F("Resume syncing (paused until {0})", StatusWords.Until(u, DateTime.UtcNow)) : L.T("Resume syncing");
+            _pauseItem.DropDownItems.Add(new ToolStripMenuItem(label, null, (_, _) => RunInBackground(() => Service.SetPaused(false))));
         }
         else
             foreach (var (label, until) in StatusWords.PauseChoices(DateTime.UtcNow))
@@ -292,8 +295,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             && Service.Settings.Notifications != NotificationLevel.Off)
         {
             _announcedUpdate = r.Version;
-            _tray.ShowBalloonTip(10_000, r.IsPrerelease ? $"Test build {r.Version} is available" : $"{ProductInfo.Name} {r.Version} is available",
-                "Open Interface Sync and click Update now. Your settings are kept.", ToolTipIcon.Info);
+            _tray.ShowBalloonTip(10_000, r.IsPrerelease ? L.F("Test build {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version),
+                L.T("Open Interface Sync and click Update now. Your settings are kept."), ToolTipIcon.Info);
         }
     }
 

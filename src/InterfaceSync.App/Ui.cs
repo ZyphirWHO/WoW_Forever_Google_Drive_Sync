@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using InterfaceSync.Core;
 
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.App;
 
 /// <summary>Small helpers shared by the windows: display scaling, opening folders and links.</summary>
@@ -269,7 +271,7 @@ internal sealed class InputDialog : Form
         var note = Ui.Text(message, TextRole.Muted);
         note.MaximumSize = new Size(380, 0);
         var okButton = new ModernButton(ok, ButtonKind.Primary) { DialogResult = DialogResult.OK, Margin = new Padding(8, 0, 0, 0) };
-        var cancel = new ModernButton("Cancel", ButtonKind.Ghost) { DialogResult = DialogResult.Cancel, Margin = new Padding(8, 0, 0, 0) };
+        var cancel = new ModernButton(L.T("Cancel"), ButtonKind.Ghost) { DialogResult = DialogResult.Cancel, Margin = new Padding(8, 0, 0, 0) };
         okButton.Enabled = initial.Trim().Length > 0;
         _box.TextChanged += (_, _) => okButton.Enabled = _box.Text.Trim().Length > 0;
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 16, 0, 0) };

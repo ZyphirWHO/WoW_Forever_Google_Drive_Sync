@@ -53,8 +53,14 @@ if ((Get-ItemProperty $run -ErrorAction SilentlyContinue).$id) { throw "Start-wi
 if (-not (Test-Path (Join-Path $data "keep-me.txt"))) { throw "Uninstall removed the player's settings" }
 
 # Asked to (the "also remove settings and backups" answer), uninstalling removes the data folder, and only that.
-$p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru
+# First let the previous uninstaller finish removing the program folder in the background, or it would
+# remove the files the next install puts there.
+$deadline = (Get-Date).AddSeconds(90)
+while ((Test-Path $dir) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+Start-Sleep -Seconds 3
+$p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$PWD\install2.log" -PassThru
 if (-not $p.WaitForExit(180000)) { throw "Second setup didn't finish within 3 minutes" }
+if (-not (Test-Path (Join-Path $dir "unins000.exe"))) { Get-Content install2.log -Tail 40; throw "Second install left no uninstaller in $dir" }
 Start-Sleep -Seconds 3
 Get-Process -Name $id -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1

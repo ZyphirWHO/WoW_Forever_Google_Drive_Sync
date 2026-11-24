@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using InterfaceSync.Core.Abstractions;
+using InterfaceSync.Core.Localization;
 using InterfaceSync.Core.Settings;
 
 namespace InterfaceSync.Core.Sync;
@@ -67,20 +68,19 @@ public sealed record SettingsItem(string RelativePath, string Account, string? R
     /// <summary>"Details, WeakAuras, Key bindings and 3 more" for a list of changed files.</summary>
     public static string Summarize(IEnumerable<string> relativePaths, int show = 3)
     {
-        var areas = relativePaths.Select(p => Parse(p).Area)
+        var areas = relativePaths.Select(p => L.T(Parse(p).Area))
             .GroupBy(a => a, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.Key).ToList();
-        if (areas.Count == 0) return "no files";
+        if (areas.Count == 0) return L.T("no files");
         if (areas.Count <= show) return JoinAnd(areas);
-        return $"{string.Join(", ", areas.Take(show))} and {areas.Count - show} more";
+        return L.F("{0} and {1} more", string.Join(", ", areas.Take(show)), areas.Count - show);
     }
 
     private static string JoinAnd(List<string> items) => items.Count switch
     {
         1 => items[0],
-        2 => $"{items[0]} and {items[1]}",
-        _ => $"{string.Join(", ", items.Take(items.Count - 1))} and {items[^1]}",
+        _ => L.F("{0} and {1}", string.Join(", ", items.Take(items.Count - 1)), items[^1]),
     };
 }
 
@@ -103,18 +103,28 @@ public sealed class ActivityEntry
     /// <summary>The changed files (at most <see cref="ActivityStore.MaxFilesPerEntry"/>), for the details view.</summary>
     public List<string> Files { get; set; } = [];
 
-    /// <summary>"Uploaded Details, WeakAuras and Key bindings" — the headline for the timeline.</summary>
-    public string Headline => Kind switch
+    /// <summary>The snapshot's name, or the game version a game-update copy was made for.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>"Uploaded Details, WeakAuras and Key bindings" — the headline for the timeline, in the interface language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Headline
     {
-        ActivityKind.Uploaded => $"Uploaded {Summary}",
-        ActivityKind.Downloaded => Computer is { Length: > 0 } c ? $"Downloaded {Summary} from {c}" : $"Downloaded {Summary}",
-        ActivityKind.Restored => $"Restored {Summary}",
-        ActivityKind.Conflict => "Settings changed on two computers",
-        ActivityKind.Resolved => Summary,
-        ActivityKind.Snapshot => Summary,
-        ActivityKind.GameUpdated => Summary,
-        _ => Summary,
-    };
+        get
+        {
+            var what = Files.Count > 0 ? SettingsItem.Summarize(Files) : Summary;
+            return Kind switch
+            {
+                ActivityKind.Uploaded => L.F("Uploaded {0}", what),
+                ActivityKind.Downloaded => Computer is { Length: > 0 } c ? L.F("Downloaded {0} from {1}", what, c) : L.F("Downloaded {0}", what),
+                ActivityKind.Restored => L.F("Restored {0}", what),
+                ActivityKind.Conflict => L.T("Settings changed on two computers"),
+                ActivityKind.Snapshot when Name != null => L.F("Saved the snapshot \"{0}\"", Name),
+                ActivityKind.GameUpdated when Name != null => L.F("Game updated to {0}: saved a copy of the settings", Name),
+                _ => Summary,
+            };
+        }
+    }
 
     public static ActivityEntry ForFiles(DateTime utc, string version, ActivityKind kind, IReadOnlyCollection<string> files, string? computer = null) => new()
     {

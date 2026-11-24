@@ -1,6 +1,8 @@
 using InterfaceSync.Core;
 using InterfaceSync.Core.Sync;
 
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.App;
 
 /// <summary>
@@ -46,7 +48,7 @@ internal sealed class InfoRow : Panel
             Cursor = Cursors.Hand;
             foreach (Control c in Controls) c.Cursor = Cursors.Hand;
             AccessibleRole = AccessibleRole.PushButton;
-            AccessibleDescription = $"{_detail.Text}. Press Enter to see the files.";
+            AccessibleDescription = $"{_detail.Text}. {L.T("Press Enter to see the files.")}";
         }
         remove => _activated -= value;
     }
@@ -109,7 +111,7 @@ internal sealed class ActivityDialog : Form
 
     public ActivityDialog(IStatusHost app)
     {
-        Text = $"{ProductInfo.Name}: activity";
+        Text = $"{ProductInfo.Name}: {L.T("Activity")}";
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(860, 560);
         MinimumSize = new Size(560, 360);
@@ -118,22 +120,22 @@ internal sealed class ActivityDialog : Form
         Font = SystemFonts.MessageBoxFont ?? Font;
         Icon = TrayIcons.AppIcon;
 
-        var title = Ui.Text("Activity", bold: true, size: 14f);
+        var title = Ui.Text(L.T("Activity"), bold: true, size: 14f);
         title.Margin = new Padding(0, 0, 0, 4);
-        var note = Ui.Text("What synced and when. Double-click an entry, or select it and press Enter, to see its files.", TextRole.Muted);
+        var note = Ui.Text(L.T("What synced and when. Double-click an entry, or select it and press Enter, to see its files."), TextRole.Muted);
         note.Margin = new Padding(0, 0, 0, 10);
-        _list.Columns.Add("When", 190);
-        _list.Columns.Add("Game", 110);
-        _list.Columns.Add("What", 480);
+        _list.Columns.Add(L.T("When"), 190);
+        _list.Columns.Add(L.T("Game"), 110);
+        _list.Columns.Add(L.T("What"), 480);
         var now = DateTime.UtcNow;
         foreach (var e in app.Service.Activity.List())
-            _list.Items.Add(new ListViewItem([$"{e.Utc.ToLocalTime():ddd d MMM, HH:mm}", e.Version, e.Headline]) { Tag = e, ToolTipText = StatusWords.Ago(e.Utc, now) });
+            _list.Items.Add(new ListViewItem([e.Utc.ToLocalTime().ToString("ddd d MMM, HH:mm", L.Culture), e.Version, e.Headline]) { Tag = e, ToolTipText = StatusWords.Ago(e.Utc, now) });
         if (_list.Items.Count == 0) _list.Items.Add(new ListViewItem(["Nothing synced yet", "", ""]) { ForeColor = Theme.Muted });
         _list.DoubleClick += (_, _) => ShowSelected();
         _list.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { ShowSelected(); e.Handled = true; } };
 
-        var close = new ModernButton("Close", ButtonKind.Primary) { DialogResult = DialogResult.OK, Margin = new Padding(8, 0, 0, 0) };
-        var log = new ModernButton("Technical log", ButtonKind.Ghost) { Icon = Draw.History };
+        var close = new ModernButton(L.T("Close"), ButtonKind.Primary) { DialogResult = DialogResult.OK, Margin = new Padding(8, 0, 0, 0) };
+        var log = new ModernButton(L.T("Technical log"), ButtonKind.Ghost) { Icon = Draw.History };
         log.Click += (_, _) => AppActions.ViewLog(this, app);
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
         buttons.Controls.AddRange([close, log]);
@@ -163,13 +165,13 @@ internal sealed class ActivityDialog : Form
     /// <summary>The files one event changed, grouped by what they are ("Details", "Key bindings"...).</summary>
     internal static string DetailsText(ActivityEntry e)
     {
-        var lines = new List<string> { $"{e.Headline}", $"{e.Version} · {e.Utc.ToLocalTime():f}", "" };
+        var lines = new List<string> { e.Headline, $"{e.Version} · {e.Utc.ToLocalTime().ToString("f", L.Culture)}", "" };
         foreach (var group in e.Files.Select(SettingsItem.Parse).GroupBy(i => i.Area, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            lines.Add(group.Key);
+            lines.Add(L.T(group.Key));
             foreach (var item in group) lines.Add($"    {item.RelativePath}{(item.CharacterLabel is { } c ? $"   ({c})" : "")}");
         }
-        if (e.FileCount > e.Files.Count) lines.Add($"…and {e.FileCount - e.Files.Count} more");
+        if (e.FileCount > e.Files.Count) lines.Add("…" + L.F("and {0} more", e.FileCount - e.Files.Count));
         return string.Join(Environment.NewLine, lines);
     }
 

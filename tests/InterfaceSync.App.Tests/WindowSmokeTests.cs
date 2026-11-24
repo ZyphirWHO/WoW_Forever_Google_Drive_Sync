@@ -479,6 +479,34 @@ public sealed class WindowSmokeTests : IDisposable
             finally { Theme.Set(AppTheme.System); }
         });
 
+        // German is the longest of the translations: check the main windows still fit.
+        OnSta(() =>
+        {
+            try
+            {
+                InterfaceSync.Core.Localization.L.Use("de");
+                Theme.Set(AppTheme.Dark);
+                using (var form = new StatusForm(new TestHost(status)) { Updater = UpdaterWithNewerRelease(status), InstallUpdate = _ => { } })
+                {
+                    form.Show(); form.RefreshView(); Application.DoEvents();
+                    Save(form, Path.Combine(folder, "windows-status-de.png"));
+                    form.AllowClose(); form.Close();
+                }
+                using (var settings = new SettingsForm(new TestHost(status), new WindowsStartAtLogin(new FakeRegistry(), @"C:\Users\Player\AppData\Local\Programs\Interface Sync\InterfaceSync.exe", @"C:\Temp"), UpdaterWithNewerRelease(status)))
+                {
+                    settings.Show();
+                    foreach (var page in new[] { "General", "Sync", "Backups" })
+                    {
+                        settings.ShowPage(page); Application.DoEvents();
+                        Save(settings, Path.Combine(folder, $"windows-settings-de-{page}.png"));
+                    }
+                    settings.Close();
+                }
+                using (var restore = new RestoreDialog(new TestHost(status), status.Workers[0])) { restore.Show(); Application.DoEvents(); Save(restore, Path.Combine(folder, "windows-restore-de.png")); restore.Close(); }
+            }
+            finally { InterfaceSync.Core.Localization.L.Use("en"); Theme.Set(AppTheme.System); }
+        });
+
         static void Save(Form form, string path)
         {
             using var bmp = new System.Drawing.Bitmap(form.Width, form.Height);

@@ -1,3 +1,5 @@
+using InterfaceSync.Core.Localization;
+
 namespace InterfaceSync.Core.Sync;
 
 /// <summary>
@@ -60,10 +62,10 @@ public sealed class SyncRules
     public string? Describe()
     {
         if (IsEmpty) return null;
-        var parts = new List<string>();
-        if (Characters.Count > 0) parts.Add(Characters.Count == 1 ? "1 character" : $"{Characters.Count} characters");
-        if (Addons.Count > 0) parts.Add(Addons.Count == 1 ? "1 addon" : $"{Addons.Count} addons");
-        return $"{string.Join(" and ", parts)} not synced on this computer";
+        if (Addons.Count == 0) return L.N(Characters.Count, "{0} character not synced on this computer", "{0} characters not synced on this computer");
+        if (Characters.Count == 0) return L.N(Addons.Count, "{0} addon not synced on this computer", "{0} addons not synced on this computer");
+        return L.F("{0} and {1} not synced on this computer",
+            L.N(Characters.Count, "{0} character", "{0} characters"), L.N(Addons.Count, "{0} addon", "{0} addons"));
     }
 
     private static bool SameSet(List<string> a, List<string> b) =>
