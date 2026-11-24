@@ -12,6 +12,12 @@ public interface IStartAtLogin
     /// <summary>Registered for this copy of the app and not switched off in the OS's own startup list.</summary>
     bool IsEnabled { get; }
 
+    /// <summary>Registered at all (for this or another copy of the app), even if switched off in the OS's list.</summary>
+    bool IsRegistered { get; }
+
+    /// <summary>Why it is registered but won't start (switched off in Task Manager's Startup apps), or null.</summary>
+    string? SwitchedOffNote { get; }
+
     /// <summary>Why it can't be switched on from where the app runs now (e.g. from inside a zip), or null.</summary>
     string? CannotEnableReason { get; }
 
@@ -48,6 +54,12 @@ public sealed class WindowsStartAtLogin(IRegistry registry, string exePath, stri
     }
 
     public bool IsEnabled => RegisteredPath is { } p && PathUtil.SamePath(p, exePath) && !SwitchedOffInTaskManager;
+
+    public bool IsRegistered => RegisteredPath != null;
+
+    public string? SwitchedOffNote => IsRegistered && SwitchedOffInTaskManager
+        ? "It is switched off in Windows' Startup apps (Settings → Apps → Startup, or Task Manager). Switch it on here to start with Windows again."
+        : null;
 
     public string? CannotEnableReason =>
         IsTemporary(exePath, tempFolder)
@@ -120,6 +132,10 @@ public sealed class MacStartAtLogin(IFileSystem fs, string home, string executab
 
     public bool IsEnabled => RegisteredPath == executablePath;
 
+    public bool IsRegistered => fs.FileExists(PlistPath);
+
+    public string? SwitchedOffNote => null;
+
     public string? CannotEnableReason =>
         executablePath.Contains("/AppTranslocation/", StringComparison.Ordinal) || executablePath.StartsWith("/Volumes/", StringComparison.Ordinal)
             ? $"Move {ProductInfo.Name} to your Applications folder and open it from there first, so macOS can find it at login."
@@ -169,4 +185,50 @@ public sealed class MacStartAtLogin(IFileSystem fs, string home, string executab
         </plist>
 
         """;
+}
+
+/// <summary>
+/// Remembers the player's choice (in settings) and keeps the OS entry in line with it: at every start
+/// (<see cref="Repair"/>), an entry that went missing (for example after uninstalling and installing again) is
+/// put back, and one pointing to an older copy of the app is pointed here. A switch-off in the OS's own startup list
+/// is respected and explained, never overridden.
+/// </summary>
+public sealed class RememberedStartAtLogin(IStartAtLogin inner, Func<bool?> wanted, Action<bool> remember, Func<bool> setupComplete) : IStartAtLogin
+{
+    public string Label => inner.Label;
+    public bool IsEnabled => inner.IsEnabled;
+    public bool IsRegistered => inner.IsRegistered;
+    public string? SwitchedOffNote => inner.SwitchedOffNote;
+    public string? CannotEnableReason => inner.CannotEnableReason;
+
+    public void Enable() { inner.Enable(); remember(true); }
+    public void Disable() { inner.Disable(); remember(false); }
+
+    public string? Repair()
+    {
+        var messages = new List<string>();
+        if (inner.Repair() is { } moved) messages.Add(moved);
+        if (!setupComplete()) return messages.Count > 0 ? string.Join(" ", messages) : null;
+
+        // Settings from before the choice was remembered: setup switches it on by default, so an entry that is
+        // there, or missing without the player having said otherwise, counts as wanted.
+        var want = wanted();
+        if (want == null)
+        {
+            want = true;
+            remember(true);
+        }
+
+        if (want == true && !inner.IsRegistered)
+        {
+            if (inner.CannotEnableReason is { } why) messages.Add($"{Label} is on, but can't be set up from here: {why}");
+            else
+            {
+                inner.Enable();
+                messages.Add($"{Label} is on, but its entry was missing (for example after reinstalling), so it was added back.");
+            }
+        }
+        else if (want == true && inner.SwitchedOffNote is { } note) messages.Add($"{Label}: {note}");
+        return messages.Count > 0 ? string.Join(" ", messages) : null;
+    }
 }

@@ -60,7 +60,9 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         _pauseItem = new ToolStripMenuItem(L.T("Pause syncing"));
         _pauseItem.DropDownOpening += (_, _) => FillPauseMenu();
         _pauseItem.DropDownItems.Add("…");
-        _startup = new WindowsStartAtLogin(_registry, Environment.ProcessPath ?? Application.ExecutablePath, Path.GetTempPath());
+        _startup = new RememberedStartAtLogin(
+            new WindowsStartAtLogin(_registry, Environment.ProcessPath ?? Application.ExecutablePath, Path.GetTempPath()),
+            () => Service.Settings.StartAtLogin, on => Service.SavePreference(s => s.StartAtLogin = on), () => Service.Settings.SetupComplete);
         _startupItem = new ToolStripMenuItem(_startup.Label, null, (_, _) => ToggleStartAtLogin(_startup, _log, null));
         var menu = _menu = new ContextMenuStrip();
         menu.Opening += (_, _) => _startupItem.Checked = _startup.IsEnabled;
@@ -110,8 +112,10 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
 
     private void AfterStart()
     {
+        if (_startInTray) _log.Info("Started by Windows at sign-in.");
         try { if (_startup.Repair() is { } repaired) _log.Info(repaired); }
         catch (Exception e) { _log.Warn($"Couldn't update the start-with-Windows entry: {e.Message}"); }
+        _log.Info($"Start with Windows: {(_startup.IsEnabled ? "on" : _startup.SwitchedOffNote != null ? "switched off in Windows' Startup apps" : "off")}.");
 
         if (!Service.Settings.SetupComplete)
         {
@@ -128,6 +132,13 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         else if (!_startInTray || _justUpdated)
         {
             ShowStatus();   // after an in-app update, reopen where the player left off: the status window
+        }
+        else if (!Service.Settings.LoginStartNoticeShown)
+        {
+            // Started at sign-in, with no window: say once where it is, since Windows tucks new tray icons away.
+            Service.SavePreference(s => s.LoginStartNoticeShown = true);
+            _tray.ShowBalloonTip(10_000, L.F("{0} started with Windows", ProductInfo.Name),
+                L.T("It runs in the tray by the clock. If you don't see its icon, click the ^ arrow there; you can drag the icon out to keep it in view."), ToolTipIcon.Info);
         }
 
         if (_justUpdated)

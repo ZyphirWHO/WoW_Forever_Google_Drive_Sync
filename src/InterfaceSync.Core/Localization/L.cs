@@ -31,6 +31,7 @@ public static class L
         "Settings changed on this PC and in the cloud: choose which to keep", "Paused (upload waiting)", "Paused (push waiting)",
         "Nothing to sync yet: launch this game version once", "Pull undone: files were in use",
         "Start with Windows", "Open at Login",
+        "It is switched off in Windows' Startup apps (Settings → Apps → Startup, or Task Manager). Switch it on here to start with Windows again.",
         "Before downloading settings", "Before keeping the cloud settings", "Before restoring a backup", "Cloud copy, before uploading",
         "The cloud copy you chose not to keep", "Cloud copy, before moving cloud folder",
     ];

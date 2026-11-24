@@ -73,7 +73,8 @@ internal sealed class MacApp : Application, IMacHost
         _log = new FileLog(fs, clock, paths.Logs);
         if (moved != null) _log.Info(moved);
         Service = new SyncService(fs, new NoRegistry(), new MacProcessList(), env, clock, _log, paths, Environment.MachineName);
-        _startup = new MacStartAtLogin(fs, env.UserProfile, Environment.ProcessPath ?? "", ProductInfo.BundleId);
+        _startup = new RememberedStartAtLogin(new MacStartAtLogin(fs, env.UserProfile, Environment.ProcessPath ?? "", ProductInfo.BundleId),
+            () => Service.Settings.StartAtLogin, on => Service.SavePreference(s => s.StartAtLogin = on), () => Service.Settings.SetupComplete);
         try { if (_startup.Repair() is { } repaired) _log.Info(repaired); }
         catch (Exception e) { _log.Warn($"Couldn't update Open at Login: {e.Message}"); }
         L.Use(Service.Settings.Language);   // before any window or menu text is made

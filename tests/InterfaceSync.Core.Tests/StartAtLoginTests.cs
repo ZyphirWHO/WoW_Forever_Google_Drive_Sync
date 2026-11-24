@@ -91,3 +91,70 @@ public sealed class StartAtLoginTests
         Assert.True(now.IsEnabled);
     }
 }
+
+public sealed class RememberedStartAtLoginTests
+{
+    private const string Exe = @"C:\Users\P\AppData\Local\Programs\Interface Sync\InterfaceSync.exe";
+
+    private static (RememberedStartAtLogin s, WindowsStartAtLogin inner, InterfaceSync.Core.Tests.Fakes.FakeRegistry reg, Func<bool?> wanted) Make(bool? choice, bool setupComplete = true)
+    {
+        var reg = new InterfaceSync.Core.Tests.Fakes.FakeRegistry();
+        var inner = new WindowsStartAtLogin(reg, Exe, @"C:\Users\P\AppData\Local\Temp");
+        bool? saved = choice;
+        var s = new RememberedStartAtLogin(inner, () => saved, on => saved = on, () => setupComplete);
+        return (s, inner, reg, () => saved);
+    }
+
+    [Fact]
+    public void An_entry_that_went_missing_is_put_back_at_start()
+    {
+        var (s, inner, _, wanted) = Make(choice: true);
+        Assert.False(inner.IsRegistered);                                // e.g. removed by uninstalling
+        Assert.Contains("added back", s.Repair());
+        Assert.True(s.IsEnabled);
+        Assert.True(wanted());
+    }
+
+    [Fact]
+    public void Settings_from_before_the_choice_was_remembered_count_as_on()
+    {
+        var (s, _, _, wanted) = Make(choice: null);
+        s.Repair();
+        Assert.True(s.IsEnabled);
+        Assert.True(wanted());
+    }
+
+    [Fact]
+    public void Switching_it_off_is_remembered_and_respected()
+    {
+        var (s, _, _, wanted) = Make(choice: true);
+        s.Enable();
+        s.Disable();
+        Assert.False(wanted());
+        Assert.Null(s.Repair());
+        Assert.False(s.IsEnabled);
+    }
+
+    [Fact]
+    public void A_switch_off_in_Task_Manager_is_explained_not_overridden()
+    {
+        var (s, _, reg, _) = Make(choice: true);
+        s.Enable();
+        reg.SetString(Abstractions.RegistryHive.CurrentUser, WindowsStartAtLogin.ApprovedKey, WindowsStartAtLogin.ValueName, "030000000000000000000000");
+        Assert.False(s.IsEnabled);
+        Assert.Contains("Startup apps", s.Repair());
+        Assert.False(s.IsEnabled);                                       // still off: the player's Windows choice
+        Assert.NotNull(s.SwitchedOffNote);
+        s.Enable();                                                      // switching it on here clears it
+        Assert.True(s.IsEnabled);
+    }
+
+    [Fact]
+    public void Nothing_happens_before_setup_is_done()
+    {
+        var (s, inner, _, wanted) = Make(choice: null, setupComplete: false);
+        Assert.Null(s.Repair());
+        Assert.False(inner.IsRegistered);
+        Assert.Null(wanted());
+    }
+}

@@ -155,7 +155,7 @@ internal sealed class SettingsForm : Form
             toggle.Click += (_, _) => { ToggleStartAtLogin(); };
             _startToggle = toggle;
             yield return new SettingRow(L.T(_startup.Label),
-                L.T("Starts quietly in the tray when you sign in, so your settings are always up to date before you play."), Draw.Power, toggle);
+                (_startup.SwitchedOffNote is { } off ? L.T(off) : L.T("Starts quietly in the tray when you sign in, so your settings are always up to date before you play.")), Draw.Power, toggle);
         }
 
         var languages = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200, AccessibleName = L.T("Language") };

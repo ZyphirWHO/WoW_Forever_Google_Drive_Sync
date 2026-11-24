@@ -69,6 +69,12 @@ public sealed class AppSettings
     public bool CheckForUpdates { get; set; } = true;
     public bool SetupComplete { get; set; }
 
+    /// <summary>The player's start-at-login choice (null: from before it was remembered).</summary>
+    public bool? StartAtLogin { get; set; }
+
+    /// <summary>The one-time "running in the tray" note after the first start at sign-in was shown.</summary>
+    public bool LoginStartNoticeShown { get; set; }
+
     public NotificationLevel Notifications { get; set; } = NotificationLevel.Important;
 
     /// <summary>The version whose "What's new" was last shown (e.g. "3.1.0").</summary>
