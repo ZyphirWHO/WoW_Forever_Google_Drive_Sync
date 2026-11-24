@@ -98,6 +98,18 @@ public sealed class VersionSync
     public string StatusText { get; private set; } = "";
     public bool Paused { get; set; }
 
+    /// <summary>Raised after each upload, download, restore or conflict, for the activity timeline.</summary>
+    public event Action<ActivityEntry>? Activity;
+
+    /// <summary>Raised when the game is seen starting (to check whether it was just updated).</summary>
+    public event Action<VersionSync>? GameStarted;
+
+    private void Record(ActivityEntry entry)
+    {
+        try { Activity?.Invoke(entry); }
+        catch (Exception e) { _log.Warn($"{Name}: couldn't record activity ({e.Message})."); }
+    }
+
     /// <summary>The player's setup choice for this version's first sync (only used while not yet joined).</summary>
     public Settings.FirstSyncChoice FirstSyncChoice { get; set; }
 
@@ -133,7 +145,12 @@ public sealed class VersionSync
 
             if (running)
             {
-                if (!_wasRunning) _log.Info($"{Name}: game started. Syncing waits until it closes.");
+                if (!_wasRunning)
+                {
+                    _log.Info($"{Name}: game started. Syncing waits until it closes.");
+                    try { GameStarted?.Invoke(this); }
+                    catch (Exception e) { _log.Warn($"{Name}: {e.Message}"); }
+                }
                 _wasRunning = true;
                 _closedAtUtc = null;
                 SetStatus(SyncStatus.GameRunning, "Game running");
@@ -410,6 +427,7 @@ public sealed class VersionSync
         }
 
         int copied = 0;
+        var changedPaths = new List<string>();
         foreach (var entry in local.Manifest.Entries)
         {
             if (cloudFiles.TryGetValue(entry.RelativePath, out var existing) && Manifest.SameFile(entry, existing))
@@ -420,6 +438,7 @@ public sealed class VersionSync
             _fs.CopyFile(source, temp);
             _fs.MoveFile(temp, target);
             copied++;
+            changedPaths.Add(entry.RelativePath);
         }
 
         // Mirror deletions (already backed up above).
@@ -454,6 +473,9 @@ public sealed class VersionSync
         ClearError();
         Save();
         _log.Info($"{Name}: pushed settings to the cloud ({copied} changed of {local.Manifest.Count} files).");
+        changedPaths.AddRange(toDelete.Select(e => e.RelativePath));
+        if (changedPaths.Count > 0) Record(ActivityEntry.ForFiles(pushedAt, Name, ActivityKind.Uploaded, changedPaths));
+        Devices.Write(_fs, Cloud, _machineName, "Uploaded", pushedAt);
         SetIdle();
         return SyncOutcome.Pushed;
     }
@@ -579,6 +601,11 @@ public sealed class VersionSync
         Save();
         var from = cloud.Commit?.PushedBy is { Length: > 0 } by ? $" from {by}" : "";
         _log.Info($"{Name}: pulled settings{from} ({files.Count} files).");
+        var pulledPaths = changed.Concat(removed).Select(e => e.RelativePath).ToList();
+        Devices.Write(_fs, Cloud, _machineName, "Downloaded", State.LastPullUtc.Value);
+        if (pulledPaths.Count > 0)
+            Record(ActivityEntry.ForFiles(_clock.UtcNow, Name, ActivityKind.Downloaded, pulledPaths,
+                cloud.Commit?.PushedBy is { Length: > 0 } who && who != _machineName ? who : null));
         SetIdle();
         return SyncOutcome.Pulled;
     }
@@ -600,6 +627,11 @@ public sealed class VersionSync
             CloudBackupPath = backup?.Path,
         };
         Save();
+        Record(new ActivityEntry
+        {
+            Utc = _clock.UtcNow, Version = Name, Kind = ActivityKind.Conflict, Computer = cloud.Commit?.PushedBy,
+            Summary = "Settings changed on two computers",
+        });
         _log.Warn($"{Name}: {reason} This PC's settings were kept; the cloud copy was saved to {backup?.Path ?? "(nothing to save)"}. Choose which to keep in the status window.");
         SetStatus(SyncStatus.NeedsAttention, "Choose which settings to keep");
         return SyncOutcome.Conflict;
@@ -642,6 +674,59 @@ public sealed class VersionSync
             {
                 _log.Warn($"{Name}: couldn't put back '{entry.RelativePath}' ({e.Message}). Its original is in {backup?.Path}.");
             }
+        }
+    }
+
+    // ------------------------------------------------------------------ snapshots
+
+    /// <summary>Saves a named copy of this computer's settings for this game version (kept until deleted).</summary>
+    public BackupInfo? SaveSnapshot(string name)
+    {
+        lock (_gate)
+        {
+            var snap = _backups.CreateSnapshot(Name, LocalAccount, name);
+            if (snap == null)
+            {
+                _log.Warn($"{Name}: there are no settings to save in a snapshot yet.");
+                return null;
+            }
+            _log.Info($"{Name}: saved the snapshot \"{snap.SnapshotName}\" ({snap.FileCount} files, {snap.Path}).");
+            Record(new ActivityEntry { Utc = snap.CreatedUtc, Version = Name, Kind = ActivityKind.Snapshot,
+                Summary = $"Saved the snapshot \"{snap.SnapshotName}\"", FileCount = snap.FileCount });
+            return snap;
+        }
+    }
+
+    /// <summary>
+    /// Called with the game's version from Battle.net (at start and whenever the game starts). The first time a new
+    /// version is seen, the settings are copied as they were, so an update that resets or breaks them can be undone.
+    /// </summary>
+    public BackupInfo? NoteClientVersion(string? clientVersion)
+    {
+        if (string.IsNullOrWhiteSpace(clientVersion)) return null;
+        lock (_gate)
+        {
+            var previous = State.LastClientVersion;
+            if (string.Equals(previous, clientVersion, StringComparison.OrdinalIgnoreCase)) return null;
+            BackupInfo? snap = null;
+            if (previous != null)
+            {
+                try { snap = _backups.CreateGameUpdateSnapshot(Name, LocalAccount, clientVersion); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    _log.Warn($"{Name}: the game was updated to {clientVersion}, but its settings couldn't be copied ({e.Message}).");
+                    return null;   // try again next time
+                }
+                if (snap != null)
+                {
+                    _log.Info($"{Name}: the game was updated ({previous} → {clientVersion}). Saved a copy of the settings first ({snap.Path}).");
+                    Record(new ActivityEntry { Utc = snap.CreatedUtc, Version = Name, Kind = ActivityKind.GameUpdated,
+                        Summary = $"Game updated to {clientVersion}: saved a copy of the settings", FileCount = snap.FileCount });
+                }
+            }
+            State.LastClientVersion = clientVersion;
+            TrySave();
+            return snap;
         }
     }
 
@@ -721,6 +806,8 @@ public sealed class VersionSync
 
                 State.PendingPush = true;
                 Save();
+                Record(ActivityEntry.ForFiles(_clock.UtcNow, Name, ActivityKind.Restored,
+                    writes.Select(w => w.Key).Concat(removes.Select(r => r.RelativePath)).ToList()));
                 _log.Info($"{Name}: restored the settings from {backup.CreatedUtc.ToLocalTime():g} ({writes.Count} file(s) put back" +
                           (removes.Count > 0 ? $", {removes.Count} removed" : "") + $"; the replaced ones were saved to {before?.Path ?? "nowhere: none"}).");
                 return Evaluate(manual: true);

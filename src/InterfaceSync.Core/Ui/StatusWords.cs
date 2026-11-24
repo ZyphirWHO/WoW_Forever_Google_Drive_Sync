@@ -62,4 +62,41 @@ public static class StatusWords
         if (s.LastPushUtc == null && s.LastPullUtc == null) return "Not synced yet";
         return $"Uploaded {Ago(s.LastPushUtc, nowUtc)} · Downloaded {Ago(s.LastPullUtc, nowUtc)}";
     }
+
+    /// <summary>"4:30 PM", "tomorrow 6:00 AM" or "Mon 6:00 AM" for when a timed pause ends.</summary>
+    public static string Until(DateTime untilUtc, DateTime nowUtc)
+    {
+        var t = untilUtc.ToLocalTime();
+        var today = nowUtc.ToLocalTime().Date;
+        var time = t.ToString("t", System.Globalization.CultureInfo.CurrentCulture);
+        if (t.Date == today) return time;
+        if (t.Date == today.AddDays(1)) return $"tomorrow {time}";
+        return $"{t:ddd} {time}";
+    }
+
+    /// <summary>The pause choices in the tray and status window: label and when the pause ends (null: until resumed).</summary>
+    public static IReadOnlyList<(string Label, DateTime? UntilUtc)> PauseChoices(DateTime nowUtc) =>
+    [
+        ("For 1 hour", nowUtc.AddHours(1)),
+        ("For 4 hours", nowUtc.AddHours(4)),
+        ("Until tomorrow morning", TomorrowMorning(nowUtc)),
+        ("Until I resume", null),
+    ];
+
+    /// <summary>The next 6:00 AM local time at least an hour away.</summary>
+    public static DateTime TomorrowMorning(DateTime nowUtc)
+    {
+        var local = nowUtc.ToLocalTime();
+        var target = local.Date.AddHours(6);
+        if (target <= local.AddHours(1)) target = target.AddDays(1);
+        return DateTime.SpecifyKind(target, DateTimeKind.Local).ToUniversalTime();
+    }
+
+    /// <summary>Tray tooltip: "Interface Sync: in sync, synced 5 minutes ago" (at most 63 characters on Windows).</summary>
+    public static string Tooltip(string stateText, DateTime? lastSyncedUtc, DateTime nowUtc)
+    {
+        var tip = $"{ProductInfo.Name}: {stateText}";
+        if (lastSyncedUtc != null) tip += $" · synced {Ago(lastSyncedUtc, nowUtc)}";
+        return tip.Length <= 63 ? tip : tip[..60] + "...";
+    }
 }

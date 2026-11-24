@@ -34,7 +34,9 @@ public sealed class CloudLayoutTests : IDisposable
         Assert.Equal(SyncOutcome.Pushed, a.PlaySession((@"PLAYER#1\SavedVariables\Details.lua", "changed")));
 
         var versionRoot = Path.Combine(_world.MyDrive, "InterfaceSync", "_forever_");
-        Assert.Equal(["WTF-Account"], Directory.GetDirectories(versionRoot).Select(Path.GetFileName));
+        // The settings, and the small "Your computers" files; never an AddOns folder.
+        Assert.Equal(["Computers", "WTF-Account"], Directory.GetDirectories(versionRoot).Select(Path.GetFileName).Order());
+        Assert.Equal(["HomePC.json"], Directory.GetFiles(Path.Combine(versionRoot, "Computers")).Select(Path.GetFileName));
         Assert.Equal(["WTF-Account.interfacesync.json"], Directory.GetFiles(versionRoot).Select(Path.GetFileName));
     }
 

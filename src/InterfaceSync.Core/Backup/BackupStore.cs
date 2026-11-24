@@ -14,8 +14,19 @@ public sealed record BackupInfo(string VersionFolder, string Path, DateTime Crea
     public bool Partial => Reason.EndsWith(BackupStore.ChangesSuffix, StringComparison.OrdinalIgnoreCase) ||
                            Reason.Equals("cloud-before-push", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>A snapshot the player saved and named: kept until they delete it, outside the 5-backup limit.</summary>
+    public bool Pinned => Reason.StartsWith(BackupStore.SnapshotPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Taken automatically when the game was updated; the newest 3 are kept, outside the 5-backup limit.</summary>
+    public bool GameUpdate => Reason.StartsWith(BackupStore.GameUpdatePrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The name the player gave a snapshot.</summary>
+    public string? SnapshotName => Pinned ? Reason[BackupStore.SnapshotPrefix.Length..] : null;
+
     /// <summary>Plain words for the restore list.</summary>
-    public string Description => (Reason.EndsWith(BackupStore.ChangesSuffix, StringComparison.OrdinalIgnoreCase) ? Reason[..^BackupStore.ChangesSuffix.Length] : Reason) switch
+    public string Description => Pinned ? $"Snapshot: {SnapshotName}"
+        : GameUpdate ? $"Before game update {Reason[BackupStore.GameUpdatePrefix.Length..]}"
+        : (Reason.EndsWith(BackupStore.ChangesSuffix, StringComparison.OrdinalIgnoreCase) ? Reason[..^BackupStore.ChangesSuffix.Length] : Reason) switch
     {
         "before-pull" or "first-join" => "Before downloading settings",
         "before-keep-cloud" => "Before keeping the cloud settings",
@@ -40,6 +51,14 @@ public sealed class BackupStore
 
     /// <summary>Ends the reason of a backup that holds only the files a sync changed, e.g. "before-pull-changes".</summary>
     public const string ChangesSuffix = "-changes";
+
+    /// <summary>Starts the reason of a named snapshot ("snapshot-Raid UI").</summary>
+    public const string SnapshotPrefix = "snapshot-";
+
+    /// <summary>Starts the reason of the automatic copy made when the game updates ("game-update-11.0.7.57788").</summary>
+    public const string GameUpdatePrefix = "game-update-";
+    public const int KeepGameUpdates = 3;
+    public const int MaxSnapshotNameLength = 40;
     private const string StampFormat = "yyyyMMdd-HHmmss-fff";
 
     private readonly IFileSystem _fs;
@@ -62,7 +81,7 @@ public sealed class BackupStore
 
         // Identical to the newest backup of the same kind? Reuse it. Without this, a sync retried every poll
         // made a new backup each time, and pruning to 10 then deleted the backup that mattered (laptop, 2026-11-18).
-        var newest = List(versionFolder).FirstOrDefault(b => IsCloudReason(b.Reason) == IsCloudReason(reason));
+        var newest = List(versionFolder).FirstOrDefault(b => !b.Pinned && !b.GameUpdate && IsCloudReason(b.Reason) == IsCloudReason(reason));
         if (newest != null && SameFiles(files, FolderScanner.AllFiles(_fs, newest.Path)))
             return newest with { Reused = true };
 
@@ -96,6 +115,54 @@ public sealed class BackupStore
         return new BackupInfo(versionFolder, dest, now, reason, files.Count);
     }
 
+    /// <summary>
+    /// Saves a whole copy of <paramref name="sourceFolder"/> under the name the player chose. Snapshots are never
+    /// pruned; the player deletes them. Returns null if the folder is empty.
+    /// </summary>
+    public BackupInfo? CreateSnapshot(string versionFolder, string sourceFolder, string name)
+    {
+        var clean = CleanSnapshotName(name);
+        if (clean.Length == 0) throw new ArgumentException("Give the snapshot a name.", nameof(name));
+        return CreateWhole(versionFolder, sourceFolder, SnapshotPrefix + clean);
+    }
+
+    /// <summary>The automatic copy made when a new game version is first seen. The newest 3 are kept.</summary>
+    public BackupInfo? CreateGameUpdateSnapshot(string versionFolder, string sourceFolder, string clientVersion)
+    {
+        var info = CreateWhole(versionFolder, sourceFolder, GameUpdatePrefix + Sanitize(clientVersion));
+        Prune(versionFolder);
+        return info;
+    }
+
+    /// <summary>Deletes a snapshot (only snapshots and game-update copies; regular backups are managed automatically).</summary>
+    public void Delete(BackupInfo backup)
+    {
+        if (!backup.Pinned && !backup.GameUpdate) throw new InvalidOperationException("Only snapshots can be deleted.");
+        if (!PathUtil.IsUnder(backup.Path, PathUtil.Join(Root, backup.VersionFolder)))
+            throw new InvalidOperationException($"{backup.Path} is not in the backups folder.");
+        _fs.DeleteDirectory(backup.Path);
+    }
+
+    /// <summary>Letters, digits, spaces, '-' and '_' only (it becomes part of a folder name), at most 40 characters.</summary>
+    public static string CleanSnapshotName(string name)
+    {
+        var chars = (name ?? "").Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : ' ').ToArray();
+        var clean = string.Join(' ', new string(chars).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return clean.Length > MaxSnapshotNameLength ? clean[..MaxSnapshotNameLength].TrimEnd() : clean;
+    }
+
+    private BackupInfo? CreateWhole(string versionFolder, string sourceFolder, string reason)
+    {
+        var files = FolderScanner.AllFiles(_fs, sourceFolder);
+        if (files.Count == 0) return null;
+        var now = _clock.UtcNow;
+        var name = $"{now.ToString(StampFormat, CultureInfo.InvariantCulture)}-{reason}";
+        var dest = PathUtil.Join(Root, versionFolder, name);
+        for (int i = 2; _fs.DirectoryExists(dest); i++) dest = PathUtil.Join(Root, versionFolder, $"{name}-{i}");
+        TreeCopy.CopyFiles(_fs, sourceFolder, dest, files);
+        return new BackupInfo(versionFolder, dest, now, reason, files.Count);
+    }
+
     public IReadOnlyList<BackupInfo> List(string versionFolder)
     {
         var dir = PathUtil.Join(Root, versionFolder);
@@ -122,8 +189,10 @@ public sealed class BackupStore
     /// </summary>
     public int Prune(string versionFolder, string? reason = null)
     {
-        var all = List(versionFolder);
-        if (all.Count <= KeepPerVersion) return 0;
+        var listed = List(versionFolder);
+        var oldGameUpdates = listed.Where(b => b.GameUpdate).Skip(KeepGameUpdates).ToList();
+        var all = listed.Where(b => !b.Pinned && !b.GameUpdate).ToList();   // snapshots don't count towards the 5
+        if (all.Count <= KeepPerVersion && oldGameUpdates.Count == 0) return 0;
         var mustKeep = new[]
         {
             all.FirstOrDefault(b => !IsCloudReason(b.Reason)),
@@ -132,7 +201,7 @@ public sealed class BackupStore
         }.OfType<BackupInfo>().Distinct().ToList();
         var keep = mustKeep.Concat(all.Where(b => !mustKeep.Contains(b))).Take(KeepPerVersion).ToHashSet();
         int deleted = 0;
-        foreach (var old in all.Where(b => !keep.Contains(b)))
+        foreach (var old in all.Where(b => !keep.Contains(b)).Concat(oldGameUpdates))
         {
             try { _fs.DeleteDirectory(old.Path); deleted++; }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // tried again next time
@@ -158,8 +227,8 @@ public sealed class BackupStore
 
     private static string Sanitize(string reason)
     {
-        var chars = reason.Select(c => char.IsLetterOrDigit(c) || c == '-' ? c : '-').ToArray();
-        return new string(chars).Trim('-');
+        var chars = reason.Select(c => char.IsLetterOrDigit(c) || c is '-' or '.' ? c : '-').ToArray();
+        return new string(chars).Trim('-', '.');
     }
 }
 

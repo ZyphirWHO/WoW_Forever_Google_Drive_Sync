@@ -345,4 +345,40 @@ public sealed class SyncServiceTests : IDisposable
         again.Start();
         Assert.Empty(again.Duplicates);
     }
+
+    [Fact]
+    public void A_timed_pause_ends_by_itself_and_an_open_ended_one_does_not()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var s = Service();
+        s.Start();
+        s.SetPaused(true, _clock.UtcNow.AddHours(1));
+        s.Poll();
+        Assert.Equal(OverallState.Paused, s.State);
+        Assert.StartsWith("Paused until", s.StateText);
+
+        PollAfter(s, TimeSpan.FromMinutes(61));
+        Assert.False(s.Settings.Paused);
+        Assert.Null(s.Settings.PausedUntilUtc);
+        Assert.NotEqual(OverallState.Paused, s.State);
+
+        s.SetPaused(true);
+        PollAfter(s, TimeSpan.FromDays(3));
+        Assert.True(s.Settings.Paused);
+        Assert.Equal("Paused", s.StateText);
+    }
+
+    [Fact]
+    public void Syncs_land_in_the_activity_timeline_and_the_computers_list()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var s = Service();
+        s.Start();
+        s.Poll();
+        var activity = s.Activity.List();
+        Assert.Equal(2, activity.Count(a => a.Kind == ActivityKind.Uploaded));
+        var me = Assert.Single(s.Computers());
+        Assert.True(me.IsThisComputer);
+        Assert.Equal(2, me.Versions.Count);
+    }
 }

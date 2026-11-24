@@ -180,6 +180,9 @@ public sealed class VersionState
 
     public string? LastError { get; set; }
     public DateTime? LastErrorUtc { get; set; }
+
+    /// <summary>The game's version when last seen (Battle.net's product.db), to notice a game update.</summary>
+    public string? LastClientVersion { get; set; }
 }
 
 public sealed class StateStore

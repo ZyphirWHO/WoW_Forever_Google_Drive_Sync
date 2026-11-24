@@ -81,6 +81,7 @@ public sealed class SyncService
         _settingsStore = new SettingsStore(fs, paths.Data);
         _states = new StateStore(fs, paths.Data);
         _backups = new BackupStore(fs, clock, paths.Backups);
+        Activity = new ActivityStore(fs, paths.Data);
         Settings = _settingsStore.Load();
         Watcher = new GameWatcher(processes);
     }
@@ -89,6 +90,9 @@ public sealed class SyncService
     public AppSettings Settings { get; private set; }
     public GameWatcher Watcher { get; }
     public BackupStore Backups => _backups;
+
+    /// <summary>The activity timeline (uploads, downloads, restores, snapshots).</summary>
+    public ActivityStore Activity { get; }
     public WowInstallDetection? Wow { get; private set; }
     public DriveDetectionResult? Drive { get; private set; }
     public IReadOnlyList<GameVersion> Versions { get; private set; } = [];
@@ -179,6 +183,13 @@ public sealed class SyncService
         lock (_gate)
         {
             if (PathsMissing(out var what)) Redetect(reason: what);
+            if (Settings.Paused && Settings.PausedUntilUtc is { } until && _clock.UtcNow >= until)
+            {
+                Settings.Paused = false;
+                Settings.PausedUntilUtc = null;
+                TrySaveSettings();
+                _log.Info("Syncing resumed (the pause you set has ended).");
+            }
             CheckDriveNotice();
             bool movedAway = CheckMovedAway();
             foreach (var w in movedAway ? [] : _workers)
@@ -223,15 +234,18 @@ public sealed class SyncService
         return outcome;
     }
 
-    public void SetPaused(bool paused)
+    /// <summary>Pauses syncing until <paramref name="untilUtc"/> (null: until resumed), or resumes it.</summary>
+    public void SetPaused(bool paused, DateTime? untilUtc = null)
     {
         lock (_gate)
         {
             Settings.Paused = paused;
+            Settings.PausedUntilUtc = paused ? untilUtc : null;
             _settingsStore.Save(Settings);
             foreach (var w in _workers) w.Paused = paused;
         }
-        _log.Info(paused ? "Syncing paused." : "Syncing resumed.");
+        _log.Info(!paused ? "Syncing resumed."
+            : untilUtc is { } u ? $"Syncing paused until {u.ToLocalTime():g}." : "Syncing paused until you resume it.");
         UpdateOverall();
     }
 
@@ -586,13 +600,57 @@ public sealed class SyncService
                 }
                 if (note != null && _folderNotesLogged.Add(note)) _log.Warn(note);
                 var cloud = new CloudLayout(myDrive, folderName, Drive.Provider);
-                workers.Add(new VersionSync(version, cloud, _fs, _clock, _backups, _states, _log, _machineName,
-                    () => Watcher.IsRunning(version), _timing) { Paused = Settings.Paused });
+                var worker = new VersionSync(version, cloud, _fs, _clock, _backups, _states, _log, _machineName,
+                    () => Watcher.IsRunning(version), _timing) { Paused = Settings.Paused };
+                worker.Activity += Activity.Add;
+                worker.GameStarted += OnGameStarted;
+                workers.Add(worker);
             }
         }
         _workers = workers;
+        foreach (var w in workers)
+            w.NoteClientVersion(Versions.FirstOrDefault(v => PathUtil.SamePath(v.FolderPath, w.Version.FolderPath))?.ClientVersion);
         ApplyFirstSyncChoices();
     }
+
+    /// <summary>The game just started: read Battle.net's version again, so an update is noticed before it runs.</summary>
+    private void OnGameStarted(VersionSync worker)
+    {
+        try
+        {
+            var detector = new WowDetector(_fs, _registry, _env, Paths.Temp);
+            var installs = detector.DetectInstalls(Settings.WowInstallOverride);
+            var fresh = installs.Found ? detector.ScanVersions(installs) : [];
+            worker.NoteClientVersion(fresh.FirstOrDefault(v => PathUtil.SamePath(v.FolderPath, worker.Version.FolderPath))?.ClientVersion);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    // ------------------------------------------------------------------ snapshots and computers
+
+    public BackupInfo? SaveSnapshot(VersionSync worker, string name)
+    {
+        BackupInfo? snap;
+        lock (_gate) snap = worker.SaveSnapshot(name);
+        UpdateOverall();
+        return snap;
+    }
+
+    public void DeleteSnapshot(BackupInfo snapshot)
+    {
+        _backups.Delete(snapshot);
+        _log.Info($"{snapshot.VersionFolder}: deleted the {snapshot.Description.ToLowerInvariant()} ({snapshot.Path}).");
+    }
+
+    /// <summary>Every computer that syncs any of the switched-on game versions, this one first.</summary>
+    public IReadOnlyList<DeviceInfo> Computers()
+    {
+        List<VersionSync> workers;
+        lock (_gate) workers = _workers.ToList();
+        return Devices.Merge(workers.Select(w => (w.Version.Key, (IEnumerable<DeviceInfo>)Devices.Read(_fs, w.Cloud))), _machineName);
+    }
+
+    public string MachineName => _machineName;
 
     // ------------------------------------------------------------------ status and notices
 
@@ -652,7 +710,7 @@ public sealed class SyncService
         lock (_gate) workers = _workers.ToList();
 
         (OverallState state, string text) = (OverallState.InSync, "In sync");
-        if (Settings.Paused) (state, text) = (OverallState.Paused, "Paused");
+        if (Settings.Paused) (state, text) = (OverallState.Paused, Settings.PausedUntilUtc is { } until ? $"Paused until {StatusWords.Until(until, _clock.UtcNow)}" : "Paused");
         else if (workers.Any(w => w.Status == SyncStatus.Syncing)) (state, text) = (OverallState.Syncing, "Syncing");
         else if (workers.Any(w => w.Status is SyncStatus.GameRunning or SyncStatus.WaitingAfterClose or SyncStatus.WaitingForCloud))
             (state, text) = (OverallState.Waiting, workers.Any(w => w.Status == SyncStatus.GameRunning) ? "Waiting: game running" : "Waiting");

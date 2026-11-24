@@ -46,6 +46,9 @@ public sealed class AppSettings
     public Dictionary<string, string> CloudFolderNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public bool Paused { get; set; }
+
+    /// <summary>When a timed pause ends ("Pause for 1 hour"); null while paused means until resumed.</summary>
+    public DateTime? PausedUntilUtc { get; set; }
     /// <summary>Dark unless the player switched to light (the sun/moon button).</summary>
     public AppTheme Theme { get; set; } = AppTheme.Dark;
 
