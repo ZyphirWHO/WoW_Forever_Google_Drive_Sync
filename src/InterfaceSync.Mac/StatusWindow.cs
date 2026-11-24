@@ -16,7 +16,8 @@ namespace InterfaceSync.Mac;
 
 /// <summary>
 /// The status dashboard, like the Windows one: headline card with Sync now and Pause, a card per game version,
-/// settings, recent activity and the rare tools. Closing hides it; Quit is in the menu.
+/// recent activity in plain words, your computers, and the tools (settings, help, what's new, report a problem).
+/// Closing hides it; Quit is in the menu.
 /// </summary>
 internal sealed class StatusWindow : Window
 {
@@ -30,16 +31,18 @@ internal sealed class StatusWindow : Window
     private readonly Button _pause;
     private readonly StackPanel _rows = new();
     private readonly List<string> _rowTexts = [];
-    private readonly TextBlock _cloudPath = Ui.Text("", 12, brush: "InterfaceSyncMuted");
-    private readonly ComboBox _moveTo = new() { MinWidth = 150, PlaceholderText = "Move to..." };
+    private readonly StackPanel _activityRows = new() { Spacing = 2 };
+    private readonly StackPanel _computerRows = new() { Spacing = 2 };
+    private readonly List<string> _activityTexts = [], _computerTexts = [];
+    private string _activityKey = "", _computersKey = "";
+    private DateTime _computersReadUtc = DateTime.MinValue;
+    private IReadOnlyList<DeviceInfo> _computerList = [];
     private readonly Updater? _updater;
     private readonly Border _updateBar;
     private readonly TextBlock _updateTitle = Ui.Text("", 14, FontWeight.SemiBold);
     private readonly TextBlock _updateDetail = Ui.Text("", 12, brush: "InterfaceSyncMuted");
     private readonly Button _updateNow;
-    private readonly ToggleSwitch _autoUpdate = new() { OnContent = null, OffContent = null, MinWidth = 0 };
-    private readonly TextBlock _updateStatus = Ui.Text("", 12, brush: "InterfaceSyncMuted");
-    private bool _refreshingUpdate, _revealUpdate;
+    private bool _revealUpdate;
     private ScrollViewer _scroller = null!;
 
     /// <summary>"Check now" / "Check for Updates…": checks, then brings the top (the update card) into view.</summary>
@@ -52,11 +55,7 @@ internal sealed class StatusWindow : Window
     private readonly Border _dupBar;
     private readonly TextBlock _dupTitle = Ui.Text("", 14, FontWeight.SemiBold);
     private readonly TextBlock _dupDetail = Ui.Text("", 12, brush: "InterfaceSyncMuted");
-    private readonly ToggleSwitch _startAtLogin = new() { OnContent = null, OffContent = null, MinWidth = 0 };
-    private readonly TextBlock _lastLine = Ui.Text("", 12, brush: "InterfaceSyncMuted");
-    private readonly TextBox _log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, Height = 220, FontFamily = new FontFamily("Menlo, monospace"), FontSize = 11, IsVisible = false, Margin = new Thickness(0, 8, 0, 0) };
-    private readonly Button _toggleLog;
-    private bool _allowClose, _refreshingSwitch;
+    private bool _allowClose;
 
     public StatusWindow(IMacHost host, IStartAtLogin? startAtLogin = null, Updater? updater = null)
     {
@@ -71,7 +70,7 @@ internal sealed class StatusWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         // headline
-        _pause = Ui.Button("Pause", () => _host.Run(() => Service.SetPaused(!Service.Settings.Paused), Refresh), icon: Ui.Pause);
+        _pause = Ui.Button("Pause", () => MacActions.Pause(_pause!, _host, Refresh), icon: Ui.Pause);
         var syncNow = Ui.Button("Sync now", () => _host.Run(Service.SyncNow, Refresh), ButtonKind.Primary, Ui.Sync);
         var heroText = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2, Children = { _headline, _detail } };
         var heroButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { _pause, syncNow } };
@@ -81,9 +80,6 @@ internal sealed class StatusWindow : Window
         var heroCard = Ui.CardOf(hero);
         heroCard.Padding = new Thickness(18, 16);
 
-        // settings
-        _moveTo.ItemsSource = CloudProviders.All.Select(p => p.DisplayName()).ToList();
-        var move = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _moveTo, Ui.Button("Move", Move) } };
         // updates: a gold-edged card when a newer release is out, and the automatic-check switch in Settings
         _updateNow = Ui.Button("Download update", () => _ = DownloadUpdate(), ButtonKind.Primary, Ui.Sync);
         var whatsNew = Ui.Button("What's new", () => { if (_updater?.Available is { } r) _ = OpenUri(r.Page); }, ButtonKind.Ghost);
@@ -105,7 +101,7 @@ internal sealed class StatusWindow : Window
         var dupButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Top, Children =
         {
             Ui.Button("Hide", () => { foreach (var d in Service.Duplicates.ToList()) Service.HideDuplicate(d); Refresh(); }, ButtonKind.Ghost),
-            Ui.Button("Show folder", () => { if (Service.Duplicates.FirstOrDefault() is { } d) _ = Open(d.Path); }, ButtonKind.Secondary, Ui.Folder),
+            Ui.Button("Show folder", () => { if (Service.Duplicates.FirstOrDefault() is { } d) MacActions.OpenFolder(this, d.Path); }, ButtonKind.Secondary, Ui.Folder),
         } };
         var dupText = new StackPanel { Spacing = 4, Children = { _dupTitle, _dupDetail } };
         var dupGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Children = { dupIcon, dupText, dupButtons } };
@@ -116,37 +112,11 @@ internal sealed class StatusWindow : Window
         _dupBar.BorderThickness = new Thickness(1.5);
         _dupBar.IsVisible = false;
 
-        _autoUpdate.IsCheckedChanged += (_, _) =>
-        {
-            if (_refreshingUpdate || _updater == null) return;
-            var on = _autoUpdate.IsChecked == true;
-            Service.SavePreference(s => s.CheckForUpdates = on);
-            if (on) _ = _updater.CheckAsync();
-            Refresh();
-        };
-        _startAtLogin.IsVisible = _startup != null;
-        _startAtLogin.IsCheckedChanged += (_, _) => { if (!_refreshingSwitch) ToggleStartAtLogin(); };
-        var settings = Ui.Card(
-            SettingRow(Ui.Cloud, new StackPanel { Children = { Ui.Text("Cloud folder", 13, FontWeight.SemiBold), _cloudPath } }, move),
-            SettingRow(Ui.Power, new StackPanel { Children = { Ui.Text("Open at Login", 13, FontWeight.SemiBold), Ui.Text($"Start {ProductInfo.Name} when you log in to this Mac", 12, brush: "InterfaceSyncMuted") } }, _startAtLogin),
-            SettingRow(Ui.Sync, new StackPanel { Children = { Ui.Text("Check for updates automatically", 13, FontWeight.SemiBold), _updateStatus } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { Ui.Button("Check now", CheckForUpdates), _autoUpdate } }));
-        if (_updater == null) ((StackPanel)settings.Child!).Children.RemoveAt(((StackPanel)settings.Child!).Children.Count - 1);
-        if (_startup == null) ((StackPanel)settings.Child!).Children.RemoveAt(1);
-
-        // activity
-        _toggleLog = Ui.Button("Show all", () => { _log.IsVisible = !_log.IsVisible; _toggleLog!.Content = _log.IsVisible ? "Hide" : "Show all"; }, ButtonKind.Ghost);
-        var activityHead = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { _lastLine, _toggleLog } };
-        _lastLine.VerticalAlignment = VerticalAlignment.Center;
-        _lastLine.TextWrapping = TextWrapping.NoWrap;
-        _lastLine.TextTrimming = TextTrimming.CharacterEllipsis;
-        Grid.SetColumn(_toggleLog, 1);
-        var activity = Ui.Card(activityHead, _log);
-
         var tools = new WrapPanel { Margin = new Thickness(-6, 0, 0, 0) };
-        tools.Children.Add(Ui.Button("Open backups", () => _ = Open(Service.Paths.Backups), ButtonKind.Ghost, Ui.Folder));
-        tools.Children.Add(Ui.Button("Open log folder", () => _ = Open(Service.Paths.Logs), ButtonKind.Ghost, Ui.Folder));
-        tools.Children.Add(Ui.Button("Copy diagnostics", () => _ = CopyDiagnostics(), ButtonKind.Ghost, Ui.Info));
+        tools.Children.Add(Ui.Button("Settings", () => OpenSettings(), ButtonKind.Ghost, Ui.Settings));
+        tools.Children.Add(Ui.Button("Help", () => MacActions.OpenLink(this, Feedback.HelpPage), ButtonKind.Ghost, Ui.Info));
+        tools.Children.Add(Ui.Button("What's new", () => MacActions.ShowWhatsNew(this), ButtonKind.Ghost, Ui.Download));
+        tools.Children.Add(Ui.Button("Report a problem", () => MacActions.ReportProblem(this, _host), ButtonKind.Ghost, Ui.Warning));
         tools.Children.Add(Ui.Button("About", () => Dialogs.About().Show(), ButtonKind.Ghost, Ui.Info));
 
         var root = new StackPanel { Margin = new Thickness(24, 16, 24, 20) };
@@ -155,10 +125,10 @@ internal sealed class StatusWindow : Window
         root.Children.Add(heroCard);
         root.Children.Add(MacBrand.Section("Game versions"));
         root.Children.Add(_rows);
-        root.Children.Add(MacBrand.Section("Settings"));
-        root.Children.Add(settings);
         root.Children.Add(MacBrand.Section("Activity"));
-        root.Children.Add(activity);
+        root.Children.Add(Ui.Card(_activityRows));
+        root.Children.Add(MacBrand.Section("Your computers"));
+        root.Children.Add(Ui.Card(_computerRows));
         root.Children.Add(tools);
 
         var (banner, _) = MacBrand.Banner("Your interface settings, on every computer", () => MacApp.ToggleTheme(_host));
@@ -170,33 +140,13 @@ internal sealed class StatusWindow : Window
         Refresh();
     }
 
-    private static Grid SettingRow(string icon, Control middle, Control? right)
+    /// <summary>Opens the settings window on a page; the status refreshes when it closes.</summary>
+    internal SettingsWindow OpenSettings(string page = "General")
     {
-        var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), Margin = new Thickness(0, 4) };
-        var i = Ui.Icon(icon, 18);
-        i.Margin = new Thickness(0, 0, 14, 0);
-        middle.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(middle, 1);
-        g.Children.Add(i);
-        g.Children.Add(middle);
-        if (right != null) { right.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(right, 2); g.Children.Add(right); }
-        return g;
-    }
-
-    private void ToggleStartAtLogin()
-    {
-        if (_startup == null) return;
-        try
-        {
-            if (_startAtLogin.IsChecked == true)
-            {
-                if (_startup.CannotEnableReason is { } why) { Dialogs.Message(why).Show(); }
-                else { _startup.Enable(); Service.Log.Info($"{_startup.Label}: on."); }
-            }
-            else if (_startup.IsEnabled) { _startup.Disable(); Service.Log.Info($"{_startup.Label}: off."); }
-        }
-        catch (Exception e) { Dialogs.Message($"Couldn't change {_startup.Label}: {e.Message}").Show(); }
-        Refresh();
+        var w = new SettingsWindow(_host, _startup, _updater, CheckForUpdates, page);
+        w.Closed += (_, _) => Refresh();
+        w.Show();
+        return w;
     }
 
     public void AllowClose() { _allowClose = true; Close(); }
@@ -245,10 +195,6 @@ internal sealed class StatusWindow : Window
 
         if (_updater != null)
         {
-            _refreshingUpdate = true;
-            _autoUpdate.IsChecked = Service.Settings.CheckForUpdates;
-            _refreshingUpdate = false;
-            _updateStatus.Text = _updater.Describe();
             var release = _updater.Available;
             bool show = release != null && _updater.State is UpdateState.Available or UpdateState.Downloading;
             bool appeared = show && !_updateBar.IsVisible;
@@ -276,7 +222,7 @@ internal sealed class StatusWindow : Window
         _heroIcon.Child = icon;
         Ui.Res(_heroIcon, Border.BorderBrushProperty, Ui.ToneBrush(tone));
         _heroIcon.BorderThickness = new Thickness(1.5);
-        _pause.Content = Service.Settings.Paused ? Ui.ButtonContent("Resume", Ui.Sync) : Ui.ButtonContent("Pause", Ui.Pause);
+        _pause.Content = Service.Settings.Paused ? Ui.ButtonContent("Resume", Ui.Sync) : Ui.ButtonContent("Pause…", Ui.Pause);
 
         _rows.Children.Clear();
         _rowTexts.Clear();
@@ -285,12 +231,13 @@ internal sealed class StatusWindow : Window
             var status = string.IsNullOrEmpty(w.StatusText) ? w.Status.ToString() : w.StatusText;
             var wtone = StatusWords.Tone(w.Status);
             var details = (w.State.LastError is { Length: > 0 } err && wtone == StatusTone.Attention ? err : StatusWords.Details(w, now))
-                          + (w.State.PendingPush ? " · upload pending" : "");
+                          + (w.State.PendingPush ? " · upload pending" : "")
+                          + (Service.RulesFor(w.Version.FolderName).Describe() is { } rules ? $" · {rules}" : "");
             Button? action = null;
             var worker = w;
             if (w.State.Conflict != null)
                 action = Ui.Button("Choose which to keep...", () => Resolve(worker), ButtonKind.Primary);
-            var restore = Ui.Button("Restore...", () => new RestoreWindow(_host, worker, Refresh).ShowDialog(this), ButtonKind.Ghost, Ui.Clock);
+            var restore = Ui.Button("Backups…", () => new RestoreWindow(_host, worker, Refresh).ShowDialog(this), ButtonKind.Ghost, Ui.Clock);
             _rows.Children.Add(VersionCard(w.Version, Ui.Pill(status, Ui.ToneBrush(wtone)), details, action, restore));
             _rowTexts.Add($"{w.Version.FolderName}: {status}");
         }
@@ -301,13 +248,58 @@ internal sealed class StatusWindow : Window
             _rowTexts.Add($"{v.FolderName}: off");
         }
 
-        _cloudPath.Text = Service.Drive?.MyDrivePath is { } d ? $"{Service.ProviderName}: {PathUtil.Join(d, CloudLayout.AppFolderName)}" : $"{Service.ProviderName}: not found";
-        _refreshingSwitch = true;
-        _startAtLogin.IsChecked = _startup?.IsEnabled == true;
-        _refreshingSwitch = false;
-        var lines = Service.RecentLog(200).Reverse().Select(l => l.ToString()).ToList();
-        _log.Text = string.Join("\n", lines);
-        _lastLine.Text = lines.Count > 0 ? lines[0] : "Nothing yet.";
+        RefreshActivity(now);
+        RefreshComputers(now);
+    }
+
+    private void RefreshActivity(DateTime now)
+    {
+        var entries = Service.Activity.List(6);
+        var key = string.Join("|", entries.Select(e => e.Utc.Ticks)) + StatusWords.Ago(entries.FirstOrDefault()?.Utc, now);
+        if (key == _activityKey) return;
+        _activityKey = key;
+        _activityRows.Children.Clear();
+        _activityTexts.Clear();
+        if (entries.Count == 0)
+            _activityRows.Children.Add(Ui.Text("Nothing synced yet. Uploads, downloads and restores will appear here.", 12.5, brush: "InterfaceSyncMuted"));
+        foreach (var e in entries)
+        {
+            _activityRows.Children.Add(ActivityWindow.Line(e, $"{e.Version} · {StatusWords.Ago(e.Utc, now)}{(e.FileCount > 0 ? $" · {e.FileCount} file{(e.FileCount == 1 ? "" : "s")}" : "")}"));
+            _activityTexts.Add(e.Headline);
+        }
+        var all = Ui.Button("Show all activity", () => new ActivityWindow(_host).Show(), ButtonKind.Ghost, Ui.Clock);
+        all.HorizontalAlignment = HorizontalAlignment.Left;
+        _activityRows.Children.Add(all);
+    }
+
+    private void RefreshComputers(DateTime now)
+    {
+        if (now - _computersReadUtc > TimeSpan.FromSeconds(60))
+        {
+            _computersReadUtc = now;
+            try { _computerList = Service.Computers(); } catch (Exception) { }
+        }
+        var key = string.Join("|", _computerList.Select(c => c.Name + c.LastSyncUtc.Ticks)) + StatusWords.Ago(_computerList.FirstOrDefault()?.LastSyncUtc, now);
+        if (key == _computersKey) return;
+        _computersKey = key;
+        _computerRows.Children.Clear();
+        _computerTexts.Clear();
+        if (_computerList.Count == 0)
+            _computerRows.Children.Add(Ui.Text($"Each computer appears here after it syncs with {ProductInfo.Name} 3.1 or later.", 12.5, brush: "InterfaceSyncMuted"));
+        foreach (var c in _computerList)
+        {
+            var name = c.IsThisComputer ? $"{c.Name} (this computer)" : c.Name;
+            var action = c.LastAction.Length > 0 ? $"{c.LastAction.ToLowerInvariant()} {StatusWords.Ago(c.LastSyncUtc, now)}" : $"synced {StatusWords.Ago(c.LastSyncUtc, now)}";
+            var detail = string.Join(" · ", new[] { c.System, c.AppVersion.Length > 0 ? $"version {c.AppVersion}" : "", action, string.Join(", ", c.Versions) }.Where(x => x.Length > 0));
+            var icon = Ui.Icon(Ui.Computer, 16, c.IsThisComputer ? "InterfaceSyncAccent" : "InterfaceSyncMuted");
+            icon.Margin = new Thickness(0, 2, 12, 0);
+            icon.VerticalAlignment = VerticalAlignment.Top;
+            var text = new StackPanel { Spacing = 1, Children = { Ui.Text(name, 13), Ui.Text(detail, 11.5, brush: "InterfaceSyncMuted") } };
+            var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(6, 4), Children = { icon, text } };
+            Grid.SetColumn(text, 1);
+            _computerRows.Children.Add(g);
+            _computerTexts.Add(name);
+        }
     }
 
     private static Border VersionCard(GameVersion version, Control pill, string details, Button? action, Button? restore)
@@ -337,32 +329,9 @@ internal sealed class StatusWindow : Window
         }).Show();
     }
 
-    private void Move()
-    {
-        if (_moveTo.SelectedIndex < 0) return;
-        var target = CloudProviders.All[_moveTo.SelectedIndex];
-        ProviderChangeResult? result = null;
-        _host.Run(() => result = Service.ChangeProvider(target, null, keepOnDevice: false),
-            () => { Dialogs.Message(result?.Message ?? "Nothing changed.").Show(); Refresh(); });
-    }
-
-    private async Task Open(string folder)
-    {
-        Directory.CreateDirectory(folder);
-        if (GetTopLevel(this)?.Launcher is { } launcher)
-            await launcher.LaunchDirectoryInfoAsync(new DirectoryInfo(folder));
-    }
-
-    private async Task CopyDiagnostics()
-    {
-        if (GetTopLevel(this)?.Clipboard is { } clipboard)
-        {
-            await clipboard.SetTextAsync(Service.Diagnostics());
-            Dialogs.Message("Diagnostics copied. Paste them into your message or GitHub issue.").Show();
-        }
-    }
-
     // For the headless UI tests.
     internal IReadOnlyList<string> Rows => _rowTexts;
+    internal IReadOnlyList<string> ActivityLines => _activityTexts;
+    internal IReadOnlyList<string> ComputerLines => _computerTexts;
     internal string Overall => Service.StateText;
 }

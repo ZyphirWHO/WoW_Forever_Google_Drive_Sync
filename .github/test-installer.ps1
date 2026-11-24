@@ -51,5 +51,20 @@ foreach ($path in $exe, $shortcut) { if (Test-Path $path) { throw "Still there a
 if (Test-Path $uninstallKey) { throw "Apps & features entry left behind" }
 if ((Get-ItemProperty $run -ErrorAction SilentlyContinue).$id) { throw "Start-with-Windows entry left behind" }
 if (-not (Test-Path (Join-Path $data "keep-me.txt"))) { throw "Uninstall removed the player's settings" }
-Remove-Item $data -Recurse -Force
-"Installer OK: installs per user, uninstalls cleanly, keeps settings."
+
+# Asked to (the "also remove settings and backups" answer), uninstalling removes the data folder, and only that.
+$p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru
+if (-not $p.WaitForExit(180000)) { throw "Second setup didn't finish within 3 minutes" }
+Start-Sleep -Seconds 3
+Get-Process -Name $id -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 1
+$neighbour = Join-Path $env:LOCALAPPDATA "$id-neighbour-test"
+New-Item -ItemType Directory $neighbour -Force | Out-Null
+$p = Start-Process (Join-Path $dir "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/REMOVEDATA" -PassThru
+if (-not $p.WaitForExit(180000)) { throw "Second uninstall didn't finish within 3 minutes" }
+$deadline = (Get-Date).AddSeconds(60)
+while ((Test-Path $data) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+if (Test-Path $data) { throw "Uninstall with /REMOVEDATA left $data" }
+if (-not (Test-Path $neighbour)) { throw "Uninstall removed a folder next to the data folder" }
+Remove-Item $neighbour -Recurse -Force
+"Installer OK: installs per user, uninstalls cleanly, keeps settings unless asked to remove them."

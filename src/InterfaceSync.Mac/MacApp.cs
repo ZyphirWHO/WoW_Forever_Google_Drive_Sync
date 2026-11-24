@@ -93,8 +93,21 @@ internal sealed class MacApp : Application, IMacHost
         open.Click += (_, _) => ShowStatus();
         var sync = new NativeMenuItem("Sync now");
         sync.Click += (_, _) => Run(Service.SyncNow);
-        _pause = new NativeMenuItem("Pause syncing") { ToggleType = NativeMenuItemToggleType.CheckBox };
-        _pause.Click += (_, _) => Run(() => Service.SetPaused(!Service.Settings.Paused));
+        _pause = new NativeMenuItem("Pause syncing") { Menu = new NativeMenu() };
+        _pause.Menu.Opening += (_, _) => FillPauseMenu();
+        FillPauseMenu();
+        var settings = new NativeMenuItem("Settings...") { Gesture = new Avalonia.Input.KeyGesture(Avalonia.Input.Key.OemComma, Avalonia.Input.KeyModifiers.Meta) };
+        settings.Click += (_, _) => { ShowStatus(); _status?.OpenSettings(); };
+        var help = new NativeMenuItem("Help") { Menu = new NativeMenu() };
+        var helpPage = new NativeMenuItem("Help and Questions");
+        helpPage.Click += (_, _) => MacActions.OpenLink(null, Feedback.HelpPage);
+        var whatsNew = new NativeMenuItem("What's New");
+        whatsNew.Click += (_, _) => MacActions.ShowWhatsNew(null);
+        var report = new NativeMenuItem("Report a Problem...");
+        report.Click += (_, _) => MacActions.ReportProblem(null, this);
+        help.Menu.Items.Add(helpPage);
+        help.Menu.Items.Add(whatsNew);
+        help.Menu.Items.Add(report);
         _startupItem = new NativeMenuItem(_startup!.Label) { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = _startup.IsEnabled };
         _startupItem.Click += (_, _) => ToggleStartAtLogin();
         menu.Opening += (_, _) => { if (_startupItem != null) _startupItem.IsChecked = _startup.IsEnabled; };
@@ -111,15 +124,47 @@ internal sealed class MacApp : Application, IMacHost
         menu.Items.Add(open);
         menu.Items.Add(sync);
         menu.Items.Add(_pause);
+        menu.Items.Add(new NativeMenuItemSeparator());
+        menu.Items.Add(settings);
         menu.Items.Add(_startupItem);
         menu.Items.Add(_darkItem);
         menu.Items.Add(updates);
+        menu.Items.Add(help);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(about);
         menu.Items.Add(quit);
 
         _tray = new TrayIcon { Icon = MacIcons.For(OverallState.Waiting), ToolTipText = ProductInfo.Name, Menu = menu, IsVisible = true };
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
+        _animation.Tick += (_, _) =>
+        {
+            _frame = (_frame + 1) % MacIcons.SyncingFrames.Count;
+            if (_tray != null) _tray.Icon = MacIcons.SyncingFrames[_frame];
+        };
+    }
+
+    /// <summary>While syncing, the badge's dots light up in turn.</summary>
+    private readonly DispatcherTimer _animation = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    private int _frame;
+
+    private void FillPauseMenu()
+    {
+        if (_pause?.Menu is not { } m) return;
+        m.Items.Clear();
+        if (Service?.Settings.Paused == true)
+        {
+            var until = Service.Settings.PausedUntilUtc is { } u ? $" (paused until {StatusWords.Until(u, DateTime.UtcNow)})" : "";
+            var resume = new NativeMenuItem($"Resume Syncing{until}");
+            resume.Click += (_, _) => Run(() => Service.SetPaused(false));
+            m.Items.Add(resume);
+            return;
+        }
+        foreach (var (label, untilUtc) in StatusWords.PauseChoices(DateTime.UtcNow))
+        {
+            var item = new NativeMenuItem(label);
+            item.Click += (_, _) => Run(() => Service.SetPaused(true, untilUtc));
+            m.Items.Add(item);
+        }
     }
 
     private void AfterStart(IClassicDesktopStyleApplicationLifetime desktop)
@@ -135,6 +180,7 @@ internal sealed class MacApp : Application, IMacHost
                     Quit(desktop);
                     return;
                 }
+                Run(() => Service.TakeWhatsNew());   // a new install: nothing to announce, just remember the version
                 StartPolling();
             };
             setup.Show();
@@ -163,7 +209,8 @@ internal sealed class MacApp : Application, IMacHost
     private void OnUpdateChanged()
     {
         _status?.Refresh();
-        if (Updater.State == UpdateState.Available && Updater.Available is { } r && _announcedUpdate != r.Version)
+        if (Updater.State == UpdateState.Available && Updater.Available is { } r && _announcedUpdate != r.Version
+            && Service.Settings.Notifications != NotificationLevel.Off)
         {
             _announcedUpdate = r.Version;
             if (_headline != null) _headline.Header = $"{ProductInfo.Name} {r.Version} is available";
@@ -212,10 +259,13 @@ internal sealed class MacApp : Application, IMacHost
     private void RefreshTray()
     {
         if (_tray == null) return;
-        _tray.Icon = MacIcons.For(Service.State);
-        _tray.ToolTipText = $"{ProductInfo.Name}: {Service.StateText}";
+        bool syncing = Service.State == OverallState.Syncing;
+        if (syncing != _animation.IsEnabled) _animation.IsEnabled = syncing;
+        if (!syncing) _tray.Icon = MacIcons.For(Service.State);
+        _tray.ToolTipText = StatusWords.Tooltip(Service.StateText, StatusWords.LastSynced(Service.Workers), DateTime.UtcNow);
         if (_headline != null) _headline.Header = $"{ProductInfo.Name}: {Service.StateText}";
-        if (_pause != null) _pause.IsChecked = Service.Settings.Paused;
+        if (_pause != null) _pause.Header = Service.Settings.Paused ? "Syncing Paused" : "Pause Syncing";
+        FillPauseMenu();
         _status?.Refresh();
     }
 
@@ -225,6 +275,7 @@ internal sealed class MacApp : Application, IMacHost
     /// </summary>
     private void ShowNotice(Notice notice)
     {
+        if (!SyncService.ShouldShow(notice.Kind, Service.Settings.Notifications)) return;
         if (_headline != null) _headline.Header = $"{notice.Title}";
         if (notice.Kind == NoticeKind.Conflict) ShowStatus();
     }
@@ -235,7 +286,17 @@ internal sealed class MacApp : Application, IMacHost
         _status.Show();
         _status.Activate();
         _status.Refresh();
+
+        // The first time the window opens after an update: what's new in this version (once).
+        if (!_whatsNewChecked && Service.Settings.SetupComplete)
+        {
+            _whatsNewChecked = true;
+            string? notes = null;
+            Run(() => notes = Service.TakeWhatsNew(), () => { if (notes != null) MacActions.ShowWhatsNew(_status, notes); });
+        }
     }
+
+    private bool _whatsNewChecked;
 
     private void Quit(IClassicDesktopStyleApplicationLifetime desktop)
     {

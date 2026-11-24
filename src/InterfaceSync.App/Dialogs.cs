@@ -61,6 +61,7 @@ internal sealed class ThemedDialog : Form
         grid.SetColumnSpan(row, 2);
         Controls.Add(grid);
         Theme.Apply(this);
+        Ui.ScaleWithDisplay(this);
     }
 
     public static DialogResult Show(IWin32Window? owner, string message, string? heading = null, DialogKind kind = DialogKind.Info,
@@ -109,6 +110,7 @@ internal sealed class AboutDialog : Form
         Controls.Add(new BrandBanner($"Version {ProductInfo.DisplayVersion}"));
         AcceptButton = CancelButton = ok;
         Theme.Apply(this);
+        Ui.ScaleWithDisplay(this);
     }
 
     public static void ShowFor(IWin32Window? owner)
@@ -183,6 +185,7 @@ internal sealed class ConflictDialog : Form
         Controls.Add(layout);
         CancelButton = cancel;
         Theme.Apply(this);
+        Ui.ScaleWithDisplay(this);
     }
 
     private Card Side(string glyph, string title, DateTime? changedUtc, bool newer, string keepText, KeepChoice choice, string effect)

@@ -6,7 +6,7 @@ Builds the Interface Sync icons from assets/icon/app.svg.
     app.ico            sizes 16, 20, 24, 32, 40, 48, 64, 256 (exe icon, Start menu, taskbar)
     crest.png          256 px (the emblem in the window banner)
     tray-<state>.ico   sizes 16, 20, 24, 32, 40, 48 (notification area, 100-300% scaling)
-    tray-syncing-N.ico the three frames of the syncing animation
+    tray-syncing-N.ico the three frames of the syncing animation (tray-syncing-N.png on macOS)
   macOS (src/InterfaceSync.Mac/Icons, packaging/macos):
     tray-<state>.png   44 px (menu bar, drawn at 22 pt on Retina screens)
     app.png            256 px (window icon)
@@ -57,7 +57,7 @@ BADGES = {
 }
 
 
-# Animation while syncing: the three dots light up in turn (tray-syncing-1..3.ico, Windows only).
+# Animation while syncing: the three dots light up in turn (tray-syncing-1..3).
 def syncing_frame(lit: int) -> str:
     dots = "".join(
         f'<circle cx="{x}" cy="47" r="{3.1 if i == lit else 2.3}" fill="#FFFFFF" fill-opacity="{1 if i == lit else 0.55}"/>'
@@ -101,6 +101,8 @@ def main() -> None:
     (MAC_OUT / "app.png").write_bytes(render(MASTER, 256))
     for state, badge in BADGES.items():
         (MAC_OUT / f"tray-{state}.png").write_bytes(render(MASTER.replace("<!-- BADGE -->", badge), 44))
+    for frame in range(3):
+        (MAC_OUT / f"tray-syncing-{frame + 1}.png").write_bytes(render(MASTER.replace("<!-- BADGE -->", syncing_frame(frame)), 44))
     icns_sizes = [16, 32, 64, 128, 256, 512, 1024]
     images = [Image.open(io.BytesIO(render(MASTER, s))) for s in icns_sizes]
     images[-1].save(MAC_PACKAGE / "InterfaceSync.icns", format="ICNS", append_images=images[:-1])

@@ -61,8 +61,8 @@ internal sealed class ModernButton : Button
     public override Size GetPreferredSize(Size proposedSize)
     {
         var text = TextRenderer.MeasureText(Text, Font);
-        int icon = Icon != null ? 22 : 0;
-        return new Size(Math.Max(84, text.Width + icon + Padding.Horizontal), Height);
+        int icon = Icon != null ? Ui.Px(this, 22) : 0;
+        return new Size(Math.Max(Ui.Px(this, 84), text.Width + icon + Padding.Horizontal), Height);
     }
 
     protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Width = GetPreferredSize(Size.Empty).Width; }
@@ -104,7 +104,8 @@ internal sealed class ModernButton : Button
             fill = Color.FromArgb(Kind == ButtonKind.Primary ? 90 : 140, fill);
             text = Theme.Muted;
         }
-        using (var path = Draw.Rounded(r, 8))
+        float s = Ui.Scale(this);
+        using (var path = Draw.Rounded(r, 8 * s))
         {
             using var brush = new SolidBrush(fill);
             g.FillPath(brush, path);
@@ -118,12 +119,12 @@ internal sealed class ModernButton : Button
             g.DrawPath(pen, focus);
         }
         var content = TextRenderer.MeasureText(Text, Font);
-        int iconWidth = Icon != null ? 22 : 0;
+        int iconWidth = Icon != null ? (int)(22 * s) : 0;
         int x = (Width - content.Width - iconWidth) / 2;
         if (Icon != null)
         {
             using var iconFont = new Font(Draw.IconFont, 10f);
-            TextRenderer.DrawText(g, Icon, iconFont, new Rectangle(x, 0, 20, Height), text, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(g, Icon, iconFont, new Rectangle(x, 0, (int)(20 * s), Height), text, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
         }
         TextRenderer.DrawText(g, Text, Font, new Rectangle(x + iconWidth, 0, content.Width + 2, Height), text,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
@@ -148,12 +149,13 @@ internal class Card : Panel
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.Clear(Draw.Behind(this));
-        using var path = Draw.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 10);
+        float s = Ui.Scale(this);
+        using var path = Draw.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 10 * s);
         using (var brush = new SolidBrush(BackColor)) g.FillPath(brush, path);
         using (var pen = new Pen(Theme.Border)) g.DrawPath(pen, path);
         if (Highlight is { } h)
         {
-            using var bar = Draw.Rounded(new RectangleF(1, 10, 4, Height - 20), 2);
+            using var bar = Draw.Rounded(new RectangleF(1, 10 * s, 4 * s, Height - 20 * s), 2 * s);
             using var brush = new SolidBrush(h);
             g.FillPath(brush, bar);
         }
@@ -243,7 +245,7 @@ internal sealed class ToggleSwitch : CheckBox
     }
 
     public override Size GetPreferredSize(Size proposedSize) =>
-        new(TextRenderer.MeasureText(Text, Font).Width + 58, 28);
+        new(TextRenderer.MeasureText(Text, Font).Width + Ui.Px(this, 58), Ui.Px(this, 28));
 
     protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Width = GetPreferredSize(Size.Empty).Width; }
     protected override void OnCreateControl() { base.OnCreateControl(); Width = GetPreferredSize(Size.Empty).Width; }
@@ -253,24 +255,25 @@ internal sealed class ToggleSwitch : CheckBox
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.Clear(Draw.Behind(this));
-        var track = new RectangleF(1, (Height - 20) / 2f, 40, 20);
-        using (var path = Draw.Rounded(track, 10))
+        float s = Ui.Scale(this);
+        var track = new RectangleF(1, (Height - 20 * s) / 2f, 40 * s, 20 * s);
+        using (var path = Draw.Rounded(track, 10 * s))
         {
             using var fill = new SolidBrush(Checked ? Theme.Accent : Theme.Raised);
             g.FillPath(fill, path);
             using var pen = new Pen(Checked ? Theme.Accent : Theme.Border);
             g.DrawPath(pen, path);
         }
-        float knob = 14;
-        float kx = Checked ? track.Right - knob - 3 : track.X + 3;
+        float knob = 14 * s;
+        float kx = Checked ? track.Right - knob - 3 * s : track.X + 3 * s;
         using (var k = new SolidBrush(Checked ? Brand.C(P.Banner.OnGold) : Theme.Muted))
-            g.FillEllipse(k, kx, track.Y + 3, knob, knob);
+            g.FillEllipse(k, kx, track.Y + 3 * s, knob, knob);
         if (Focused && ShowFocusCues)
         {
             using var pen = new Pen(Color.FromArgb(160, Theme.Accent)) { DashStyle = DashStyle.Dot };
             g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
         }
-        TextRenderer.DrawText(g, Text, Font, new Rectangle(50, 0, Width - 50, Height), Enabled ? Theme.Text : Theme.Muted,
+        TextRenderer.DrawText(g, Text, Font, new Rectangle((int)(50 * s), 0, Width - (int)(50 * s), Height), Enabled ? Theme.Text : Theme.Muted,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
     }
 }
@@ -293,7 +296,7 @@ internal sealed class StatusPill : Control
         Text = text;
         _color = color;
         AccessibleName = text;
-        Width = TextRenderer.MeasureText(text, Font).Width + 30;
+        Width = TextRenderer.MeasureText(text, Font).Width + Ui.Px(this, 30);
         Invalidate();
     }
 
@@ -302,15 +305,16 @@ internal sealed class StatusPill : Control
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.Clear(Draw.Behind(this));
-        using (var path = Draw.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 11))
+        float s = Ui.Scale(this);
+        using (var path = Draw.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 11 * s))
         {
             using var fill = new SolidBrush(Color.FromArgb(38, _color));
             g.FillPath(fill, path);
             using var pen = new Pen(Color.FromArgb(110, _color));
             g.DrawPath(pen, path);
         }
-        using (var dot = new SolidBrush(_color)) g.FillEllipse(dot, 9, Height / 2f - 4, 8, 8);
-        TextRenderer.DrawText(g, Text, Font, new Rectangle(21, 0, Width - 23, Height), Theme.Text,
+        using (var dot = new SolidBrush(_color)) g.FillEllipse(dot, 9 * s, Height / 2f - 4 * s, 8 * s, 8 * s);
+        TextRenderer.DrawText(g, Text, Font, new Rectangle((int)(21 * s), 0, Width - (int)(23 * s), Height), Theme.Text,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
     }
 }

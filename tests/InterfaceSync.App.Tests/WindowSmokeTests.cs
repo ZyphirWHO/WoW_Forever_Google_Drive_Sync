@@ -407,6 +407,8 @@ public sealed class WindowSmokeTests : IDisposable
         var dupCopy = Path.Combine(_root, "Users", "Player", "My Drive", "InterfaceSync (1)", "_retail_");
         Directory.CreateDirectory(dupCopy);
         File.WriteAllText(Path.Combine(dupCopy, "x.lua"), "x");
+        var status = Service(setupComplete: true, ("_retail_", true), ("_classic_", false));
+        status.Poll();
         var retailWtf = Path.Combine(_root, "World of Warcraft", "_retail_", "WTF", "Account");
         foreach (var (file, text) in new[]
                  {
@@ -418,8 +420,6 @@ public sealed class WindowSmokeTests : IDisposable
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, text);
         }
-        var status = Service(setupComplete: true, ("_retail_", true), ("_classic_", false));
-        status.Poll();
         status.Activity.Add(InterfaceSync.Core.Sync.ActivityEntry.ForFiles(DateTime.UtcNow.AddMinutes(-3), "_retail_", InterfaceSync.Core.Sync.ActivityKind.Downloaded,
             [@"PLAYER#1\SavedVariables\Details.lua", @"PLAYER#1\SavedVariables\WeakAuras.lua", @"PLAYER#1\bindings-cache.wtf"], "LAPTOP"));
         status.SaveSnapshot(status.Workers[0], "Before the raid UI rework");

@@ -241,6 +241,10 @@ internal static class Ui
     public const string Pause = "M9,6 V18 M15,6 V18";
     public const string Folder = "M3.5,6.5 H9.5 L11.5,8.5 H20.5 V18.5 H3.5 Z";
     public const string Info = "M12,3.5 A8.5,8.5 0 1 1 11.99,3.5 M12,11 V16.5 M12,7.8 V8";
+    public const string Upload = "M12,16 V4.5 M7.5,9 L12,4.5 L16.5,9 M5,19.5 H19";
+    public const string Download = "M12,4.5 V16 M7.5,11.5 L12,16 L16.5,11.5 M5,19.5 H19";
+    public const string Computer = "M4,5.5 H20 V15.5 H4 Z M9,19.5 H15 M12,15.5 V19.5";
+    public const string Settings = "M12,8.5 A3.5,3.5 0 1 1 11.99,8.5 M12,2.5 V5 M12,19 V21.5 M2.5,12 H5 M19,12 H21.5 M5.3,5.3 L7,7 M17,17 L18.7,18.7 M5.3,18.7 L7,17 M17,7 L18.7,5.3";
 
     public static Avalonia.Controls.Shapes.Path Icon(string data, double size = 18, string brush = "InterfaceSyncAccent")
     {

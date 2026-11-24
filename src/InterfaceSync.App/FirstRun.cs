@@ -127,6 +127,7 @@ internal sealed class FirstRun : Form
         Theme.SetRole(_notes, TextRole.Warning);
         Theme.SetRole(_startAtLoginNote, TextRole.Muted);
         Theme.Apply(this);
+        Ui.ScaleWithDisplay(this);
         ShowPage(0);
     }
 

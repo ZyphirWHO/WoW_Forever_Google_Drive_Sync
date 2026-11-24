@@ -159,7 +159,8 @@ public sealed class ActivityStore
         lock (_gate)
         {
             var all = Load();
-            all.Insert(0, entry);
+            int at = all.FindIndex(e => e.Utc <= entry.Utc);   // newest first, even if an older event arrives late
+            all.Insert(at < 0 ? all.Count : at, entry);
             if (all.Count > MaxEntries) all.RemoveRange(MaxEntries, all.Count - MaxEntries);
             try { _fs.WriteAllText(FilePath, JsonSerializer.Serialize(all, Json.Options)); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // the timeline is a nicety

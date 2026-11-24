@@ -20,6 +20,9 @@ internal static class MacIcons
     public static WindowIcon For(OverallState state) => Load(Names[state]);
     public static WindowIcon App => Load("app.png");
 
+    /// <summary>The syncing animation: the badge's three dots light up in turn.</summary>
+    public static IReadOnlyList<WindowIcon> SyncingFrames { get; } = [Load("tray-syncing-1.png"), Load("tray-syncing-2.png"), Load("tray-syncing-3.png")];
+
     private static WindowIcon Load(string name)
     {
         lock (Cache)

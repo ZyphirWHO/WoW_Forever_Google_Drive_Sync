@@ -51,6 +51,7 @@ internal sealed class ChangeCloudFolder : Form
         _provider.SelectedIndex = Array.FindIndex(CloudProviders.All, p => p != current && _found[p].Found) is var i and >= 0 ? i : 0;
         Update();
         Theme.Apply(this);
+        Ui.ScaleWithDisplay(this);
     }
 
     public CloudProvider Chosen => CloudProviders.All[_provider.SelectedIndex];

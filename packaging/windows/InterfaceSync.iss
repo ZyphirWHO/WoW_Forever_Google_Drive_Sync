@@ -1,6 +1,7 @@
 ; Interface Sync installer (Inno Setup 6). Per user: no administrator rights, installs to
 ; %LOCALAPPDATA%\Programs\Interface Sync, adds a Start menu entry and an uninstaller in Apps & features.
-; Your settings, backups and logs (%LOCALAPPDATA%\InterfaceSync) are kept on uninstall.
+; Uninstalling asks whether to also remove the settings, backups and logs (%LOCALAPPDATA%\InterfaceSync);
+; the answer defaults to No, which is also what a silent uninstall does (unless given /REMOVEDATA).
 ;
 ; Built by CI:  ISCC /DAppName="Interface Sync" /DAppId=InterfaceSync /DAppVersion=3.0.0 /DSourceDir=<publish> /O<out> InterfaceSync.iss
 ; Names and version come from Directory.Build.props.
@@ -84,3 +85,26 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupA
 Filename: "{app}\{#AppId}.exe"; Description: "Open {#AppName} now"; Flags: nowait postinstall skipifsilent
 ; An update started from the app runs silently: open the app again afterwards, with its status window.
 Filename: "{app}\{#AppId}.exe"; Parameters: "--updated"; Flags: nowait skipifnotsilent
+
+[Code]
+{ Uninstall: offer to remove this computer's settings, backups and logs too. No is the default (and what
+  /SUPPRESSMSGBOXES answers), so nothing is lost by accident. /REMOVEDATA removes them without asking.
+  Only %LOCALAPPDATA%\{#AppId} is removed: the cloud folder and the game's settings are never touched. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Data: String;
+  Remove: Boolean;
+begin
+  if CurUninstallStep <> usPostUninstall then Exit;
+  Data := ExpandConstant('{localappdata}\{#AppId}');
+  if not DirExists(Data) then Exit;
+  Remove := Pos('/REMOVEDATA', Uppercase(GetCmdTail)) > 0;
+  if not Remove then
+    Remove := SuppressibleMsgBox('Also remove {#AppName}''s settings, backups and logs from this computer?' + #13#10#13#10 +
+      'They are in ' + Data + '. Choose No to keep them for a later reinstall.' + #13#10#13#10 +
+      'Your cloud folder and your game''s settings are not touched either way.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
+  if Remove then
+    if not DelTree(Data, True, True, True) then
+      SuppressibleMsgBox('Some files in ' + Data + ' could not be removed. You can delete the folder yourself.', mbInformation, MB_OK, IDOK);
+end;

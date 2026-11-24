@@ -279,4 +279,90 @@ public sealed class MacWindowTests : IDisposable
         Dialogs.About().Show();
         Dispatcher.UIThread.RunJobs();
     }
+
+    [AvaloniaFact]
+    public void Settings_window_opens_every_page()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        service.Poll();
+        var window = new SettingsWindow(new Host(service));
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("General", window.CurrentPage);
+        Assert.Contains("Notifications", window.RowTitles);
+        foreach (var page in SettingsWindow.PageNames)
+        {
+            window.ShowPage(page);
+            Dispatcher.UIThread.RunJobs();
+            Assert.NotEmpty(window.RowTitles);
+        }
+        window.ShowPage("Sync");
+        Assert.Contains(window.RowTitles, t => t.StartsWith("_retail_"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Choose_what_syncs_returns_what_was_unticked()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        var account = Path.Combine(_root, "Applications", "World of Warcraft", "_retail_", "WTF", "Account", "PLAYER#1");
+        Directory.CreateDirectory(Path.Combine(account, "Realm", "Thrall", "SavedVariables"));
+        File.WriteAllText(Path.Combine(account, "Realm", "Thrall", "SavedVariables", "Bartender4.lua"), "x");
+        service.Poll();
+        InterfaceSync.Core.Sync.SyncRules? saved = null;
+        var window = new SyncChoicesWindow(service, service.Workers[0], r => saved = r);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["Thrall - Realm"], window.CharacterNames);
+        Assert.Equal(["Bartender4"], window.AddonNames);
+        window.SetCharacter(0, false);
+        Assert.Equal(["Realm/Thrall"], window.Rules.Characters);
+        Assert.Empty(window.Rules.Addons);
+        window.Close();
+        Assert.Null(saved);                                              // closed without Save
+    }
+
+    [AvaloniaFact]
+    public void Backups_window_saves_a_snapshot_and_a_zip()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        service.Poll();
+        var window = new RestoreWindow(new Host(service), service.Workers[0]);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var snap = window.SaveSnapshot("Raid night");
+        Assert.NotNull(snap);
+        Assert.Equal(1, window.BackupCount);
+        var zip = Path.Combine(_root, "copy.zip");
+        RestoreWindow.SaveZip(snap!, zip);
+        using (var archive = System.IO.Compression.ZipFile.OpenRead(zip))
+            Assert.Contains(archive.Entries, e => e.FullName.EndsWith("macros-cache.txt"));
+        Assert.EndsWith("-Raid-night.zip", RestoreWindow.ZipName(snap!));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Status_window_shows_activity_and_this_mac()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        service.Poll();
+        var window = new StatusWindow(new Host(service));
+        window.Show();
+        window.Refresh();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.ActivityLines, l => l.StartsWith("Uploaded"));
+        Assert.Contains("MacBook (this computer)", window.ComputerLines);
+        var all = new ActivityWindow(new Host(service));
+        all.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, all.EntryCount);
+        all.Close();
+        var notes = new TextWindow("What's new", InterfaceSync.Core.ReleaseNotes.ToPlainText(InterfaceSync.Core.ReleaseNotes.Current!), false);
+        notes.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("Snapshots", notes.Body);
+        notes.Close();
+        Assert.Equal(3, MacIcons.SyncingFrames.Count);
+        window.AllowClose();
+    }
 }
