@@ -172,6 +172,10 @@ internal sealed class Glyph : Label
         AutoSize = true;
         UseMnemonic = false;
         Margin = new Padding(0, 2, 10, 0);
+        // A decorative icon (a private-use font character): screen readers skip it instead of reading gibberish.
+        AccessibleRole = AccessibleRole.Graphic;
+        AccessibleName = "";
+        TabStop = false;
     }
 }
 
