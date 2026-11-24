@@ -151,10 +151,10 @@ internal sealed class SettingsForm : Form
 
         if (_startup != null)
         {
-            var toggle = new ToggleSwitch(_startup.Label) { AutoCheck = false, Checked = _startup.IsEnabled, AccessibleName = _startup.Label };
+            var toggle = new ToggleSwitch(L.T(_startup.Label)) { AutoCheck = false, Checked = _startup.IsEnabled, AccessibleName = L.T(_startup.Label) };
             toggle.Click += (_, _) => { ToggleStartAtLogin(); };
             _startToggle = toggle;
-            yield return new SettingRow(_startup.Label,
+            yield return new SettingRow(L.T(_startup.Label),
                 L.T("Starts quietly in the tray when you sign in, so your settings are always up to date before you play."), Draw.Power, toggle);
         }
 

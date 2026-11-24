@@ -30,6 +30,9 @@ public static class L
         "Game closed, waiting for it to finish writing", "Choose which settings to keep",
         "Settings changed on this PC and in the cloud: choose which to keep", "Paused (upload waiting)", "Paused (push waiting)",
         "Nothing to sync yet: launch this game version once", "Pull undone: files were in use",
+        "Start with Windows", "Open at Login",
+        "Before downloading settings", "Before keeping the cloud settings", "Before restoring a backup", "Cloud copy, before uploading",
+        "The cloud copy you chose not to keep", "Cloud copy, before moving cloud folder",
     ];
 
     private static Dictionary<string, string> _table = new();

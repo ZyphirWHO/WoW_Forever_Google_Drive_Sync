@@ -1,5 +1,6 @@
 using System.Globalization;
 using InterfaceSync.Core.Abstractions;
+using InterfaceSync.Core.Localization;
 using InterfaceSync.Core.Sync;
 
 namespace InterfaceSync.Core.Backup;
@@ -24,9 +25,12 @@ public sealed record BackupInfo(string VersionFolder, string Path, DateTime Crea
     public string? SnapshotName => Pinned ? Reason[BackupStore.SnapshotPrefix.Length..] : null;
 
     /// <summary>Plain words for the restore list.</summary>
-    public string Description => Pinned ? $"Snapshot: {SnapshotName}"
-        : GameUpdate ? $"Before game update {Reason[BackupStore.GameUpdatePrefix.Length..]}"
-        : (Reason.EndsWith(BackupStore.ChangesSuffix, StringComparison.OrdinalIgnoreCase) ? Reason[..^BackupStore.ChangesSuffix.Length] : Reason) switch
+    public string Description => Pinned ? L.F("Snapshot: {0}", SnapshotName)
+        : GameUpdate ? L.F("Before game update {0}", Reason[BackupStore.GameUpdatePrefix.Length..])
+        : L.T(EnglishDescription);
+
+    /// <summary>The description in English (translated where shown; see <see cref="L.Implicit"/>).</summary>
+    private string EnglishDescription => (Reason.EndsWith(BackupStore.ChangesSuffix, StringComparison.OrdinalIgnoreCase) ? Reason[..^BackupStore.ChangesSuffix.Length] : Reason) switch
     {
         "before-pull" or "first-join" => "Before downloading settings",
         "before-keep-cloud" => "Before keeping the cloud settings",

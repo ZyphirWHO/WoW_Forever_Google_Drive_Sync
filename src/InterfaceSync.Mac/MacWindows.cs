@@ -300,9 +300,9 @@ internal sealed class SettingsWindow : Window
         if (_startup != null)
         {
             var toggle = new ToggleSwitch { OnContent = null, OffContent = null, MinWidth = 0, IsChecked = _startup.IsEnabled };
-            AutomationProperties.SetName(toggle, _startup.Label);
+            AutomationProperties.SetName(toggle, L.T(_startup.Label));
             toggle.IsCheckedChanged += (_, _) => { ToggleStartAtLogin(toggle.IsChecked == true); };
-            yield return Row(Ui.Power, _startup.Label, L.F("Start {0} quietly in the menu bar when you log in, so your settings are up to date before you play.", ProductInfo.Name), toggle);
+            yield return Row(Ui.Power, L.T(_startup.Label), L.F("Start {0} quietly in the menu bar when you log in, so your settings are up to date before you play.", ProductInfo.Name), toggle);
         }
         var languages = new ComboBox { MinWidth = 180, ItemsSource = new[] { L.T("Same as macOS") }.Concat(L.Languages.Select(l => l.Name)).ToList() };
         AutomationProperties.SetName(languages, L.T("Language"));
