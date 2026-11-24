@@ -283,7 +283,7 @@ public sealed class WindowSmokeTests : IDisposable
     }
 
     [Fact]
-    public void Setup_switches_on_start_with_Windows_by_default_and_the_status_window_can_switch_it_off()
+    public void Setup_switches_on_start_with_Windows_by_default_and_the_settings_window_can_switch_it_off()
     {
         var service = Service(setupComplete: false, ("_forever_", true));
         var registry = new FakeRegistry();
@@ -303,17 +303,16 @@ public sealed class WindowSmokeTests : IDisposable
             }
             Assert.Equal($"\"{exe}\" --tray", registry.GetString(RegistryHive.CurrentUser, WindowsStartAtLogin.RunKey, "InterfaceSync"));
 
-            using var status = new StatusForm(new TestHost(service)) { StartAtLogin = startup };
-            status.Show();
+            using var settings = new SettingsForm(new TestHost(service), startup);
+            settings.Show();
             Application.DoEvents();
-            var box = AllControls(status).OfType<CheckBox>().Single(c => c.Text == "Start with Windows");
+            var box = AllControls(settings).OfType<CheckBox>().Single(c => c.Text == "Start with Windows");
             Assert.True(box.Checked);
-            status.ToggleStartAtLogin();
+            settings.ToggleStartAtLogin();
             Application.DoEvents();
             Assert.False(box.Checked);
             Assert.False(startup.IsEnabled);
-            status.AllowClose();
-            status.Close();
+            settings.Close();
         });
     }
 
@@ -408,8 +407,22 @@ public sealed class WindowSmokeTests : IDisposable
         var dupCopy = Path.Combine(_root, "Users", "Player", "My Drive", "InterfaceSync (1)", "_retail_");
         Directory.CreateDirectory(dupCopy);
         File.WriteAllText(Path.Combine(dupCopy, "x.lua"), "x");
+        var retailWtf = Path.Combine(_root, "World of Warcraft", "_retail_", "WTF", "Account");
+        foreach (var (file, text) in new[]
+                 {
+                     (@"PLAYER#1\SavedVariables\Details.lua", "d"), (@"PLAYER#1\SavedVariables\WeakAuras.lua", "w"), (@"PLAYER#1\bindings-cache.wtf", "b"),
+                     (@"PLAYER#1\Silvermoon\Thrall\macros-cache.txt", "m"), (@"PLAYER#1\Silvermoon\Jaina\SavedVariables\Bartender4.lua", "j"),
+                 })
+        {
+            var path = Path.Combine(retailWtf, file.Replace('\\', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
         var status = Service(setupComplete: true, ("_retail_", true), ("_classic_", false));
         status.Poll();
+        status.Activity.Add(InterfaceSync.Core.Sync.ActivityEntry.ForFiles(DateTime.UtcNow.AddMinutes(-3), "_retail_", InterfaceSync.Core.Sync.ActivityKind.Downloaded,
+            [@"PLAYER#1\SavedVariables\Details.lua", @"PLAYER#1\SavedVariables\WeakAuras.lua", @"PLAYER#1\bindings-cache.wtf"], "LAPTOP"));
+        status.SaveSnapshot(status.Workers[0], "Before the raid UI rework");
         var retailAccount = Path.Combine(_root, "World of Warcraft", "_retail_", "WTF", "Account");
         var all = InterfaceSync.Core.Sync.FolderScanner.Scan(new PhysicalFileSystem(), retailAccount).Manifest.Entries.ToList();
         status.Backups.CreateFromFiles("_retail_", retailAccount, all, "before-pull-changes");
@@ -444,6 +457,21 @@ public sealed class WindowSmokeTests : IDisposable
                         Save(restore, Path.Combine(folder, $"windows-restore-{theme}.png"));
                         restore.Close();
                     }
+                    using (var settings = new SettingsForm(new TestHost(status), new WindowsStartAtLogin(new FakeRegistry(), @"C:\Users\Player\AppData\Local\Programs\Interface Sync\InterfaceSync.exe", @"C:\Temp"), UpdaterWithNewerRelease(status)))
+                    {
+                        settings.Show();
+                        foreach (var page in SettingsForm.PageNames)
+                        {
+                            settings.ShowPage(page);
+                            Application.DoEvents();
+                            Save(settings, Path.Combine(folder, $"windows-settings-{theme}-{page}.png"));
+                        }
+                        settings.Close();
+                    }
+                    using (var choose = new SyncChoicesDialog(status, status.Workers[0])) { choose.Show(); Application.DoEvents(); Save(choose, Path.Combine(folder, $"windows-choose-{theme}.png")); choose.Close(); }
+                    using (var activity = new ActivityDialog(new TestHost(status))) { activity.Show(); Application.DoEvents(); Save(activity, Path.Combine(folder, $"windows-activity-{theme}.png")); activity.Close(); }
+                    using (var notes = new TextWindow("What's new in Interface Sync", InterfaceSync.Core.ReleaseNotes.ToPlainText(InterfaceSync.Core.ReleaseNotes.Current ?? ""), false, ("All releases", InterfaceSync.Core.Feedback.ReleasesPage)))
+                    { notes.Show(); Application.DoEvents(); Save(notes, Path.Combine(folder, $"windows-whatsnew-{theme}.png")); notes.Close(); }
                     form.AllowClose();
                     form.Close();
                 }
@@ -627,5 +655,154 @@ public sealed class WindowSmokeTests : IDisposable
         var header = new byte[6];
         stream.ReadExactly(header);
         Assert.Equal(8, BitConverter.ToUInt16(header, 4));   // 16, 20, 24, 32, 40, 48, 64, 256
+    }
+
+    [Fact]
+    public void Settings_window_opens_every_page_and_keyboard_moves_between_them()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true), ("_ptr_", false));
+        service.Poll();
+        OnSta(() =>
+        {
+            using var form = new SettingsForm(new TestHost(service), new WindowsStartAtLogin(new FakeRegistry(), Path.Combine(_root, "InterfaceSync.exe"), Path.Combine(_root, "Temp")),
+                UpdaterWithNewerRelease(service));
+            form.Show();
+            Application.DoEvents();
+            Assert.Equal("General", form.CurrentPage);
+            Assert.Contains("Notifications", form.RowTitles);
+            foreach (var page in SettingsForm.PageNames)
+            {
+                form.ShowPage(page);
+                Application.DoEvents();
+                Assert.Equal(page, form.CurrentPage);
+                Assert.NotEmpty(form.RowTitles);
+            }
+            form.ShowPage("Sync");
+            Assert.Contains(form.RowTitles, t => t.StartsWith("_forever_"));
+            Assert.Contains(form.RowTitles, t => t.StartsWith("_ptr_"));
+            form.Close();
+        });
+    }
+
+    [Fact]
+    public void Notifications_choice_is_saved()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true));
+        OnSta(() =>
+        {
+            using var form = new SettingsForm(new TestHost(service));
+            form.Show();
+            Application.DoEvents();
+            var choice = AllControls(form).OfType<Segmented>().Single(s => s.AccessibleName == "Notifications");
+            Assert.Equal(1, choice.Selected);                               // only when needed
+            choice.Buttons[2].PerformClick();
+            form.Close();
+        });
+        Assert.Equal(NotificationLevel.Off, service.Settings.Notifications);
+    }
+
+    [Fact]
+    public void Choose_what_syncs_lists_characters_and_addons_and_returns_what_was_unticked()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true));
+        var account = Path.Combine(_root, "World of Warcraft", "_forever_", "WTF", "Account");
+        Directory.CreateDirectory(Path.Combine(account, "P", "Realm", "Thrall", "SavedVariables"));
+        File.WriteAllText(Path.Combine(account, "P", "Realm", "Thrall", "SavedVariables", "Bartender4.lua"), "x");
+        Directory.CreateDirectory(Path.Combine(account, "P", "SavedVariables"));
+        File.WriteAllText(Path.Combine(account, "P", "SavedVariables", "WeakAuras.lua"), "x");
+        service.Poll();
+        OnSta(() =>
+        {
+            using var d = new SyncChoicesDialog(service, service.Workers[0]);
+            d.Show();
+            Application.DoEvents();
+            Assert.Equal(["Thrall - Realm"], d.CharacterNames);
+            Assert.Equal(["Bartender4", "WeakAuras"], d.AddonNames);
+            Assert.True(d.Rules.IsEmpty);
+            d.SetCharacter(0, false);
+            d.SetAddon(1, false);
+            Assert.Equal(["Realm/Thrall"], d.Rules.Characters);
+            Assert.Equal(["WeakAuras"], d.Rules.Addons);
+            d.Close();
+        });
+    }
+
+    [Fact]
+    public void Backups_window_saves_a_snapshot_and_a_zip_and_deletes_the_snapshot()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true));
+        service.Poll();
+        var zip = Path.Combine(_root, "copy.zip");
+        OnSta(() =>
+        {
+            ThemedDialog.AutoAnswer = true;
+            InputDialog.AutoAnswer = () => "Raid night";
+            try
+            {
+                using var dialog = new RestoreDialog(new TestHost(service), service.Workers[0]) { Quiet = true };
+                dialog.Show();
+                Application.DoEvents();
+                var snap = dialog.SaveSnapshot();
+                Assert.NotNull(snap);
+                Assert.Equal("Snapshot: Raid night", snap!.Description);
+                Assert.Equal(1, dialog.BackupCount);
+                RestoreDialog.SaveZip(snap, zip);
+                Assert.StartsWith("InterfaceSync-forever-", RestoreDialog.ZipName(snap));
+                Assert.EndsWith("-Raid-night.zip", RestoreDialog.ZipName(snap));
+                service.DeleteSnapshot(snap);
+                dialog.Close();
+            }
+            finally { ThemedDialog.AutoAnswer = false; InputDialog.AutoAnswer = null; }
+        });
+        using var archive = System.IO.Compression.ZipFile.OpenRead(zip);
+        Assert.Contains(archive.Entries, e => e.FullName.EndsWith("macros-cache.txt"));
+        Assert.Empty(service.Backups.List("_forever_").Where(b => b.Pinned));
+    }
+
+    [Fact]
+    public void Status_window_shows_activity_in_plain_words_and_this_computer()
+    {
+        var service = Service(setupComplete: true, ("_forever_", true));
+        service.Poll();                                                    // first upload
+        OnSta(() =>
+        {
+            using var form = new StatusForm(new TestHost(service));
+            form.Show();
+            form.RefreshView();
+            Application.DoEvents();
+            Assert.Contains(form.ActivityLines, l => l.StartsWith("Uploaded"));
+            Assert.Contains(form.ComputerLines, l => l == "TestPC (this computer)");
+            using var all = new ActivityDialog(new TestHost(service));
+            all.Show();
+            Application.DoEvents();
+            Assert.Equal(1, all.EntryCount);
+            Assert.Contains("macros-cache.txt", ActivityDialog.DetailsText(service.Activity.List()[0]));
+            all.Close();
+            form.AllowClose();
+            form.Close();
+        });
+    }
+
+    [Fact]
+    public void Whats_new_window_shows_this_versions_notes()
+    {
+        OnSta(() =>
+        {
+            using var w = new TextWindow("What's new", InterfaceSync.Core.ReleaseNotes.ToPlainText(InterfaceSync.Core.ReleaseNotes.Current!), false);
+            w.Show();
+            Application.DoEvents();
+            Assert.Contains(AllControls(w).OfType<TextBox>(), t => t.Text.Contains("Snapshots"));
+            w.Close();
+        });
+    }
+
+    [Fact]
+    public void Tray_has_a_three_frame_syncing_animation()
+    {
+        OnSta(() =>
+        {
+            using var icons = new TrayIcons();
+            Assert.Equal(3, icons.SyncingFrames.Count);
+        });
     }
 }

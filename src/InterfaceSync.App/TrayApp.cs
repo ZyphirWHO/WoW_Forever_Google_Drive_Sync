@@ -54,7 +54,9 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         Updater.Changed += () => OnUi(OnUpdateChanged);
         Service.NoticeRaised += notice => OnUi(() => ShowNotice(notice));
 
-        _pauseItem = new ToolStripMenuItem("Pause syncing", null, (_, _) => TogglePause());
+        _pauseItem = new ToolStripMenuItem("Pause syncing");
+        _pauseItem.DropDownOpening += (_, _) => FillPauseMenu();
+        _pauseItem.DropDownItems.Add("…");
         _startup = new WindowsStartAtLogin(_registry, Environment.ProcessPath ?? Application.ExecutablePath, Path.GetTempPath());
         _startupItem = new ToolStripMenuItem(_startup.Label, null, (_, _) => ToggleStartAtLogin(_startup, _log, null));
         var menu = _menu = new ContextMenuStrip();
@@ -63,10 +65,18 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         menu.Items.Add(new ToolStripMenuItem("Open status", null, (_, _) => ShowStatus()) { Font = new Font(menu.Font, FontStyle.Bold) });
         menu.Items.Add(new ToolStripMenuItem("Sync now", null, (_, _) => RunInBackground(Service.SyncNow)));
         menu.Items.Add(_pauseItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => { ShowStatus(); _status?.OpenSettings(); }));
         menu.Items.Add(_startupItem);
         menu.Items.Add(_darkItem);
         menu.Items.Add(new ToolStripMenuItem("Check for updates", null, (_, _) => { ShowStatus(); _status?.CheckForUpdates(); }));
-        menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => StatusForm.ShowAbout(null)));
+        var help = new ToolStripMenuItem("Help");
+        help.DropDownItems.Add(new ToolStripMenuItem("Help and questions", null, (_, _) => Ui.OpenLink(Feedback.HelpPage)));
+        help.DropDownItems.Add(new ToolStripMenuItem("What's new", null, (_, _) => AppActions.ShowWhatsNew(_status)));
+        help.DropDownItems.Add(new ToolStripMenuItem("Report a problem…", null, (_, _) => AppActions.ReportProblem(_status, this)));
+        help.DropDownItems.Add(new ToolStripSeparator());
+        help.DropDownItems.Add(new ToolStripMenuItem("About", null, (_, _) => StatusForm.ShowAbout(null)));
+        menu.Items.Add(help);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
 
@@ -78,6 +88,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             Visible = true,
         };
         Theme.Changed += ApplyThemeToMenu;
+        _animation.Tick += (_, _) => NextFrame();
         Theme.Set(Service.Settings.Theme);
         SystemEvents.UserPreferenceChanged += OnWindowsPreferenceChanged;
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowStatus(); };
@@ -107,6 +118,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
                 Exit();
                 return;
             }
+            Service.TakeWhatsNew();   // a new install: nothing to announce, just remember the version
             _tray.ShowBalloonTip(8_000, $"{ProductInfo.Name} is running",
                 "It syncs on its own when you close the game. Click the W icon by the clock to see its status.", ToolTipIcon.Info);
         }
@@ -118,7 +130,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         if (_justUpdated)
         {
             _status?.ShowUpdated();
-            _tray.ShowBalloonTip(6_000, $"{ProductInfo.Name} was updated", $"You now have version {ProductInfo.DisplayVersion}.", ToolTipIcon.Info);
+            if (Service.Settings.Notifications != NotificationLevel.Off)
+                _tray.ShowBalloonTip(6_000, $"{ProductInfo.Name} was updated", $"You now have version {ProductInfo.DisplayVersion}.", ToolTipIcon.Info);
         }
         _timer = new System.Threading.Timer(_ => Poll(), null, TimeSpan.Zero, SyncService.PollInterval);
     }
@@ -148,17 +161,50 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
 
     private void RefreshTray()
     {
-        _tray.Icon = _icons.For(Service.State);
-        var text = $"{ProductInfo.Name}: {Service.StateText}";
-        _tray.Text = text.Length > 127 ? text[..124] + "..." : text;
+        bool syncing = Service.State == OverallState.Syncing;
+        if (syncing != _animation.Enabled) _animation.Enabled = syncing;
+        if (!syncing) _tray.Icon = _icons.For(Service.State);
+        _tray.Text = StatusWords.Tooltip(Service.StateText, StatusWords.LastSynced(Service.Workers), DateTime.UtcNow);
         _pauseItem.Checked = Service.Settings.Paused;
         _status?.RefreshView();
     }
 
+    /// <summary>While syncing, the badge's dots light up in turn (so a long download visibly works).</summary>
+    private readonly System.Windows.Forms.Timer _animation = new() { Interval = 300 };
+    private int _frame;
+
+    private void NextFrame()
+    {
+        var frames = _icons.SyncingFrames;
+        if (frames.Count == 0) return;
+        _frame = (_frame + 1) % frames.Count;
+        _tray.Icon = frames[_frame];
+    }
+
+    private void FillPauseMenu()
+    {
+        _pauseItem.DropDownItems.Clear();
+        if (Service.Settings.Paused)
+        {
+            var until = Service.Settings.PausedUntilUtc is { } u ? $" (paused until {StatusWords.Until(u, DateTime.UtcNow)})" : "";
+            _pauseItem.DropDownItems.Add(new ToolStripMenuItem($"Resume syncing{until}", null, (_, _) => RunInBackground(() => Service.SetPaused(false))));
+        }
+        else
+            foreach (var (label, until) in StatusWords.PauseChoices(DateTime.UtcNow))
+                _pauseItem.DropDownItems.Add(new ToolStripMenuItem(label, null, (_, _) => RunInBackground(() => Service.SetPaused(true, until))));
+        Theme.Apply(_pauseItem.DropDown);
+    }
+
     private void ShowNotice(Notice notice)
     {
-        var icon = notice.Kind == NoticeKind.Conflict ? ToolTipIcon.Warning : ToolTipIcon.Error;
-        _tray.ShowBalloonTip(10_000, notice.Title, notice.Message, icon);
+        if (!SyncService.ShouldShow(notice.Kind, Service.Settings.Notifications)) return;
+        var icon = notice.Kind switch
+        {
+            NoticeKind.Conflict => ToolTipIcon.Warning,
+            NoticeKind.Downloaded => ToolTipIcon.Info,
+            _ => ToolTipIcon.Error,
+        };
+        _tray.ShowBalloonTip(notice.Kind == NoticeKind.Downloaded ? 5_000 : 10_000, notice.Title, notice.Message, icon);
     }
 
     private void ShowStatus()
@@ -169,7 +215,21 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
         if (_status.WindowState == FormWindowState.Minimized) _status.WindowState = FormWindowState.Normal;
         _status.Activate();
         _status.RefreshView();
+
+        // The first time the window opens after an update: what's new in this version (once).
+        if (!_whatsNewChecked && Service.Settings.SetupComplete)
+        {
+            _whatsNewChecked = true;
+            var status = _status;
+            RunInBackground(() => _pendingNotes = Service.TakeWhatsNew(), () =>
+            {
+                if (_pendingNotes is { } notes && !status.IsDisposed) status.BeginInvoke(() => AppActions.ShowWhatsNew(status, notes));
+            });
+        }
     }
+
+    private bool _whatsNewChecked;
+    private string? _pendingNotes;
 
     /// <summary>The sun/moon switch: light ⇄ dark.</summary>
     internal static void ToggleTheme(SyncService service) => ChooseTheme(service, Theme.IsDark ? AppTheme.Light : AppTheme.Dark);
@@ -228,7 +288,8 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     private void OnUpdateChanged()
     {
         _status?.RefreshView();
-        if (Updater.State == UpdateState.Available && Updater.Available is { } r && _announcedUpdate != r.Version)
+        if (Updater.State == UpdateState.Available && Updater.Available is { } r && _announcedUpdate != r.Version
+            && Service.Settings.Notifications != NotificationLevel.Off)
         {
             _announcedUpdate = r.Version;
             _tray.ShowBalloonTip(10_000, r.IsPrerelease ? $"Test build {r.Version} is available" : $"{ProductInfo.Name} {r.Version} is available",
@@ -274,8 +335,6 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
     {
         try { Process.Start(new ProcessStartInfo(page.ToString()) { UseShellExecute = true }); } catch (Exception) { }
     }
-
-    private void TogglePause() => RunInBackground(() => Service.SetPaused(!Service.Settings.Paused));
 
     public void Run(Action work, Action? afterOnUi = null) => RunInBackground(work, afterOnUi);
 
@@ -331,6 +390,7 @@ internal sealed class TrayApp : ApplicationContext, IStatusHost
             SystemEvents.UserPreferenceChanged -= OnWindowsPreferenceChanged;
             Theme.Changed -= ApplyThemeToMenu;
             _timer?.Dispose();
+            _animation.Dispose();
             _tray.Dispose();
             _icons.Dispose();
             _showEvent.Dispose();

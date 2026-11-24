@@ -18,9 +18,15 @@ internal sealed class TrayIcons : IDisposable
         _icons[OverallState.Waiting] = Load("tray-waiting.ico", size);
         _icons[OverallState.Paused] = Load("tray-paused.ico", size);
         _icons[OverallState.NeedsAttention] = Load("tray-attention.ico", size);
+        for (int i = 1; i <= 3; i++) _frames.Add(Load($"tray-syncing-{i}.ico", size));
     }
 
+    private readonly List<Icon> _frames = [];
+
     public Icon For(OverallState state) => _icons[state];
+
+    /// <summary>The syncing animation: the badge's three dots light up in turn.</summary>
+    public IReadOnlyList<Icon> SyncingFrames => _frames;
 
     /// <summary>The app icon, for window title bars and the taskbar.</summary>
     public static Icon AppIcon { get; } = Load("app.ico", new Size(32, 32));
@@ -34,6 +40,6 @@ internal sealed class TrayIcons : IDisposable
 
     public void Dispose()
     {
-        foreach (var icon in _icons.Values) icon.Dispose();
+        foreach (var icon in _icons.Values.Concat(_frames)) icon.Dispose();
     }
 }

@@ -2,6 +2,7 @@ using InterfaceSync.Core.Detection;
 using InterfaceSync.Core.Logging;
 using InterfaceSync.Core;
 using System.Diagnostics;
+using ActivityKind = InterfaceSync.Core.Sync.ActivityKind;
 using InterfaceSync.Core.Service;
 using InterfaceSync.Core.Sync;
 using InterfaceSync.Core.Settings;
@@ -19,8 +20,8 @@ internal interface IStatusHost
 
 /// <summary>
 /// The status dashboard: a headline card (state, last sync, Sync now / Pause), a card per game version with its
-/// status and any action it needs, settings (cloud folder, start with Windows, appearance), recent activity, and
-/// the rare tools (backups, log, diagnostics, about).
+/// status and any action it needs, recent activity in plain words, the computers that sync, and the tools
+/// (settings, help, what's new, report a problem, about). Everything else is in the settings window.
 /// </summary>
 internal sealed class StatusForm : Form
 {
@@ -36,15 +37,12 @@ internal sealed class StatusForm : Form
     private readonly Label _overall = new() { AutoSize = true, UseMnemonic = false, Margin = new Padding(0, 4, 0, 2) };
     private readonly Label _overallDetail = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
     private readonly ModernButton _syncNow = new("Sync now", ButtonKind.Primary) { Icon = Draw.Sync };
-    private readonly ModernButton _pause = new("Pause");
+    private readonly ModernButton _pause = new("Pause") { AccessibleDescription = "Pause syncing for a while" };
 
     // versions
     private readonly FlowLayoutPanel _versionRows = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = Padding.Empty };
     private readonly Dictionary<string, VersionRow> _rows = new();
 
-    // settings
-    private readonly Label _cloudPath = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
-    private readonly ToggleSwitch _startAtLogin = new("Start with Windows") { Visible = false };
     private readonly BrandBanner _banner = new("Your interface settings, on every computer");
 
     // copies of the cloud folder made by the cloud app
@@ -58,17 +56,17 @@ internal sealed class StatusForm : Form
     private readonly Label _updateDetail = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
     private readonly ModernButton _updateNow = new("Update now", ButtonKind.Primary) { Icon = Draw.Download };
     private readonly ModernButton _whatsNew = new("What's new", ButtonKind.Ghost);
-    private readonly ToggleSwitch _autoUpdate = new("Check for updates automatically");
-    private readonly Label _updateStatus = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
     private readonly IStartAtLogin? _startup;
-    private Control _startIcon = null!;
 
-    // activity
-    private readonly Card _activity = new() { Height = 300, Padding = new Padding(16, 10, 16, 14) };
-    private readonly TextBox _logBox = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.None };
-    private readonly Label _lastLine = new() { AutoSize = false, Dock = DockStyle.Fill, UseMnemonic = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly ModernButton _toggleActivity = new("Show", ButtonKind.Ghost) { Height = 28 };
-    private bool _activityOpen;
+    // activity and computers
+    private readonly Card _activity = new() { Padding = new Padding(16, 8, 16, 8) };
+    private readonly FlowLayoutPanel _activityRows = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = Padding.Empty, Location = new Point(16, 8) };
+    private readonly Card _computers = new() { Padding = new Padding(16, 8, 16, 8) };
+    private readonly FlowLayoutPanel _computerRows = new() { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = Padding.Empty, Location = new Point(16, 8) };
+    private string _activityKey = "", _computersKey = "";
+    private DateTime _computersReadUtc = DateTime.MinValue;
+    private IReadOnlyList<DeviceInfo> _computerList = [];
+    public const int ActivityShown = 6;
 
     private bool _allowClose;
 
@@ -78,12 +76,8 @@ internal sealed class StatusForm : Form
     /// <summary>Downloads and installs the available update (the tray app quits and the installer reopens it).</summary>
     internal Action<IWin32Window?>? InstallUpdate { get; init; }
 
-    /// <summary>Start with Windows; the switch is hidden when not set (tests).</summary>
-    internal IStartAtLogin? StartAtLogin
-    {
-        get => _startup;
-        init { _startup = value; _startAtLogin.Visible = _startIcon.Visible = value != null; if (value != null) { _startAtLogin.Text = value.Label; _startAtLogin.Checked = value.IsEnabled; } }
-    }
+    /// <summary>Start with Windows, for the settings window (its switch is hidden when not set: tests).</summary>
+    internal IStartAtLogin? StartAtLogin { get => _startup; init => _startup = value; }
 
     public StatusForm(IStatusHost app)
     {
@@ -99,7 +93,7 @@ internal sealed class StatusForm : Form
         _overall.Font = new Font(Font.FontFamily, 15f, FontStyle.Bold);
         Theme.SetRole(_overallDetail, TextRole.Muted);
         _syncNow.Click += (_, _) => _app.Run(Service.SyncNow);
-        _pause.Click += (_, _) => _app.Run(() => Service.SetPaused(!Service.Settings.Paused));
+        _pause.Click += (_, _) => AppActions.ShowPauseMenu(_pause, _app);
         BuildHero();
 
         BuildUpdateBar();
@@ -109,10 +103,12 @@ internal sealed class StatusForm : Form
         _stack.Controls.Add(_hero);
         _stack.Controls.Add(new SectionHeader("Game versions"));
         _stack.Controls.Add(_versionRows);
-        _stack.Controls.Add(new SectionHeader("Settings"));
-        _stack.Controls.Add(BuildSettings());
         _stack.Controls.Add(new SectionHeader("Activity"));
-        _stack.Controls.Add(BuildActivity());
+        _activity.Controls.Add(_activityRows);
+        _stack.Controls.Add(_activity);
+        _stack.Controls.Add(new SectionHeader("Your computers"));
+        _computers.Controls.Add(_computerRows);
+        _stack.Controls.Add(_computers);
         _stack.Controls.Add(BuildTools());
         _content.Controls.Add(_stack);
         _content.Resize += (_, _) => FitWidths();
@@ -122,17 +118,24 @@ internal sealed class StatusForm : Form
         Controls.Add(_banner);   // docks above the content
         Theme.Apply(this);
         Theme.Changed += OnThemeChanged;
+        Ui.ScaleWithDisplay(this);
         FitWidths();
     }
 
-    private int RowWidth => Math.Max(560, _content.ClientSize.Width - 48);
+    private int RowWidth => Math.Max(Ui.Px(this, 560), _content.ClientSize.Width - Ui.Px(this, 48));
 
-    /// <summary>Cards fill the window's width (it can be resized).</summary>
+    /// <summary>Cards fill the window's width (it can be resized); the activity and computer cards fit their rows.</summary>
     private void FitWidths()
     {
         foreach (Control c in _stack.Controls) c.Width = RowWidth;
         foreach (var row in _rows.Values) row.Width = RowWidth;
         _stack.Controls[^1].Width = RowWidth;
+        foreach (var (card, rows) in new[] { (_activity, _activityRows), (_computers, _computerRows) })
+        {
+            int inner = RowWidth - card.Padding.Horizontal;
+            foreach (Control c in rows.Controls) if (c is InfoRow r) r.Fit(inner);
+            card.Height = rows.PreferredSize.Height + card.Padding.Vertical;
+        }
     }
 
     private void BuildHero()
@@ -160,88 +163,6 @@ internal sealed class StatusForm : Form
         _hero.Controls.Add(grid);
     }
 
-    private Card BuildSettings()
-    {
-        var card = new Card { Height = 196, Padding = new Padding(16, 8, 16, 8) };
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, Margin = Padding.Empty };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 36));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        for (int i = 0; i < 3; i++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 33.3f));
-
-        Control Icon(string g) { var l = new Glyph(g, 14f) { Anchor = AnchorStyles.Left }; Theme.SetRole(l, TextRole.Accent); return l; }
-        Label Bold(string t) => new() { Text = t, AutoSize = true, UseMnemonic = false, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 1) };
-
-        var cloud = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Left, Margin = Padding.Empty };
-        cloud.Controls.Add(Bold("Cloud folder"));
-        Theme.SetRole(_cloudPath, TextRole.Muted);
-        cloud.Controls.Add(_cloudPath);
-        var change = new ModernButton("Change...") { Height = 30, Anchor = AnchorStyles.Right };
-        change.Click += (_, _) => ChangeCloudFolder();
-        grid.Controls.Add(Icon(Draw.Cloud), 0, 0);
-        grid.Controls.Add(cloud, 1, 0);
-        grid.Controls.Add(change, 2, 0);
-
-        _startAtLogin.Anchor = AnchorStyles.Left;
-        _startAtLogin.AutoCheck = false;
-        _startAtLogin.Click += (_, _) => ToggleStartAtLogin();
-        _startIcon = Icon(Draw.Power);
-        _startIcon.Visible = false;
-        grid.Controls.Add(_startIcon, 0, 1);
-        grid.Controls.Add(_startAtLogin, 1, 1);
-
-        // updates: automatic checks on/off, what the last check found, and Check now
-        var updates = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Left, Margin = Padding.Empty };
-        _autoUpdate.AutoCheck = false;
-        _autoUpdate.Click += (_, _) =>
-        {
-            var on = !Service.Settings.CheckForUpdates;
-            Service.SavePreference(s => s.CheckForUpdates = on);
-            if (on && Updater != null) _ = Updater.CheckAsync();
-            RefreshView();
-        };
-        Theme.SetRole(_updateStatus, TextRole.Muted);
-        _updateStatus.Margin = new Padding(50, 0, 0, 0);
-        updates.Controls.Add(_autoUpdate);
-        updates.Controls.Add(_updateStatus);
-        var checkNow = new ModernButton("Check now") { Height = 30, Anchor = AnchorStyles.Right };
-        checkNow.Click += (_, _) => CheckForUpdates();
-        _updateIcon = Icon(Draw.Download);
-        grid.Controls.Add(_updateIcon, 0, 2);
-        grid.Controls.Add(updates, 1, 2);
-        grid.Controls.Add(checkNow, 2, 2);
-        _updateRow = [_updateIcon, updates, checkNow];
-        card.Controls.Add(grid);
-        return card;
-    }
-
-    private Card BuildActivity()
-    {
-        var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 34, ColumnCount = 2, Margin = Padding.Empty };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        Theme.SetRole(_lastLine, TextRole.Muted);
-        header.Controls.Add(_lastLine, 0, 0);
-        _toggleActivity.Anchor = AnchorStyles.Right;
-        _toggleActivity.Margin = Padding.Empty;
-        header.Controls.Add(_toggleActivity, 1, 0);
-        _toggleActivity.Click += (_, _) => SetActivityOpen(!_activityOpen);
-        _logBox.Visible = false;
-        _activity.Controls.Add(_logBox);
-        _activity.Controls.Add(header);   // docked after the log box = above it
-        SetActivityOpen(false);
-        return _activity;
-    }
-
-    private void SetActivityOpen(bool open)
-    {
-        _activityOpen = open;
-        _logBox.Visible = open;
-        _activity.Height = open ? 300 : 58;
-        _toggleActivity.Text = open ? "Hide" : "Show all";
-        _lastLine.Visible = true;
-    }
-
     private Control BuildTools()
     {
         var tools = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Margin = new Padding(0, 4, 0, 16) };
@@ -252,27 +173,21 @@ internal sealed class StatusForm : Form
             tools.Controls.Add(b);
             return b;
         }
-        Tool("Open backups", Draw.History, () => Open(Service.Paths.Backups));
-        Tool("Open log folder", Draw.Folder, () => Open(Service.Paths.Logs));
-        Tool("Copy diagnostics", Draw.Info, () =>
-        {
-            Clipboard.SetText(Service.Diagnostics());
-            ThemedDialog.Info(this, "Paste them into your message or GitHub issue.", "Diagnostics copied");
-        });
+        Tool("Settings", Draw.Settings, () => OpenSettings());
+        Tool("Help", Draw.Info, () => Ui.OpenLink(Feedback.HelpPage));
+        Tool("What's new", Draw.Download, () => AppActions.ShowWhatsNew(this));
+        Tool("Report a problem", Draw.Warning, () => AppActions.ReportProblem(this, _app));
         Tool("About", Draw.Info, () => ShowAbout(this));
         return tools;
     }
 
-    /// <summary>The Start with Windows switch (also used by tests).</summary>
-    internal void ToggleStartAtLogin()
+    /// <summary>Opens the settings window (on a page), and refreshes this one when it closes.</summary>
+    internal void OpenSettings(string page = "General")
     {
-        if (_startup == null) return;
-        TrayApp.ToggleStartAtLogin(_startup, Service.Log, this);
-        _startAtLogin.Checked = _startup.IsEnabled;
+        using var settings = new SettingsForm(_app, _startup, Updater, CheckForUpdates, page);
+        settings.ShowDialog(this);
+        RefreshView();
     }
-
-    private Control _updateIcon = null!;
-    private Control[] _updateRow = [];
 
     private void BuildUpdateBar()
     {
@@ -431,7 +346,6 @@ internal sealed class StatusForm : Form
         _heroIcon.ForeColor = ToneColor(tone);
         _hero.Highlight = tone == StatusTone.Attention ? Theme.Error : null;
         _hero.Invalidate();
-        _pause.Text = Service.Settings.Paused ? "Resume" : "Pause";
 
         // "Updated to …" after an in-app update
         if (_updatedNote)   // stays for this session, so it's still there after the next refresh
@@ -456,12 +370,8 @@ internal sealed class StatusForm : Form
         }
 
         // updates
-        foreach (var c in _updateRow) c.Visible = Updater != null;
         if (Updater != null)
         {
-            _autoUpdate.Checked = Service.Settings.CheckForUpdates;
-            _updateStatus.Text = Updater.Describe() + (Service.Settings.LastUpdateCheckUtc is { } checkedAt && Updater.State != UpdateState.Checking
-                ? $" Last checked {StatusWords.Ago(checkedAt, now)}." : "");
             var release = Updater.Available;
             bool show = release != null && Updater.State is UpdateState.Available or UpdateState.Downloading;
             bool appeared = show && !_updateBar.Visible;
@@ -482,6 +392,7 @@ internal sealed class StatusForm : Form
             }
         }
         _pause.Icon = Service.Settings.Paused ? Draw.Sync : Draw.Pause;
+        _pause.Text = Service.Settings.Paused ? "Resume" : "Pause…";
 
         // one card per game version, updated in place
         var wanted = new List<(string key, VersionSync? worker, GameVersion version)>();
@@ -494,30 +405,90 @@ internal sealed class StatusForm : Form
             _rows.Clear();
             foreach (var (key, _, _) in wanted)
             {
-                var row = new VersionRow(key, Resolve, OpenRestore) { Width = RowWidth };
+                var row = Ui.Fit(new VersionRow(key, Resolve, OpenRestore) { Width = RowWidth }, this);
                 _rows[key] = row;
                 _versionRows.Controls.Add(row);
             }
             Theme.Apply(this);
             _versionRows.ResumeLayout();
         }
-        foreach (var (key, worker, version) in wanted) _rows[key].Show(worker, version, now);
+        foreach (var (key, worker, version) in wanted) _rows[key].Show(worker, version, now, Service.RulesFor(key).Describe());
 
-        var drive = Service.Drive?.MyDrivePath;
-        _cloudPath.Text = drive != null ? $"{Service.ProviderName}: {PathUtil.Join(drive, CloudLayout.AppFolderName)}" : $"{Service.ProviderName}: not found";
-        if (_startup != null) _startAtLogin.Checked = _startup.IsEnabled;
-
-        // Newest first, so the latest action is visible without scrolling.
-        var lines = Service.RecentLog(200).Reverse().Select(l => l.ToString()).ToList();
-        _logBox.Text = string.Join(Environment.NewLine, lines);
-        _lastLine.Text = lines.Count > 0 ? lines[0] : "Nothing yet.";
+        RefreshActivity(now);
+        RefreshComputers(now);
         FitWidths();
+    }
+
+    // ------------------------------------------------------------------ activity and computers
+
+    /// <summary>For tests: the activity lines shown, and the computers listed.</summary>
+    internal IReadOnlyList<string> ActivityLines => _activityRows.Controls.OfType<InfoRow>().Select(r => r.Headline).ToList();
+    internal IReadOnlyList<string> ComputerLines => _computerRows.Controls.OfType<InfoRow>().Select(r => r.Headline).ToList();
+
+    private void RefreshActivity(DateTime now)
+    {
+        var entries = Service.Activity.List(ActivityShown);
+        var key = string.Join("|", entries.Select(e => e.Utc.Ticks)) + StatusWords.Ago(entries.FirstOrDefault()?.Utc, now) + Theme.IsDark;
+        if (key == _activityKey) return;
+        _activityKey = key;
+        _activityRows.SuspendLayout();
+        foreach (Control c in _activityRows.Controls.Cast<Control>().ToList()) { _activityRows.Controls.Remove(c); c.Dispose(); }
+        if (entries.Count == 0)
+            _activityRows.Controls.Add(Ui.Fit(new InfoRow(Draw.Clock, "Nothing synced yet", "Uploads, downloads and restores will appear here.", TextRole.Muted), this));
+        foreach (var e in entries)
+        {
+            var entry = e;
+            var (glyph, role) = ActivityGlyph(e.Kind);
+            var detail = $"{e.Version} · {StatusWords.Ago(e.Utc, now)}{(e.FileCount > 0 ? $" · {e.FileCount} file{(e.FileCount == 1 ? "" : "s")}" : "")}";
+            var row = Ui.Fit(new InfoRow(glyph, e.Headline, detail, role), this);
+            if (e.Files.Count > 0) row.Activated += () => ActivityDialog.ShowDetails(this, entry);
+            _activityRows.Controls.Add(row);
+        }
+        var all = new ModernButton("Show all activity", ButtonKind.Ghost) { Height = 30, Icon = Draw.History, Margin = new Padding(0, 4, 0, 4) };
+        all.Click += (_, _) => { using var d = new ActivityDialog(_app); d.ShowDialog(this); };
+        _activityRows.Controls.Add(Ui.Fit(all, this));
+        Theme.Apply(this);
+        _activityRows.ResumeLayout();
+    }
+
+    internal static (string Glyph, TextRole Role) ActivityGlyph(ActivityKind kind) => kind switch
+    {
+        ActivityKind.Uploaded => (Draw.Upload, TextRole.Accent),
+        ActivityKind.Downloaded => (Draw.Download, TextRole.Good),
+        ActivityKind.Conflict => (Draw.Warning, TextRole.Warning),
+        ActivityKind.Restored or ActivityKind.Snapshot or ActivityKind.GameUpdated => (Draw.History, TextRole.Accent),
+        _ => (Draw.Sync, TextRole.Accent),
+    };
+
+    private void RefreshComputers(DateTime now)
+    {
+        if (now - _computersReadUtc > TimeSpan.FromSeconds(60))
+        {
+            _computersReadUtc = now;
+            try { _computerList = Service.Computers(); } catch (Exception) { }
+        }
+        var key = string.Join("|", _computerList.Select(c => c.Name + c.LastSyncUtc.Ticks)) + StatusWords.Ago(_computerList.FirstOrDefault()?.LastSyncUtc, now) + Theme.IsDark;
+        if (key == _computersKey) return;
+        _computersKey = key;
+        _computerRows.SuspendLayout();
+        foreach (Control c in _computerRows.Controls.Cast<Control>().ToList()) { _computerRows.Controls.Remove(c); c.Dispose(); }
+        if (_computerList.Count == 0)
+            _computerRows.Controls.Add(Ui.Fit(new InfoRow(Draw.Computer, "No computers yet",
+                $"Each computer appears here after it syncs with {ProductInfo.Name} 3.1 or later.", TextRole.Muted), this));
+        foreach (var c in _computerList)
+        {
+            var name = c.IsThisComputer ? $"{c.Name} (this computer)" : c.Name;
+            var action = c.LastAction.Length > 0 ? $"{c.LastAction.ToLowerInvariant()} {StatusWords.Ago(c.LastSyncUtc, now)}" : $"synced {StatusWords.Ago(c.LastSyncUtc, now)}";
+            var detail = string.Join(" · ", new[] { c.System, c.AppVersion.Length > 0 ? $"version {c.AppVersion}" : "", action, string.Join(", ", c.Versions) }.Where(x => x.Length > 0));
+            _computerRows.Controls.Add(Ui.Fit(new InfoRow(Draw.Computer, name, detail, c.IsThisComputer ? TextRole.Accent : TextRole.Muted), this));
+        }
+        Theme.Apply(this);
+        _computerRows.ResumeLayout();
     }
 
     private void OpenRestore(VersionSync w)
     {
-        using var dialog = new RestoreDialog(_app, w);
-        dialog.ShowDialog(this);
+        AppActions.OpenBackups(this, _app, w);
         RefreshView();
     }
 
@@ -533,18 +504,6 @@ internal sealed class StatusForm : Form
         $"Version {ProductInfo.DisplayVersion}. {ProductInfo.Licence}.\n\n{ProductInfo.FontCredit}";
 
     internal static void ShowAbout(IWin32Window? owner) => AboutDialog.ShowFor(owner);
-
-    private void ChangeCloudFolder()
-    {
-        using var dialog = new ChangeCloudFolder(Service);
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        var target = dialog.Chosen;
-        var keep = dialog.KeepOnDevice;
-        ProviderChangeResult? result = null;
-        _app.Run(
-            () => result = Service.ChangeProvider(target, null, keep),
-            () => ThemedDialog.Show(this, result?.Message ?? "Nothing changed.", null, result?.Changed == true ? DialogKind.Info : DialogKind.Warning));
-    }
 
     private static string Format(DateTime? utc) => utc?.ToLocalTime().ToString("g") ?? "never";
 
@@ -568,7 +527,7 @@ internal sealed class StatusForm : Form
         private readonly Label _details = new() { AutoSize = true, UseMnemonic = false, Margin = Padding.Empty };
         private readonly StatusPill _pill = new() { Anchor = AnchorStyles.Right, Margin = new Padding(8, 0, 0, 0) };
         private readonly ModernButton _action = new("Choose which to keep...", ButtonKind.Primary) { Anchor = AnchorStyles.Right, Visible = false, Height = 30, Margin = new Padding(10, 0, 0, 0) };
-        private readonly ModernButton _restore = new("Restore...", ButtonKind.Ghost) { Anchor = AnchorStyles.Right, Visible = false, Height = 30, Margin = new Padding(10, 0, 0, 0), Icon = Draw.History };
+        private readonly ModernButton _restore = new("Backups…", ButtonKind.Ghost) { Anchor = AnchorStyles.Right, Visible = false, Height = 30, Margin = new Padding(10, 0, 0, 0), Icon = Draw.History, AccessibleDescription = "Restore a backup, or save a snapshot" };
         private VersionSync? _worker;
 
         public VersionRow(string key, Action<VersionSync> resolve, Action<VersionSync> restore)
@@ -604,7 +563,7 @@ internal sealed class StatusForm : Form
         public string Key { get; }
         public string Title => _title.Text;
 
-        public void Show(VersionSync? worker, GameVersion version, DateTime now)
+        public void Show(VersionSync? worker, GameVersion version, DateTime now, string? rules = null)
         {
             _worker = worker;
             _title.Text = version.FolderName + (version.ClientVersion != null ? $"   {version.ClientVersion}" : "");
@@ -622,7 +581,9 @@ internal sealed class StatusForm : Form
                 var status = string.IsNullOrEmpty(worker.StatusText) ? worker.Status.ToString() : worker.StatusText;
                 _pill.Set(status.Length > 48 ? status[..45] + "..." : status, ToneColor(tone));
                 var pending = worker.State.PendingPush ? " · upload pending" : "";
-                _details.Text = (worker.State.LastError is { Length: > 0 } err && tone == StatusTone.Attention ? err : StatusWords.Details(worker, now)) + pending;
+                _details.Text = (worker.State.LastError is { Length: > 0 } err && tone == StatusTone.Attention ? err : StatusWords.Details(worker, now)) + pending +
+                                (rules != null ? $" · {rules}" : "");
+                AccessibleName = $"{_title.Text}: {status}. {_details.Text}";
                 _action.Visible = worker.State.Conflict != null;
                 _restore.Visible = true;
                 Highlight = tone == StatusTone.Attention ? Theme.Error : null;
