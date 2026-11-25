@@ -420,7 +420,7 @@ public sealed class DesktopWindowTests : IDisposable
         Assert.Equal("General", settings.CurrentSection);
         var expect = new Dictionary<string, string>
         {
-            ["General"] = "Appearance", ["Sync"] = "Pause syncing", ["Cloud"] = "Keep it on this computer",
+            ["General"] = "Appearance", ["Sync"] = "Pause syncing", ["Cloud"] = Os.IsMac ? "Keep it on this Mac" : "Keep it on this computer",
             ["Updates"] = "Get beta versions", ["Advanced"] = "Run setup again",
         };
         foreach (var section in SettingsPage.SectionNames.Reverse().Concat(SettingsPage.SectionNames))
