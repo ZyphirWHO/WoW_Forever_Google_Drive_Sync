@@ -84,7 +84,7 @@ public sealed record SettingsItem(string RelativePath, string Account, string? R
     };
 }
 
-public enum ActivityKind { Uploaded, Downloaded, Restored, Conflict, Resolved, Snapshot, GameUpdated }
+public enum ActivityKind { Uploaded, Downloaded, Restored, Conflict, Resolved, Snapshot, GameUpdated, CleanedUp }
 
 /// <summary>One line of the activity timeline: what changed, where and when.</summary>
 public sealed class ActivityEntry
@@ -121,6 +121,7 @@ public sealed class ActivityEntry
                 ActivityKind.Conflict => L.T("Settings changed on two computers"),
                 ActivityKind.Snapshot when Name != null => L.F("Saved the snapshot \"{0}\"", Name),
                 ActivityKind.GameUpdated when Name != null => L.F("Game updated to {0}: saved a copy of the settings", Name),
+                ActivityKind.CleanedUp => L.F("Removed the settings of addons that aren't installed: {0}", what),
                 _ => Summary,
             };
         }

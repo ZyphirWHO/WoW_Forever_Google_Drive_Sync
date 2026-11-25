@@ -111,18 +111,44 @@ internal static class Actions
     /// <summary>Choose what syncs, in the main window's side panel.</summary>
     public static void ChooseWhatSyncs(MainWindow shell, VersionSync worker)
     {
-        var view = new SyncChoicesView(shell.Host.Service, worker,
-            save: rules =>
+        var host = shell.Host;
+        var view = new SyncChoicesView(host.Service, worker,
+            save: (rules, leaveOut) =>
             {
                 shell.CloseDrawer();
-                shell.Host.Run(() => shell.Host.Service.SetRules(worker, rules), () =>
+                host.Run(() =>
+                {
+                    host.Service.SetRules(worker, rules);
+                    if (leaveOut != host.Service.LeavesOutUninstalledAddons(worker.Version.FolderName))
+                        host.Service.SetLeaveOutUninstalledAddons(worker, leaveOut);
+                }, () =>
                 {
                     shell.Refresh();
                     shell.ShowToast(rules.Describe() ?? L.T("Everything syncs on this computer."));
                 });
             },
-            cancel: shell.CloseDrawer);
+            cancel: shell.CloseDrawer,
+            cleanUp: size => CleanUpUninstalledAddons(shell, worker, size));
         shell.OpenDrawer(L.F("Choose what syncs: {0}", worker.Version.FolderName), view);
+    }
+
+    /// <summary>Removes this computer's settings of addons that aren't installed, with Undo in the note that follows.</summary>
+    public static void CleanUpUninstalledAddons(MainWindow shell, VersionSync worker, string size)
+    {
+        var host = shell.Host;
+        CleanUpResult? result = null;
+        host.Run(() => result = host.Service.CleanUpUninstalledAddons(worker), () =>
+        {
+            shell.CloseDrawer();
+            shell.Refresh();
+            if (result is not { } r) return;
+            if (r.Problem != null) { shell.ShowToast(L.F("Nothing was removed: {0}", r.Problem)); return; }
+            if (r.FileCount == 0) { shell.ShowToast(L.T("There was nothing to clean up.")); return; }
+            var backup = r.Backup;
+            shell.ShowToast(L.N(r.Addons.Count, "Removed the settings of {0} addon that isn't installed", "Removed the settings of {0} addons that aren't installed") + $" ({size}).",
+                backup == null ? null : () => host.Run(() => host.Service.Restore(worker, backup), () => { shell.Refresh(); shell.ShowToast(L.T("Put back.")); }),
+                seconds: 10);
+        });
     }
 
     /// <summary>Switches syncing of a game version on or off on this computer.</summary>

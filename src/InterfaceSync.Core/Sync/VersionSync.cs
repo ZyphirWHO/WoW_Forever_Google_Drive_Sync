@@ -335,7 +335,14 @@ public sealed class VersionSync
         if (cloud.Readiness == CloudReadiness.Ready && cloud.CommitId == State.LastCommitId)
         {
             _active = Rules;
-            var outcome = Pull(cloud, force: true, reason: "before-sync-again", only: p => applied.Excludes(p) && !Rules.Excludes(p));
+            // Switched back on by the player: the cloud's copy (the one the other computers share) comes down.
+            // An addon installed again: the newer copy wins, so an addon manager briefly removing an addon folder
+            // while updating it never costs this computer's latest settings (they're uploaded instead).
+            var local = FolderScanner.Scan(_fs, LocalAccount).Manifest.ToLookup();
+            var inCloud = cloud.Files!.ToLookup();
+            bool LocalIsNewer(string p) => local.TryGetValue(p, out var l) && inCloud.TryGetValue(p, out var c) && l.LastWriteUtc > c.LastWriteUtc + Manifest.TimeTolerance;
+            var outcome = Pull(cloud, force: true, reason: "before-sync-again",
+                only: p => applied.Excludes(p) && !Rules.Excludes(p) && !(applied.ExcludesOnlyAsNotInstalled(p) && LocalIsNewer(p)));
             if (outcome == SyncOutcome.Pulled)
             {
                 State.AppliedRules = Rules.IsEmpty ? null : Rules.Copy();
@@ -856,6 +863,41 @@ public sealed class VersionSync
             State.LastClientVersion = clientVersion;
             TrySave();
             return snap;
+        }
+    }
+
+    // ------------------------------------------------------------------ clean-up
+
+    /// <summary>
+    /// Deletes this computer's settings files of addons that aren't installed, after backing them up. They are left
+    /// out of syncing, so nothing in the cloud changes (another computer may use those addons). The game must be closed.
+    /// </summary>
+    public CleanUpResult RemoveUninstalledAddonSettings()
+    {
+        lock (_gate)
+        {
+            if (_isGameRunning()) return new(null, [], 0, 0, "Close the game first.");
+            if (Rules.InstalledAddons == null) return new(null, [], 0, 0, "The AddOns folder couldn't be read, or addons that aren't installed are synced.");
+            var files = FolderScanner.Scan(_fs, LocalAccount).Manifest.Entries
+                .Where(e => SettingsItem.Parse(e.RelativePath).Addon is { } a && Rules.NotInstalled(a)).ToList();
+            if (files.Count == 0) return new(null, [], 0, 0);
+            var addons = files.Select(e => SettingsItem.Parse(e.RelativePath).Addon!).Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase).ToList();
+            var backup = _backups.CreateFromFiles(Name, LocalAccount, files, "before-cleanup" + BackupStore.ChangesSuffix);
+            int removed = 0;
+            foreach (var f in files)
+            {
+                try { _fs.DeleteFile(PathUtil.FromRelative(LocalAccount, f.RelativePath)); removed++; }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    _log.Warn($"{Name}: couldn't remove '{f.RelativePath}' ({e.Message}).");
+                }
+            }
+            long bytes = files.Sum(f => f.Size);
+            _log.Info($"{Name}: removed {removed} settings file(s) of {addons.Count} addon(s) that aren't installed ({string.Join(", ", addons)}); " +
+                      $"backed up to {backup.Path}. The cloud copies were left alone.");
+            Record(ActivityEntry.ForFiles(_clock.UtcNow, Name, ActivityKind.CleanedUp, files.Select(f => f.RelativePath).ToList()));
+            return new(backup, addons, removed, bytes);
         }
     }
 

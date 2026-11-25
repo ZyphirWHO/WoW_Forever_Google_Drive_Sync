@@ -34,6 +34,7 @@ public static class L
         "It is switched off in Windows' Startup apps (Settings → Apps → Startup, or Task Manager). Switch it on here to start with Windows again.",
         "Before downloading settings", "Before keeping the cloud settings", "Before restoring a backup", "Cloud copy, before uploading",
         "The cloud copy you chose not to keep", "Cloud copy, before moving cloud folder",
+        "Before removing settings of addons that aren't installed",
     ];
 
     private static Dictionary<string, string> _table = new();

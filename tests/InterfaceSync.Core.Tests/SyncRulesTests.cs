@@ -159,3 +159,131 @@ public sealed class SyncRulesTests : IDisposable
         Assert.NotNull(laptop.Sync.State.AppliedRules);
     }
 }
+
+/// <summary>Addons that aren't installed on a computer: their settings stay out of its sync, and can be cleaned up.</summary>
+public sealed class UninstalledAddonTests : IDisposable
+{
+    private readonly SimWorld _world = new();
+    public void Dispose() => _world.Dispose();
+
+    private const string Weak = @"PLAYER#1\SavedVariables\WeakAuras.lua";
+    private const string WeakChar = @"PLAYER#1\Realm\Thrall\SavedVariables\WeakAuras.lua";
+    private const string Details = @"PLAYER#1\SavedVariables\Details.lua";
+    private const string Blizzard = @"PLAYER#1\SavedVariables\Blizzard_Console.lua";
+    private const string Bindings = @"PLAYER#1\bindings-cache.wtf";
+
+    private static SyncRules Installed(params string[] addons) => new() { InstalledAddons = [.. addons] };
+
+    private (SimulatedPc home, SimulatedPc laptop) Joined()
+    {
+        var home = _world.Pc("HomePC");
+        foreach (var f in new[] { Weak, WeakChar, Details, Blizzard, Bindings }) home.WriteSetting(f, "home " + f);
+        Assert.Equal(SyncOutcome.Pushed, home.Sync.Tick());
+        _world.Clock.Advance(TimeSpan.FromMinutes(5));
+        var laptop = _world.Pc("Laptop");
+        Assert.Equal(SyncOutcome.Pulled, laptop.Sync.Tick());
+        return (home, laptop);
+    }
+
+    private string Cloud(string rel) => File.ReadAllText(Path.Combine(_world.CloudAccount(), rel.Replace('\\', Path.DirectorySeparatorChar)));
+
+    [Fact]
+    public void Installed_addons_are_the_AddOns_folders_with_a_toc_file()
+    {
+        var addOns = Path.Combine(_world.Root, "AddOns");
+        Assert.Null(InstalledAddons.Read(new Platform.PhysicalFileSystem(), addOns));      // no folder: unknown, nothing left out
+        Directory.CreateDirectory(Path.Combine(addOns, "Details"));
+        File.WriteAllText(Path.Combine(addOns, "Details", "Details.toc"), "## Title: Details");
+        Directory.CreateDirectory(Path.Combine(addOns, "EmptyLeftover"));                  // no .toc: not an addon
+        Assert.Equal(["Details"], InstalledAddons.Read(new Platform.PhysicalFileSystem(), addOns));
+    }
+
+    [Fact]
+    public void Settings_of_an_addon_that_isnt_installed_are_left_out_and_stay_in_the_cloud()
+    {
+        var (home, laptop) = Joined();
+        laptop.Sync.Rules = Installed("Details");                                       // WeakAuras isn't installed on the laptop
+        var rules = laptop.Sync.Rules;
+        Assert.True(rules.Excludes(Weak));
+        Assert.True(rules.Excludes(WeakChar));
+        Assert.False(rules.Excludes(Details));
+        Assert.False(rules.Excludes(Blizzard));                                         // the game's own: always synced
+        Assert.False(rules.Excludes(Bindings));
+
+        // Home changes WeakAuras: the laptop downloads the rest, not WeakAuras.
+        Assert.Equal(SyncOutcome.Pushed, home.PlaySession((Weak, "home weak 2"), (Details, "home details 2")));
+        Assert.Equal(SyncOutcome.Pulled, laptop.PollAfter(TimeSpan.FromMinutes(5)));
+        Assert.Equal("home details 2", laptop.ReadSetting(Details));
+        Assert.Equal("home " + Weak, laptop.ReadSetting(Weak));
+
+        // The laptop's stale WeakAuras never goes up, and deleting it there doesn't delete it from the cloud.
+        File.Delete(Path.Combine(laptop.AccountPath, "PLAYER#1", "SavedVariables", "WeakAuras.lua"));
+        laptop.PlaySession((Bindings, "laptop bindings"));
+        Assert.Equal("home weak 2", Cloud(Weak));
+        Assert.Equal("laptop bindings", Cloud(Bindings));
+    }
+
+    [Fact]
+    public void Installing_the_addon_later_brings_the_clouds_newer_settings()
+    {
+        var (home, laptop) = Joined();
+        laptop.Sync.Rules = Installed("Details");
+        home.PlaySession((Weak, "home weak 2"));
+        laptop.PollAfter(TimeSpan.FromMinutes(5));                                      // in step; WeakAuras still left out
+
+        laptop.Sync.Rules = Installed("Details", "WeakAuras");                          // installed now
+        Assert.Equal(SyncOutcome.Pulled, laptop.PollAfter(TimeSpan.FromMinutes(1)));
+        Assert.Equal("home weak 2", laptop.ReadSetting(Weak));
+        Assert.Equal(SyncOutcome.NothingToDo, laptop.PollAfter(TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public void An_addon_briefly_missing_during_an_update_keeps_this_computers_newer_settings()
+    {
+        var (_, laptop) = Joined();
+        laptop.Sync.Rules = Installed("Details", "WeakAuras");
+        laptop.PollAfter(TimeSpan.FromMinutes(1));
+        // The player changes WeakAuras and quits, while the addon manager has the WeakAuras folder removed.
+        laptop.Sync.Rules = Installed("Details");
+        laptop.PlaySession((Weak, "laptop weak newest"));
+        Assert.NotEqual("laptop weak newest", Cloud(Weak));                             // left out while "not installed"
+
+        laptop.Sync.Rules = Installed("Details", "WeakAuras");                          // the update finished
+        laptop.PollAfter(TimeSpan.FromMinutes(1));
+        laptop.PollAfter(TimeSpan.FromMinutes(1));
+        Assert.Equal("laptop weak newest", laptop.ReadSetting(Weak));                   // not overwritten by the older cloud copy
+        Assert.Equal("laptop weak newest", Cloud(Weak));                                // and uploaded
+    }
+
+    [Fact]
+    public void Clean_up_removes_this_computers_copies_only_and_can_be_undone()
+    {
+        var (_, laptop) = Joined();
+        laptop.Sync.Rules = Installed("Details");
+        var result = laptop.Sync.RemoveUninstalledAddonSettings();
+        Assert.Equal(["WeakAuras"], result.Addons);
+        Assert.Equal(2, result.FileCount);
+        Assert.Null(laptop.ReadSetting(Weak));
+        Assert.Null(laptop.ReadSetting(WeakChar));
+        Assert.NotNull(laptop.ReadSetting(Details));
+        Assert.NotNull(laptop.ReadSetting(Blizzard));
+        Assert.Equal("home " + Weak, Cloud(Weak));                                      // the cloud copy is untouched
+        Assert.Equal(SyncOutcome.NothingToDo, laptop.PollAfter(TimeSpan.FromMinutes(1)));
+        Assert.Equal("home " + Weak, Cloud(Weak));                                      // and the removal never syncs
+
+        laptop.Sync.RestoreBackup(result.Backup!);                                      // Undo
+        Assert.Equal("home " + Weak, laptop.ReadSetting(Weak));
+        Assert.Equal("Before removing settings of addons that aren't installed", result.Backup!.Description);
+    }
+
+    [Fact]
+    public void Clean_up_does_nothing_when_the_installed_addons_are_unknown_or_the_game_runs()
+    {
+        var (_, laptop) = Joined();
+        Assert.NotNull(laptop.Sync.RemoveUninstalledAddonSettings().Problem);            // AddOns folder unknown
+        laptop.Sync.Rules = Installed("Details");
+        laptop.GameRunning = true;
+        Assert.NotNull(laptop.Sync.RemoveUninstalledAddonSettings().Problem);
+        Assert.NotNull(laptop.ReadSetting(Weak));
+    }
+}

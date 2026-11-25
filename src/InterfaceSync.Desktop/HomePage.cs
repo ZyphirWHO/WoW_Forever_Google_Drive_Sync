@@ -146,6 +146,8 @@ internal sealed class HomePage : Page
         var body = new StackPanel { Spacing = 6, Children = { head, Ui.Text(details, 12, brush: "InterfaceSyncMuted") } };
         if (w != null && Service.RulesFor(v.FolderName).Describe() is { } rules)
             body.Children.Add(Ui.Text(rules, 12, brush: "InterfaceSyncInfo"));
+        if (w != null && w.Rules.InstalledAddons != null && Service.UninstalledAddonDataFor(w) is { Addons.Count: > 0 } gone)
+            body.Children.Add(Ui.Text(L.N(gone.Addons.Count, "{0} addon that isn't installed here is left out", "{0} addons that aren't installed here are left out"), 12, brush: "InterfaceSyncMuted"));
 
         var actions = new WrapPanel { Margin = new Thickness(-8, 6, 0, 0) };
         if (w != null)

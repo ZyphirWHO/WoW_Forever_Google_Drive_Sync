@@ -35,6 +35,15 @@ When the game is updated, Interface Sync saves a copy of your settings first ("B
 A copy of your settings you save yourself, with a name, from **Backups**: type a name and click **Save snapshot**. Snapshots are kept
 until you delete them.
 
+## Settings of addons I removed
+
+Settings of an addon you've uninstalled (its folder is gone from `Interface\AddOns`) are left out on that computer:
+they aren't downloaded or uploaded there, and your other computers keep syncing theirs. Install the addon again and
+its settings come back (the newest copy wins). Blizzard's own settings and keybindings, macros and other
+account-wide files always sync. In **Choose what syncs** you can switch this off per game version, and **Clean up**
+removes the leftover settings on this computer to make backups smaller; a backup is made first, so it can be undone,
+and the cloud copies are never touched. If the AddOns folder can't be read, nothing is left out.
+
 ## My cloud app keeps files "online only"
 
 Interface Sync needs the files on your computer. Make the `InterfaceSync` folder available offline:

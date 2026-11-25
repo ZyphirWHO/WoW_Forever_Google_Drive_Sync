@@ -433,4 +433,37 @@ public sealed class SyncServiceTests : IDisposable
         Assert.Equal("new", File.ReadAllText(file));
         Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(file)!, "added.txt")));
     }
+
+    [Fact]
+    public void The_service_reads_installed_addons_and_the_player_can_switch_the_rule_off()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var addOns = Path.Combine(_wow, "_retail_", "Interface", "AddOns");
+        Directory.CreateDirectory(Path.Combine(addOns, "Details"));
+        File.WriteAllText(Path.Combine(addOns, "Details", "Details.toc"), "x");
+        var s = Service();
+        s.Start();
+        var retail = s.Workers.Single(w => w.Version.FolderName == "_retail_");
+        var forever = s.Workers.Single(w => w.Version.FolderName == "_forever_");
+        Assert.Equal(["Details"], retail.Rules.InstalledAddons);
+        Assert.Null(forever.Rules.InstalledAddons);                                     // no AddOns folder: nothing left out
+
+        var account = Path.Combine(_wow, "_retail_", "WTF", "Account", "PLAYER#1", "SavedVariables");
+        Directory.CreateDirectory(account);
+        File.WriteAllText(Path.Combine(account, "Gone.lua"), "old addon");
+        File.WriteAllText(Path.Combine(account, "Details.lua"), "kept");
+        var data = s.UninstalledAddonDataFor(retail);
+        Assert.Equal(["Gone"], data.Addons);
+        Assert.Equal(1, data.FileCount);
+
+        s.SetLeaveOutUninstalledAddons(retail, false);
+        Assert.Null(retail.Rules.InstalledAddons);
+        Assert.False(s.LeavesOutUninstalledAddons("_retail_"));
+        Assert.NotNull(s.CleanUpUninstalledAddons(retail).Problem);                      // not while they're synced
+        s.SetLeaveOutUninstalledAddons(retail, true);
+        var result = s.CleanUpUninstalledAddons(retail);
+        Assert.Equal(["Gone"], result.Addons);
+        Assert.False(File.Exists(Path.Combine(account, "Gone.lua")));
+        Assert.True(File.Exists(Path.Combine(account, "Details.lua")));
+    }
 }

@@ -35,6 +35,7 @@ public sealed record BackupInfo(string VersionFolder, string Path, DateTime Crea
         "before-pull" or "first-join" => "Before downloading settings",
         "before-keep-cloud" => "Before keeping the cloud settings",
         "before-restore" => "Before restoring a backup",
+        "before-cleanup" => "Before removing settings of addons that aren't installed",
         "cloud-before-push" or "cloud-before-push-all" => "Cloud copy, before uploading",
         "cloud-copy-conflict" => "The cloud copy you chose not to keep",
         var r when r.StartsWith("cloud-before-provider-move", StringComparison.OrdinalIgnoreCase) => "Cloud copy, before moving cloud folder",

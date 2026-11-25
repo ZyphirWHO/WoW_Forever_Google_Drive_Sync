@@ -58,6 +58,9 @@ public sealed class AppSettings
     /// <summary>"Choose what syncs": per game version folder, the characters and addons this computer leaves out.</summary>
     public Dictionary<string, Sync.SyncRules> SyncRules { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Per game version folder: true to also sync the settings of addons that aren't installed on this computer.</summary>
+    public Dictionary<string, bool> SyncUninstalledAddons { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public bool Paused { get; set; }
 
     /// <summary>When a timed pause ends ("Pause for 1 hour"); null while paused means until resumed.</summary>
@@ -126,6 +129,7 @@ public sealed class SettingsStore
             s.CloudFolderNames = new(s.CloudFolderNames, StringComparer.OrdinalIgnoreCase);
             s.FirstSyncChoices = new(s.FirstSyncChoices ?? [], StringComparer.OrdinalIgnoreCase);
             s.SyncRules = new(s.SyncRules ?? [], StringComparer.OrdinalIgnoreCase);
+            s.SyncUninstalledAddons = new(s.SyncUninstalledAddons ?? [], StringComparer.OrdinalIgnoreCase);
             if (s.SchemaVersion < 2)
             {
                 // 3.0 starts in dark mode; earlier builds defaulted to "match the computer".

@@ -29,7 +29,7 @@ sponsored by Blizzard Entertainment, Inc.
   and **Your computers** lists every computer that syncs. Each computer writes a small file
   (`InterfaceSync\<version>\Computers\<name>.json`) after it syncs; nothing is written while idle.
 - **Choose what syncs:** leave out characters or addons on one computer; they stay as they are in the cloud for
-  the others.
+  the others. Addons you've removed stop syncing on that computer, and their leftover settings can be cleaned up.
 - **Pause for a while** (1 hour, 4 hours, until tomorrow morning, or until you resume), **notifications** your way
   (all, only when needed, none), and the interface in **English, German, French, Spanish or Portuguese**.
 - **Help → Report a problem** opens a GitHub issue with the diagnostics filled in (folder paths, computer and user

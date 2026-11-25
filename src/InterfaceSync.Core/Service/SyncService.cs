@@ -192,6 +192,7 @@ public sealed class SyncService
                 _log.Info("Syncing resumed (the pause you set has ended).");
             }
             CheckDriveNotice();
+            ApplyRules();   // addons installed or removed since the last look (read at most once a minute)
             bool movedAway = CheckMovedAway();
             foreach (var w in movedAway ? [] : _workers)
             {
@@ -628,7 +629,7 @@ public sealed class SyncService
             }
         }
         Volatile.Write(ref _workers, workers);
-        foreach (var w in workers) w.Rules = RulesFor(w.Version.FolderName);
+        foreach (var w in workers) w.Rules = EffectiveRules(w, fresh: true);
         foreach (var w in workers)
             w.NoteClientVersion(Versions.FirstOrDefault(v => PathUtil.SamePath(v.FolderPath, w.Version.FolderPath))?.ClientVersion);
         ApplyFirstSyncChoices();
@@ -665,21 +666,70 @@ public sealed class SyncService
 
     // ------------------------------------------------------------------ choose what syncs
 
+    /// <summary>The player's own choices for a game version (characters and addons unticked).</summary>
     public SyncRules RulesFor(string versionFolder) =>
-        Settings.SyncRules.TryGetValue(versionFolder, out var r) && r != null ? r : SyncRules.None;
+        Settings.SyncRules.TryGetValue(versionFolder, out var r) && r != null ? r.ChoicesOnly() : SyncRules.None;
+
+    /// <summary>Whether the settings of addons that aren't installed on this computer are left out (the default).</summary>
+    public bool LeavesOutUninstalledAddons(string versionFolder) =>
+        !(Settings.SyncUninstalledAddons.TryGetValue(versionFolder, out var sync) && sync);
+
+    private readonly Dictionary<string, (DateTime ReadUtc, List<string>? Names)> _installedAddons = new(StringComparer.OrdinalIgnoreCase);
+    public static readonly TimeSpan InstalledAddonsCheckEvery = TimeSpan.FromMinutes(1);
+
+    /// <summary>The addons installed for a game version (read at most once a minute), or null when unknown.</summary>
+    public IReadOnlyList<string>? InstalledAddonsFor(GameVersion version, bool fresh = false)
+    {
+        var now = _clock.UtcNow;
+        if (fresh || !_installedAddons.TryGetValue(version.FolderPath, out var cached) || now - cached.ReadUtc >= InstalledAddonsCheckEvery)
+        {
+            cached = (now, InstalledAddons.Read(_fs, version.AddOnsPath));
+            _installedAddons[version.FolderPath] = cached;
+        }
+        return cached.Names;
+    }
+
+    /// <summary>The rules a worker syncs with: the player's choices, plus addons that aren't installed here.</summary>
+    public SyncRules EffectiveRules(VersionSync worker, bool fresh = false)
+    {
+        var rules = RulesFor(worker.Version.FolderName);
+        if (LeavesOutUninstalledAddons(worker.Version.FolderName) && InstalledAddonsFor(worker.Version, fresh) is { } installed)
+            rules.InstalledAddons = installed.ToList();
+        return rules;
+    }
+
+    private void ApplyRules(bool fresh = false)
+    {
+        foreach (var w in Workers) w.Rules = EffectiveRules(w, fresh);
+    }
 
     /// <summary>Saves what this computer leaves out for a game version; the next sync applies it.</summary>
     public void SetRules(VersionSync worker, SyncRules rules)
     {
+        var choices = rules.ChoicesOnly();
         lock (_gate)
         {
-            if (rules.IsEmpty) Settings.SyncRules.Remove(worker.Version.FolderName);
-            else Settings.SyncRules[worker.Version.FolderName] = rules.Copy();
+            if (choices.IsEmpty) Settings.SyncRules.Remove(worker.Version.FolderName);
+            else Settings.SyncRules[worker.Version.FolderName] = choices;
             TrySaveSettings();
-            worker.Rules = RulesFor(worker.Version.FolderName);
+            worker.Rules = EffectiveRules(worker, fresh: true);
         }
-        _log.Info($"{worker.Version.FolderName}: {rules.Describe() ?? "everything syncs on this computer"}" +
-                  (rules.IsEmpty ? "." : $" (characters: {string.Join(", ", rules.Characters.DefaultIfEmpty("none"))}; addons: {string.Join(", ", rules.Addons.DefaultIfEmpty("none"))})."));
+        _log.Info($"{worker.Version.FolderName}: {choices.Describe() ?? "everything syncs on this computer"}" +
+                  (choices.IsEmpty ? "." : $" (characters: {string.Join(", ", choices.Characters.DefaultIfEmpty("none"))}; addons: {string.Join(", ", choices.Addons.DefaultIfEmpty("none"))})."));
+        UpdateOverall();
+    }
+
+    /// <summary>Leave out (the default) or sync the settings of addons that aren't installed on this computer.</summary>
+    public void SetLeaveOutUninstalledAddons(VersionSync worker, bool leaveOut)
+    {
+        lock (_gate)
+        {
+            if (leaveOut) Settings.SyncUninstalledAddons.Remove(worker.Version.FolderName);
+            else Settings.SyncUninstalledAddons[worker.Version.FolderName] = true;
+            TrySaveSettings();
+            worker.Rules = EffectiveRules(worker, fresh: true);
+        }
+        _log.Info($"{worker.Version.FolderName}: settings of addons that aren't installed on this computer are {(leaveOut ? "left out" : "synced")}.");
         UpdateOverall();
     }
 
@@ -688,7 +738,36 @@ public sealed class SyncService
     {
         var paths = FolderScanner.Scan(_fs, worker.Version.AccountPath).Manifest.Entries.Select(e => e.RelativePath)
             .Concat(FolderScanner.Scan(_fs, worker.Cloud.Account).Manifest.Entries.Select(e => e.RelativePath));
-        return SyncChoices.From(paths);
+        return SyncChoices.From(paths) with { Installed = InstalledAddonsFor(worker.Version, fresh: true) };
+    }
+
+    /// <summary>Settings files on this computer that belong to addons that aren't installed (left out of syncing).</summary>
+    public UninstalledAddonData UninstalledAddonDataFor(VersionSync worker)
+    {
+        var installed = InstalledAddonsFor(worker.Version, fresh: true);
+        if (installed == null) return UninstalledAddonData.None;
+        var set = new HashSet<string>(installed, StringComparer.OrdinalIgnoreCase);
+        var files = FolderScanner.Scan(_fs, worker.Version.AccountPath).Manifest.Entries
+            .Where(e => SettingsItem.Parse(e.RelativePath).Addon is { } a && !set.Contains(a)).ToList();
+        var addons = files.Select(e => SettingsItem.Parse(e.RelativePath).Addon!).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase).ToList();
+        return new UninstalledAddonData(addons, files.Count, files.Sum(e => e.Size));
+    }
+
+    /// <summary>
+    /// Removes this computer's settings files of addons that aren't installed (after backing them up, so the returned
+    /// backup undoes it). The cloud copies are left alone: another computer may use those addons.
+    /// </summary>
+    public CleanUpResult CleanUpUninstalledAddons(VersionSync worker)
+    {
+        CleanUpResult result;
+        lock (_gate)
+        {
+            worker.Rules = EffectiveRules(worker, fresh: true);
+            result = worker.RemoveUninstalledAddonSettings();
+        }
+        UpdateOverall();
+        return result;
     }
 
     // ------------------------------------------------------------------ snapshots and computers

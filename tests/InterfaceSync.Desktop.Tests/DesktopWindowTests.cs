@@ -426,6 +426,43 @@ public sealed class DesktopWindowTests : IDisposable
         window.AllowClose();
     }
 
+    [AvaloniaFact]
+    public void Addons_that_arent_installed_are_left_out_listed_apart_and_can_be_cleaned_up_with_undo()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        var addOns = Path.Combine(_root, "Applications", "World of Warcraft", "_retail_", "Interface", "AddOns", "Bartender4");
+        Directory.CreateDirectory(addOns);
+        File.WriteAllText(Path.Combine(addOns, "Bartender4.toc"), "x");
+        WriteSetting(@"SavedVariables\Bartender4.lua", "installed");
+        WriteSetting(@"SavedVariables\WeakAuras.lua", "removed long ago");
+        WriteSetting(@"Realm\Thrall\SavedVariables\WeakAuras.lua", "removed long ago");
+        service.Start();
+        service.Poll();
+        var worker = service.Workers[0];
+        Assert.Equal(["Bartender4"], worker.Rules.InstalledAddons);
+
+        var window = new MainWindow(new Host(service));
+        window.Show();
+        Actions.ChooseWhatSyncs(window, worker);
+        Dispatcher.UIThread.RunJobs();
+        var view = Assert.IsType<SyncChoicesView>(window.DrawerContent);
+        Assert.True(view.LeaveOutUninstalled);
+        Assert.Equal(["Bartender4"], view.AddonNames);                       // only what's installed can be ticked
+        Assert.Equal(["WeakAuras"], view.NotInstalled);
+        Assert.True(view.CleanUpOffered);
+
+        var weak = Path.Combine(Account, "SavedVariables", "WeakAuras.lua");
+        Actions.CleanUpUninstalledAddons(window, worker, "1 KB");
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(File.Exists(weak));
+        Assert.StartsWith("Removed the settings of 1 addon that isn't installed", window.ToastText);
+        window.ClickUndo();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(File.Exists(weak));
+        Assert.Equal("Put back.", window.ToastText);
+        window.AllowClose();
+    }
+
     private sealed class InstallHost(SyncService service, InterfaceSync.Core.Updates.Updater updater, Action install) : IAppHost
     {
         public SyncService Service { get; } = service;
@@ -479,6 +516,13 @@ public sealed class DesktopWindowTests : IDisposable
         WriteSetting(@"SavedVariables\WeakAuras.lua", "w");
         WriteSetting(@"Silvermoon\Thrall\SavedVariables\Bartender4.lua", "b");
         WriteSetting(@"Silvermoon\Jaina\macros-cache.txt", "j");
+        WriteSetting(@"SavedVariables\OldRaidFrames.lua", new string('x', 40_000));
+        foreach (var addon in new[] { "Details", "Bartender4" })
+        {
+            var dir = Path.Combine(_root, "Applications", "World of Warcraft", "_retail_", "Interface", "AddOns", addon);
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, addon + ".toc"), "x");
+        }
         service.Start();
         service.Poll();
         service.Activity.Add(InterfaceSync.Core.Sync.ActivityEntry.ForFiles(DateTime.UtcNow.AddMinutes(-3), "_retail_", InterfaceSync.Core.Sync.ActivityKind.Downloaded,
