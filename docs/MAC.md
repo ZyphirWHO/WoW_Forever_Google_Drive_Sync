@@ -60,7 +60,7 @@ macOS may ask once whether Interface Sync may access files in your cloud folder.
 
 ## Open at Login
 
-Setup ticks **Open Interface Sync when I log in** by default; it can be switched later from the menu-bar menu
+Setup ticks **Open Interface Sync when I log in** by default; it can be switched later in **Settings** (click the menu-bar icon, then the gear)
 (**Open at Login**). It is a per-user Login Item (`~/Library/LaunchAgents/io.github.zyphirwho.interfacesync.plist`),
 so macOS shows "Background Items Added" once, and lists it in System Settings → General → Login Items, where it can
 also be switched off. Open Interface Sync from Applications at least once: a copy run from Downloads or a disk image
@@ -68,6 +68,6 @@ can't be registered. If you move the app, open it once from its new place and th
 
 ## Not done yet on the Mac
 
-- macOS notifications: needs a notarised app. Until then, anything that needs you shows in the menu-bar menu,
-  the icon gets a warning badge, and a conflict opens the status window.
+- macOS notifications: needs a notarised app. Until then, anything that needs you shows in the panel that opens
+  from the menu-bar icon, the icon gets a warning badge, and a conflict opens the main window.
 - Notarisation, so Gatekeeper doesn't warn.

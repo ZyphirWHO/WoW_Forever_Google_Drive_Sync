@@ -24,14 +24,15 @@ and pick the copy you want. The newer one is suggested. The other copy is saved 
 
 ## How do I undo a sync, or a game update that reset my settings?
 
-Click **Backups…** next to the game version. Pick a backup or snapshot and click **Restore**. Your current settings
+Open **Backups** in the sidebar (or click **Backups** on the game version's tile). Click **Restore** next to a backup
+or snapshot. It happens at once, and **Undo** in the note that appears puts things back exactly. Your current settings
 are backed up first, and the restored ones are uploaded to your other computers.
 
 When the game is updated, Interface Sync saves a copy of your settings first ("Before game update …").
 
 ## What is a snapshot?
 
-A copy of your settings you save yourself, with a name, from **Backups… → Save snapshot**. Snapshots are kept
+A copy of your settings you save yourself, with a name, from **Backups**: type a name and click **Save snapshot**. Snapshots are kept
 until you delete them.
 
 ## My cloud app keeps files "online only"
@@ -56,12 +57,12 @@ Privacy & Security and click **Open Anyway**. See the "How to open" guide that c
 
 ## How do I report a problem?
 
-Open Interface Sync → **Settings → Advanced → Report a problem**. It opens a new GitHub issue with the diagnostics
+Open Interface Sync → **Settings** → **Advanced** → **Report a problem**. It opens a new GitHub issue with the diagnostics
 filled in (folder names only, no personal paths). Check it, describe what happened, and click Submit.
 
 ## How do I uninstall it?
 
 - **Windows:** Settings → Apps → Interface Sync → Uninstall. You can choose to also remove its backups and settings.
-- **Mac:** quit it from the menu bar, then drag it from Applications to the Bin.
+- **Mac:** click its menu-bar icon, click **Quit Interface Sync**, then drag it from Applications to the Bin.
 
 Your cloud folder is never touched by uninstalling.
