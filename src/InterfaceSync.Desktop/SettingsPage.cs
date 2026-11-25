@@ -14,48 +14,46 @@ using InterfaceSync.Core.Updates;
 namespace InterfaceSync.Desktop;
 
 /// <summary>
-/// Every setting on one scrolling page, in sections (General, Sync, Cloud, Updates, Advanced) with links at the top
-/// that jump to each. Each setting is a card: what it is and why, with its control on the right.
+/// Settings in tabs (General, Sync, Cloud, Updates, Advanced), one section at a time, so each opens at its top.
+/// Each setting is a card: what it is and why, with its control on the right.
 /// </summary>
 internal sealed class SettingsPage : Page
 {
     public static readonly string[] SectionNames = ["General", "Sync", "Cloud", "Updates", "Advanced"];
 
     private readonly StackPanel _body = new();
-    private readonly Dictionary<string, Control> _sections = new();
     private readonly List<string> _titles = [];
     private readonly ScrollViewer _scroller;
-    private readonly Dictionary<string, Button> _links = new();
-    private readonly Border _endSpace = new();     // lets the last sections scroll up to the top
+    private readonly Dictionary<string, Button> _tabs = new();
     private string _key = "";
-    private string? _jumpedTo;
+    private string _current = SectionNames[0];
 
     public SettingsPage(MainWindow shell) : base(shell)
     {
-        var jump = new WrapPanel { Margin = new Thickness(0, -6, 0, 6) };
+        var tabs = new WrapPanel { Margin = new Thickness(0, -6, 0, 6) };
         foreach (var name in SectionNames)
         {
             var section = name;
-            var b = Ui.Button(L.T(section), () => JumpTo(section), ButtonKind.Ghost);
+            var b = Ui.Button(L.T(section), () => Show(section), ButtonKind.Ghost);
             b.Margin = new Thickness(0, 0, 4, 4);
-            jump.Children.Add(b);
-            _links[section] = b;
+            tabs.Children.Add(b);
+            _tabs[section] = b;
         }
-        AutomationProperties.SetName(jump, L.T("Settings sections"));
-        // The heading and section links stay put; the sections scroll below them.
+        AutomationProperties.SetName(tabs, L.T("Settings sections"));
+        // The heading and tabs stay put; the section's settings scroll below them.
         var top = new Border
         {
             Padding = new Thickness(32, 26, 32, 4), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Stretch,
-            Child = new StackPanel { Children = { Heading(L.T("Settings")), jump } },
+            Child = new StackPanel { Children = { Heading(L.T("Settings")), tabs } },
         };
-        _scroller = Scroll(new StackPanel { Children = { _body, _endSpace } });
-        ((Border)_scroller.Content!).Padding = new Thickness(32, 4, 32, 32);
-        _scroller.ScrollChanged += (_, _) => MarkCurrent();
+        _scroller = Scroll(_body);
+        ((Border)_scroller.Content!).Padding = new Thickness(32, 8, 32, 32);
         var dock = new DockPanel();
         DockPanel.SetDock(top, Dock.Top);
         dock.Children.Add(top);
         dock.Children.Add(_scroller);
         Content = dock;
+        MarkTab();
     }
 
     public override string Key => "Settings";
@@ -63,79 +61,63 @@ internal sealed class SettingsPage : Page
     public override void Arrive(object? argument)
     {
         _key = "";
-        // after the page is laid out (its size can still be changing), or the scroll position is put back
-        if (argument is string section) Avalonia.Threading.Dispatcher.UIThread.Post(() => JumpTo(section), Avalonia.Threading.DispatcherPriority.Loaded);
+        if (argument is string section && SectionNames.Contains(section)) Select(section);
     }
 
-    /// <summary>Scrolls so the section's heading is at the top, right under the section links.</summary>
-    private void JumpTo(string section)
+    /// <summary>Opens a section's tab, at its top.</summary>
+    private void Show(string section)
     {
-        if (!_sections.TryGetValue(section, out var header)) return;
-        _scroller.UpdateLayout();
-        if (header.TranslatePoint(new Point(0, 0), _body) is not { } at) { header.BringIntoView(); return; }
-        // Room below the last sections so their heading can reach the top too.
-        var bodyTop = _body.TranslatePoint(new Point(0, 0), (Visual)_scroller.Content!)?.Y ?? 0;
-        var y = Math.Max(0, bodyTop + at.Y - 4);
-        _endSpace.Height = Math.Max(0, y + _scroller.Viewport.Height - (bodyTop + _body.Bounds.Height + 32));
-        _scroller.UpdateLayout();
-        _jumpedTo = section;
-        _scroller.Offset = new Vector(0, y);
-        MarkCurrent();
+        Select(section);
+        _key = "";
+        Shell.Refresh();     // this page, and the update bar (hidden while the Updates tab shows the update)
     }
 
-    /// <summary>Highlights the link of the section being read.</summary>
-    private void MarkCurrent()
+    private void Select(string section)
     {
-        string? current = null;
-        var y = _scroller.Offset.Y;
-        foreach (var name in SectionNames)
-            if (_sections.TryGetValue(name, out var h) && h.TranslatePoint(new Point(0, 0), _body) is { } p && p.Y <= y + 24) current = name;
-        // At the very bottom the last short sections can't reach the top: keep the one that was clicked.
-        if (_jumpedTo != null && y >= _scroller.Extent.Height - _scroller.Viewport.Height - 1) current = _jumpedTo;
-        else if (_jumpedTo != null && current != _jumpedTo) _jumpedTo = null;
-        current ??= SectionNames[0];
-        foreach (var (name, b) in _links)
-            if (name == current) Ui.Res(b, Button.BackgroundProperty, "InterfaceSyncSelection");
+        if (section != _current) _scroller.Offset = default;
+        _current = section;
+        MarkTab();
+    }
+
+    private void MarkTab()
+    {
+        foreach (var (name, b) in _tabs)
+        {
+            if (name == _current) Ui.Res(b, Button.BackgroundProperty, "InterfaceSyncSelection");
             else b.ClearValue(Button.BackgroundProperty);
-        CurrentSection = current;
+            b.FontWeight = name == _current ? FontWeight.SemiBold : FontWeight.Normal;
+        }
     }
 
-    /// <summary>For tests: the section whose link is highlighted.</summary>
-    internal string CurrentSection { get; private set; } = "General";
+    /// <summary>For tests: the open tab.</summary>
+    internal string CurrentSection => _current;
 
-    /// <summary>For tests: how far the section's heading is from the top of the visible area (0 = at the top).</summary>
-    internal double SectionDistanceFromTop(string section) =>
-        _sections[section].TranslatePoint(new Point(0, 0), _scroller)?.Y ?? double.NaN;
-
-    internal void Jump(string section) => JumpTo(section);
+    /// <summary>For tests: clicks a tab.</summary>
+    internal void Jump(string section) => Show(section);
 
     public override void Refresh()
     {
         var s = Service.Settings;
         var u = Host.Updater;
-        var key = string.Join("|", s.Theme, Look.IsDark, s.Notifications, s.Language, s.Paused, s.PausedUntilUtc, s.CheckForUpdates, s.LastUpdateCheckUtc,
+        var key = string.Join("|", _current, s.Theme, Look.IsDark, s.Notifications, s.Language, s.Paused, s.PausedUntilUtc, s.CheckForUpdates, s.LastUpdateCheckUtc,
             Host.StartAtLogin?.IsEnabled, Host.StartAtLogin?.SwitchedOffNote, u?.State, u?.Available?.Version, Service.Drive?.MyDrivePath, Service.ProviderName,
             string.Join(",", Service.Versions.Select(v => $"{v.FolderName}{Service.IsEnabled(v)}{Service.RulesFor(v.FolderName).Describe()}")), L.Language);
         if (key == _key) return;
         _key = key;
         var offset = _scroller.Offset;
         _body.Children.Clear();
-        _sections.Clear();
         _titles.Clear();
-        Section("General", General());
-        Section("Sync", SyncSection());
-        Section("Cloud", CloudSection());
-        Section("Updates", UpdatesSection());
-        Section("Advanced", AdvancedSection());
+        // Every section is built (RowTitles lists them all, for tests); only the open tab's settings are shown.
+        var sections = new Dictionary<string, List<Control>>
+        {
+            ["General"] = General().ToList(),
+            ["Sync"] = SyncSection().ToList(),
+            ["Cloud"] = CloudSection().ToList(),
+            ["Updates"] = UpdatesSection().ToList(),
+            ["Advanced"] = AdvancedSection().ToList(),
+        };
+        foreach (var row in sections[_current]) _body.Children.Add(row);
         _scroller.Offset = offset;
-    }
-
-    private void Section(string name, IEnumerable<Control> rows)
-    {
-        var header = Brand.Section(L.T(name));
-        _sections[name] = header;
-        _body.Children.Add(header);
-        foreach (var r in rows) _body.Children.Add(r);
     }
 
     /// <summary>For tests: the setting titles shown.</summary>

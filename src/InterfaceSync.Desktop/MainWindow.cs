@@ -267,8 +267,9 @@ internal sealed class MainWindow : Window
                 L.F("{0}: settings changed on two computers", w.Version.FolderName), L.T("Choose which copy to keep. The other is saved as a backup."),
                 [Ui.Button(L.T("Choose which to keep…"), () => Actions.Resolve(this, Host, worker), ButtonKind.Primary)]));
         }
-        // (Settings shows the update in its own card, with the download's progress.)
-        if (Host.Updater is { Available: { } r } u && u.State is UpdateState.Available or UpdateState.Downloading && CurrentPage != "Settings")
+        // (Settings → Updates shows the update in its own card, with the download's progress.)
+        bool updatesTabOpen = CurrentPage == "Settings" && _pages["Settings"] is SettingsPage { CurrentSection: "Updates" };
+        if (Host.Updater is { Available: { } r } u && u.State is UpdateState.Available or UpdateState.Downloading && !updatesTabOpen)
             bars.Add(("update", "InterfaceSyncAccent", Ui.Download,
                 r.IsPrerelease ? L.F("Beta {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version),
                 u.State == UpdateState.Downloading ? L.T("Downloading and checking the installer…")

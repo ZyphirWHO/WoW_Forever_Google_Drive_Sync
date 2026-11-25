@@ -392,9 +392,12 @@ public sealed class DesktopWindowTests : IDisposable
         window.Show();
         window.Navigate("Settings");
         Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.BarTitles, t => t.Contains("9.9.9"));            // General tab: the bar shows it
+        window.Navigate("Settings", "Updates");
+        Dispatcher.UIThread.RunJobs();
         var settings = (SettingsPage)window.PageFor("Settings");
         Assert.Equal("Interface Sync 9.9.9 is available", settings.UpdateCardTitle);
-        Assert.DoesNotContain(window.BarTitles, t => t.Contains("9.9.9"));      // not twice on this page
+        Assert.DoesNotContain(window.BarTitles, t => t.Contains("9.9.9"));      // not twice on the Updates tab
         var update = AllButtons(settings).Single(b => ButtonText(b) == "Download update" || ButtonText(b) == "Update now");
         update.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
         Assert.Equal(1, installs);
@@ -404,7 +407,7 @@ public sealed class DesktopWindowTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void Settings_section_links_put_the_section_at_the_top()
+    public void Settings_tabs_show_one_section_at_a_time_from_its_top()
     {
         var (service, _) = MakeService(setupComplete: true);
         service.Poll();
@@ -414,18 +417,29 @@ public sealed class DesktopWindowTests : IDisposable
         window.Navigate("Settings");
         Dispatcher.UIThread.RunJobs();
         var settings = (SettingsPage)window.PageFor("Settings");
+        Assert.Equal("General", settings.CurrentSection);
+        var expect = new Dictionary<string, string>
+        {
+            ["General"] = "Appearance", ["Sync"] = "Pause syncing", ["Cloud"] = "Keep it on this computer",
+            ["Updates"] = "Get beta versions", ["Advanced"] = "Run setup again",
+        };
         foreach (var section in SettingsPage.SectionNames.Reverse().Concat(SettingsPage.SectionNames))
         {
-            settings.Jump(section);
+            var tab = AllButtons(settings).Single(b => ButtonText(b) == section);
+            tab.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
             Dispatcher.UIThread.RunJobs();
-            Assert.InRange(settings.SectionDistanceFromTop(section), -1, 12);
             Assert.Equal(section, settings.CurrentSection);
+            var texts = AllTexts(settings);
+            Assert.Contains(expect[section], texts);
+            foreach (var (other, title) in expect)
+                if (other != section) Assert.DoesNotContain(title, texts);       // only the open tab's settings
         }
-        // arriving from elsewhere ("Update now" opens Settings at Updates) lands the same way
+        // "Update now" elsewhere opens Settings on the Updates tab
         window.Navigate("Home");
         window.Navigate("Settings", "Updates");
         Dispatcher.UIThread.RunJobs();
-        Assert.InRange(settings.SectionDistanceFromTop("Updates"), -1, 12);
+        Assert.Equal("Updates", settings.CurrentSection);
+        Assert.Contains("Get beta versions", AllTexts(settings));
         window.AllowClose();
     }
 
@@ -500,6 +514,9 @@ public sealed class DesktopWindowTests : IDisposable
     private static IEnumerable<Avalonia.Controls.Button> AllButtons(Avalonia.Visual root) =>
         Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(root).OfType<Avalonia.Controls.Button>();
 
+    private static List<string> AllTexts(Avalonia.Visual root) =>
+        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(root).OfType<Avalonia.Controls.TextBlock>().Select(t => t.Text ?? "").ToList();
+
     private static string ButtonText(Avalonia.Controls.Button b) => b.Content switch
     {
         string s => s,
@@ -571,9 +588,9 @@ public sealed class DesktopWindowTests : IDisposable
                     window.Refresh();
                     Save(window, $"main-{tag}-{page}");
                 }
-                window.Navigate("Settings", "Cloud");       // a section link: Cloud at the top, its link highlighted
+                window.Navigate("Settings", "Updates");     // a tab: only the Updates settings
                 Dispatcher.UIThread.RunJobs();
-                Save(window, $"main-{tag}-Settings-Cloud");
+                Save(window, $"main-{tag}-Settings-Updates");
                 window.Navigate("Home");
                 Actions.ChooseWhatSyncs(window, service.Workers[0]);
                 Save(window, $"main-{tag}-choose-what-syncs");
