@@ -408,4 +408,29 @@ public sealed class SyncServiceTests : IDisposable
         Assert.Contains("<this computer>", text);
         Assert.Contains("<World of Warcraft folder>", text);
     }
+
+    [Fact]
+    public void A_restore_can_be_undone_exactly()
+    {
+        Directory.CreateDirectory(MirrorDrive);
+        var s = Service();
+        s.Start();
+        s.Poll();
+        var w = s.Workers.Single(x => x.Version.FolderName == "_retail_");
+        var file = Path.Combine(_wow, "_retail_", "WTF", "Account", "PLAYER#1", "macros-cache.txt");
+        var snap = s.SaveSnapshot(w, "Old")!;
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        File.WriteAllText(file, "new");
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(file)!, "added.txt"), "only after");
+
+        var (outcome, undo) = s.RestoreWithUndo(w, snap);
+        Assert.True(outcome is SyncOutcome.Pushed or SyncOutcome.NothingToDo or SyncOutcome.Waiting, outcome.ToString());
+        Assert.Equal("_retail_", File.ReadAllText(file));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(file)!, "added.txt")));
+
+        Assert.NotNull(undo);
+        s.Restore(w, undo!);
+        Assert.Equal("new", File.ReadAllText(file));
+        Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(file)!, "added.txt")));
+    }
 }

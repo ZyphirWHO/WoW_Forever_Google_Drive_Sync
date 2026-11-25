@@ -23,7 +23,7 @@ public sealed class LocalizationTests
     internal static SortedSet<string> UsedTexts()
     {
         var root = RepoRoot();
-        var files = new[] { "src/InterfaceSync.Core", "src/InterfaceSync.App", "src/InterfaceSync.Mac" }
+        var files = new[] { "src/InterfaceSync.Core", "src/InterfaceSync.Desktop" }
             .SelectMany(d => Directory.EnumerateFiles(Path.Combine(root, d), "*.cs", SearchOption.AllDirectories))
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
         var keys = new SortedSet<string>(StringComparer.Ordinal);

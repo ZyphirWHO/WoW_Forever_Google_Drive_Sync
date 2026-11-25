@@ -17,7 +17,7 @@ NAME="$(prop ProductDisplayName)"; ID="$(prop ProductId)"; BUNDLE_ID="$(prop Pro
 COPYRIGHT="Copyright (c) 2026 $NAME contributors. MIT License."
 
 PUBLISH="$OUT/publish-$RID"
-dotnet publish "$ROOT/src/InterfaceSync.Mac/InterfaceSync.Mac.csproj" -c Release -r "$RID" --self-contained true \
+dotnet publish "$ROOT/src/InterfaceSync.Desktop/InterfaceSync.Desktop.csproj" -f net8.0 -c Release -r "$RID" --self-contained true \
   -p:UseAppHost=true -p:PublishTrimmed=false -p:DebugType=none -p:Version="$VERSION" -p:InformationalVersion="$INFO_VERSION" -o "$PUBLISH"
 
 APP="$OUT/$RID/$NAME.app"

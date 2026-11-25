@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Interface Sync app for Windows and macOS, built with Avalonia (MIT licence) on the shared InterfaceSync.Core
+    engine. One set of windows for both:
+      net8.0                          macOS (.app and .dmg, packaging/macos) and the headless UI tests
+      net8.0-windows10.0.19041.0      Windows (single exe plus its native libraries, packaging/windows); this target
+                                      adds Windows notifications with buttons (CommunityToolkit.WinUI.Notifications).
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFrameworks>net8.0;net8.0-windows10.0.19041.0</TargetFrameworks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>$(ProductId)</AssemblyName>
+    <RootNamespace>InterfaceSync.Desktop</RootNamespace>
+    <AssemblyTitle>$(ProductDisplayName)</AssemblyTitle>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AvaloniaVersion>11.3.23</AvaloniaVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Generated from assets/icon/app.svg by assets/icon/generate.py -->
+    <ApplicationIcon>Icons\app.ico</ApplicationIcon>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.17763.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <PackageReference Include="CommunityToolkit.WinUI.Notifications" Version="7.1.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\*.png" LogicalName="%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Icons\*.ico" LogicalName="%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\..\assets\fonts\Cinzel-Bold.ttf" Link="Assets\Fonts\Cinzel-Bold.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="InterfaceSync.Desktop.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InterfaceSync.Core\InterfaceSync.Core.csproj" />
+  </ItemGroup>
+
+</Project>

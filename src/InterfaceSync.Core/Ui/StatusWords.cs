@@ -128,4 +128,12 @@ public static class StatusWords
 
     /// <summary>A game version's state in the interface language.</summary>
     public static string StatusText(VersionSync w) => string.IsNullOrEmpty(w.StatusText) ? L.T(w.Status.ToString()) : L.T(w.StatusText);
+
+    /// <summary>"Downloading 12 of 40 files" while a sync is copying, else null.</summary>
+    public static string? ProgressText(VersionSync w)
+    {
+        if (w.Progress is not { } p) return null;
+        var done = Math.Min(p.Done + 1, p.Total);
+        return p.Action == SyncProgress.Uploading ? L.F("Uploading {0} of {1} files", done, p.Total) : L.F("Downloading {0} of {1} files", done, p.Total);
+    }
 }

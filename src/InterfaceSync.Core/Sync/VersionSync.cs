@@ -19,6 +19,12 @@ public enum SyncStatus
     Error,
 }
 
+/// <summary>An upload or download in progress: "Uploading" or "Downloading", files done of the total.</summary>
+public sealed record SyncProgress(string Action, int Done, int Total)
+{
+    public const string Uploading = "Uploading", Downloading = "Downloading";
+}
+
 public enum SyncOutcome
 {
     NothingToDo,
@@ -106,6 +112,30 @@ public sealed class VersionSync
 
     /// <summary>This computer's settings, without what it leaves out.</summary>
     private FolderScan ScanLocal() => _active.Keep(FolderScanner.Scan(_fs, LocalAccount));
+
+    /// <summary>What an upload or download in progress has done so far ("Uploading", 12 of 40 files), or null.</summary>
+    public SyncProgress? Progress { get; private set; }
+
+    /// <summary>Raised as files are copied (at most a few times a second) and when the copying ends.</summary>
+    public event Action<VersionSync>? ProgressChanged;
+
+    private DateTime _progressReportedUtc;
+
+    private void ReportProgress(string action, int done, int total, bool force = false)
+    {
+        Progress = total > 0 ? new SyncProgress(action, done, total) : null;
+        var now = DateTime.UtcNow;
+        if (!force && now - _progressReportedUtc < TimeSpan.FromMilliseconds(250)) return;
+        _progressReportedUtc = now;
+        try { ProgressChanged?.Invoke(this); } catch (Exception) { }
+    }
+
+    private void EndProgress()
+    {
+        if (Progress == null) return;
+        Progress = null;
+        try { ProgressChanged?.Invoke(this); } catch (Exception) { }
+    }
 
     /// <summary>Raised after each upload, download, restore or conflict, for the activity timeline.</summary>
     public event Action<ActivityEntry>? Activity;
@@ -426,6 +456,12 @@ public sealed class VersionSync
 
     private SyncOutcome Push(FolderScan local, CloudSnapshot cloud, bool force)
     {
+        try { return PushFiles(local, cloud, force); }
+        finally { EndProgress(); }
+    }
+
+    private SyncOutcome PushFiles(FolderScan local, CloudSnapshot cloud, bool force)
+    {
         if (!local.Exists || local.Manifest.IsEmpty)
         {
             State.PendingPush = false;
@@ -487,10 +523,13 @@ public sealed class VersionSync
 
         int copied = 0;
         var changedPaths = new List<string>();
+        int toCopy = local.Manifest.Entries.Count(e => !(cloudFiles.TryGetValue(e.RelativePath, out var c) && Manifest.SameFile(e, c)));
+        ReportProgress(SyncProgress.Uploading, 0, toCopy, force: true);
         foreach (var entry in local.Manifest.Entries)
         {
             if (cloudFiles.TryGetValue(entry.RelativePath, out var existing) && Manifest.SameFile(entry, existing))
                 continue;
+            ReportProgress(SyncProgress.Uploading, copied, toCopy);
             var source = PathUtil.FromRelative(LocalAccount, entry.RelativePath);
             var target = PathUtil.FromRelative(Cloud.Account, entry.RelativePath);
             var temp = target + FolderScanner.TempSuffix;
@@ -523,6 +562,7 @@ public sealed class VersionSync
                 .OrderBy(e => e.RelativePath, StringComparer.OrdinalIgnoreCase).ToList(),
         }.Write(_fs, Cloud.CommitFile);
         if (_fs.FileExists(Cloud.LegacyCommitFile)) _fs.DeleteFile(Cloud.LegacyCommitFile); // superseded by the file just written
+        EndProgress();
 
         State.Joined = true;
         State.PendingPush = false;
@@ -545,6 +585,12 @@ public sealed class VersionSync
     // ------------------------------------------------------------------ pull
 
     private SyncOutcome Pull(CloudSnapshot cloud, bool force, string reason, Func<string, bool>? only = null)
+    {
+        try { return PullFiles(cloud, force, reason, only); }
+        finally { EndProgress(); }
+    }
+
+    private SyncOutcome PullFiles(CloudSnapshot cloud, bool force, string reason, Func<string, bool>? only)
     {
         if (cloud.Readiness != CloudReadiness.Ready)
         {
@@ -585,8 +631,11 @@ public sealed class VersionSync
         // 1. Download the changed files next to WTF\Account and check each one arrived whole.
         var staging = FreeAside(LocalAccount + StagingSuffix);
         _fs.CreateDirectory(staging);
+        int fetched = 0;
+        ReportProgress(SyncProgress.Downloading, 0, changed.Count, force: true);
         foreach (var entry in changed)
         {
+            ReportProgress(SyncProgress.Downloading, fetched++, changed.Count);
             var target = PathUtil.FromRelative(staging, entry.RelativePath);
             _fs.CopyFile(PathUtil.FromRelative(Cloud.Account, entry.RelativePath), target);
             var copiedSize = _fs.GetFileInfo(target).Size;

@@ -28,7 +28,7 @@ jobs:
         env:
           INTERFACESYNC_SCREENSHOTS: ${{ github.workspace }}/screenshots
         run: |
-          dotnet test tests/InterfaceSync.App.Tests --configuration Release --no-build --filter Screenshots_for_review
+          dotnet test tests/InterfaceSync.Desktop.Tests --configuration Release --no-build --filter Screenshots_for_review
           Get-ChildItem screenshots/*.png | ForEach-Object {
             "SCREENSHOT-BEGIN $($_.Name)"
             $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName))
@@ -47,8 +47,8 @@ jobs:
       - name: Publish
         shell: pwsh
         run: |
-          dotnet publish src/InterfaceSync.App/InterfaceSync.App.csproj -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
+          dotnet publish src/InterfaceSync.Desktop/InterfaceSync.Desktop.csproj -f net8.0-windows10.0.19041.0 -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:DebugType=none `
             "-p:InformationalVersion=$((([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1))-dev.${{ github.run_number }}" `
             -o publish
@@ -114,8 +114,8 @@ jobs:
           dotnet-version: 8.0.x
       - name: Core tests on macOS
         run: dotnet test tests/InterfaceSync.Core.Tests --configuration Release
-      - name: Mac app tests (headless)
-        run: dotnet test tests/InterfaceSync.Mac.Tests --configuration Release
+      - name: App tests (headless)
+        run: dotnet test tests/InterfaceSync.Desktop.Tests --configuration Release
       - name: Build the .app (arm64 and x64)
         run: |
           VERSION=$(python3 -c "import xml.etree.ElementTree as E; print(next(e.text for e in E.parse('Directory.Build.props').getroot().iter('Version')))")

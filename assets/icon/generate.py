@@ -2,12 +2,12 @@
 """
 Builds the Interface Sync icons from assets/icon/app.svg.
 
-  Windows (src/InterfaceSync.App/Icons):
+  Windows (src/InterfaceSync.Desktop/Icons, .ico):
     app.ico            sizes 16, 20, 24, 32, 40, 48, 64, 256 (exe icon, Start menu, taskbar)
     crest.png          256 px (the emblem in the window banner)
     tray-<state>.ico   sizes 16, 20, 24, 32, 40, 48 (notification area, 100-300% scaling)
     tray-syncing-N.ico the three frames of the syncing animation (tray-syncing-N.png on macOS)
-  macOS (src/InterfaceSync.Mac/Icons, packaging/macos):
+  macOS (src/InterfaceSync.Desktop/Icons .png, packaging/macos):
     tray-<state>.png   44 px (menu bar, drawn at 22 pt on Retina screens)
     app.png            256 px (window icon)
     InterfaceSync.icns 16-1024 px (Finder and Dock icon of the .app bundle)
@@ -27,8 +27,8 @@ from PIL import Image
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-OUT = REPO / "src" / "InterfaceSync.App" / "Icons"
-MAC_OUT = REPO / "src" / "InterfaceSync.Mac" / "Icons"
+OUT = REPO / "src" / "InterfaceSync.Desktop" / "Icons"
+MAC_OUT = REPO / "src" / "InterfaceSync.Desktop" / "Icons"
 MAC_PACKAGE = REPO / "packaging" / "macos"
 MASTER = (HERE / "app.svg").read_text(encoding="utf-8")
 
@@ -106,7 +106,7 @@ def main() -> None:
     icns_sizes = [16, 32, 64, 128, 256, 512, 1024]
     images = [Image.open(io.BytesIO(render(MASTER, s))) for s in icns_sizes]
     images[-1].save(MAC_PACKAGE / "InterfaceSync.icns", format="ICNS", append_images=images[:-1])
-    print(f"src/InterfaceSync.Mac/Icons: app.png, tray-*.png; packaging/macos/InterfaceSync.icns: {', '.join(map(str, icns_sizes))}")
+    print(f"src/InterfaceSync.Desktop/Icons: app.png, tray-*.png; packaging/macos/InterfaceSync.icns: {', '.join(map(str, icns_sizes))}")
 
     # Previews for review (not used by the build).
     preview = HERE / "preview"

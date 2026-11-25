@@ -96,7 +96,8 @@ public sealed class SyncService
     public WowInstallDetection? Wow { get; private set; }
     public DriveDetectionResult? Drive { get; private set; }
     public IReadOnlyList<GameVersion> Versions { get; private set; } = [];
-    public IReadOnlyList<VersionSync> Workers { get { lock (_gate) return _workers.ToList(); } }
+    /// <summary>The list is replaced as a whole, never changed in place, so reading it needs no lock (the windows read it during a sync).</summary>
+    public IReadOnlyList<VersionSync> Workers => Volatile.Read(ref _workers);
 
     /// <summary>Copies of Interface Sync folders the cloud app made ("InterfaceSync (1)"), minus those the player hid.</summary>
     public IReadOnlyList<DuplicateFolder> Duplicates { get; private set; } = [];
@@ -281,6 +282,24 @@ public sealed class SyncService
         }
         UpdateOverall();
         return outcome;
+    }
+
+/// <summary>
+    /// Restores a backup after saving a whole copy of the current settings, so the restore can be undone exactly
+    /// (restore the returned copy). The copy is null when there was nothing to save.
+    /// </summary>
+    public (SyncOutcome Outcome, BackupInfo? Undo) RestoreWithUndo(VersionSync worker, BackupInfo backup)
+    {
+        BackupInfo? undo = null;
+        try
+        {
+            lock (_gate) undo = _backups.Create(worker.Version.FolderName, worker.Version.AccountPath, "before-restore");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _log.Warn($"{worker.Version.FolderName}: couldn't save a copy before restoring ({e.Message}); restoring without undo.");
+        }
+        return (Restore(worker, backup), undo);
     }
 
     public SyncOutcome Restore(VersionSync worker, BackupInfo backup)
@@ -604,10 +623,11 @@ public sealed class SyncService
                     () => Watcher.IsRunning(version), _timing) { Paused = Settings.Paused };
                 worker.Activity += OnActivity;
                 worker.GameStarted += OnGameStarted;
+                worker.ProgressChanged += _ => UpdateOverall();
                 workers.Add(worker);
             }
         }
-        _workers = workers;
+        Volatile.Write(ref _workers, workers);
         foreach (var w in workers) w.Rules = RulesFor(w.Version.FolderName);
         foreach (var w in workers)
             w.NoteClientVersion(Versions.FirstOrDefault(v => PathUtil.SamePath(v.FolderPath, w.Version.FolderPath))?.ClientVersion);
@@ -691,7 +711,7 @@ public sealed class SyncService
     public IReadOnlyList<DeviceInfo> Computers()
     {
         List<VersionSync> workers;
-        lock (_gate) workers = _workers.ToList();
+        workers = Volatile.Read(ref _workers).ToList();
         return Devices.Merge(workers.Select(w => (w.Version.Key, (IEnumerable<DeviceInfo>)Devices.Read(_fs, w.Cloud))), _machineName);
     }
 
@@ -752,7 +772,7 @@ public sealed class SyncService
     private void UpdateOverall()
     {
         List<VersionSync> workers;
-        lock (_gate) workers = _workers.ToList();
+        workers = Volatile.Read(ref _workers).ToList();
 
         (OverallState state, string text) = (OverallState.InSync, "In sync");
         if (Settings.Paused) (state, text) = (OverallState.Paused, Settings.PausedUntilUtc is { } until ? $"Paused until {StatusWords.Until(until, _clock.UtcNow)}" : "Paused");

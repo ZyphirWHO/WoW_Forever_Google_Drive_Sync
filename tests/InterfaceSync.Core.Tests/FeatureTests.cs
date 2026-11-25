@@ -238,4 +238,26 @@ public sealed class FeatureTests : IDisposable
         Assert.Equal($"{ProductInfo.Name}: In sync · synced 5 minutes ago", StatusWords.Tooltip("In sync", now.AddMinutes(-5), now));
         Assert.True(StatusWords.Tooltip(new string('x', 100), now, now).Length <= 63);
     }
+
+    [Fact]
+    public void Uploads_and_downloads_report_their_progress_and_clear_it_when_done()
+    {
+        var a = _world.Pc("HomePC");
+        for (int i = 0; i < 5; i++) a.WriteSetting($@"PLAYER#1\SavedVariables\Addon{i}.lua", "x");
+        var seen = new List<SyncProgress?>();
+        a.Sync.ProgressChanged += w => seen.Add(w.Progress);
+        Assert.Equal(SyncOutcome.Pushed, a.Sync.Tick());
+        Assert.Contains(seen, p => p is { Action: "Uploading", Total: 5 });
+        Assert.Null(seen[^1]);
+        Assert.Null(a.Sync.Progress);
+        Assert.Null(StatusWords.ProgressText(a.Sync));
+
+        _world.Clock.Advance(TimeSpan.FromMinutes(5));
+        var b = _world.Pc("Laptop");
+        var bSeen = new List<SyncProgress?>();
+        b.Sync.ProgressChanged += w => bSeen.Add(w.Progress);
+        Assert.Equal(SyncOutcome.Pulled, b.Sync.Tick());
+        Assert.Contains(bSeen, p => p is { Action: "Downloading", Total: 5 });
+        Assert.Null(b.Sync.Progress);
+    }
 }

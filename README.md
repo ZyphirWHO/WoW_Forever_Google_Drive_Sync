@@ -43,12 +43,11 @@ sponsored by Blizzard Entertainment, Inc.
 ## Repository layout
 
 ```
-src/InterfaceSync.App/            Windows tray app, setup and status windows (WinForms)
-src/InterfaceSync.Mac/            macOS menu-bar app, setup and status windows (Avalonia)
+src/InterfaceSync.Desktop/        the app for Windows and macOS (Avalonia): tray/menu-bar icon and panel,
+                                  main window (Home, Activity, Backups, Computers, Settings), setup
 src/InterfaceSync.Core/           detection, game watcher, sync engine, backups (no UI)
 tests/InterfaceSync.Core.Tests/   unit tests and simulated two-PC tests
-tests/InterfaceSync.App.Tests/    Windows window smoke tests (run on Windows)
-tests/InterfaceSync.Mac.Tests/    Mac window tests (headless, run on every OS)
+tests/InterfaceSync.Desktop.Tests/ window tests (headless, run on every OS; CI also saves screenshots)
 packaging/windows/                Inno Setup script and wizard images for the per-user installer
 packaging/macos/                  Info.plist template and the script that builds the .app and .dmg
 packaging/guides/                 "How to open" pages shipped with the downloads
@@ -111,8 +110,8 @@ cloud app (Google Drive, OneDrive, Dropbox or iCloud Drive) does the uploading.
 
 Interface Sync is licensed under the MIT License (OSI-approved), see [LICENSE](LICENSE).
 
-The Windows program depends only on the .NET runtime (MIT). The Mac program also uses Avalonia (MIT), with
-SkiaSharp and HarfBuzzSharp (MIT). Development-only dependencies, all open source:
+The program uses the .NET runtime (MIT) and Avalonia (MIT), with SkiaSharp and HarfBuzzSharp (MIT). On Windows it
+also uses CommunityToolkit.WinUI.Notifications (MIT) for notifications with buttons. Development-only dependencies, all open source:
 
 | Used for | Component | Licence |
 |---|---|---|

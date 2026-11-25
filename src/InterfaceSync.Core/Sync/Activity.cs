@@ -196,8 +196,8 @@ public sealed class ActivityStore
     {
         var day = utc.ToLocalTime().Date;
         var today = nowUtc.ToLocalTime().Date;
-        if (day == today) return "Today";
-        if (day == today.AddDays(-1)) return "Yesterday";
-        return day.ToString(day.Year == today.Year ? "dddd d MMMM" : "d MMMM yyyy", CultureInfo.CurrentCulture);
+        if (day == today) return L.T("Today");
+        if (day == today.AddDays(-1)) return L.T("Yesterday");
+        return day.ToString(day.Year == today.Year ? "dddd d MMMM" : "d MMMM yyyy", L.Culture);
     }
 }

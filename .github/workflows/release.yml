@@ -52,8 +52,8 @@ jobs:
       - name: Publish
         shell: pwsh
         run: |
-          dotnet publish src/InterfaceSync.App/InterfaceSync.App.csproj -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
+          dotnet publish src/InterfaceSync.Desktop/InterfaceSync.Desktop.csproj -f net8.0-windows10.0.19041.0 -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:DebugType=none `
             -p:Version=${{ steps.version.outputs.version }} -o publish
 
@@ -175,7 +175,7 @@ jobs:
       - name: Mac tests
         run: |
           dotnet test tests/InterfaceSync.Core.Tests --configuration Release
-          dotnet test tests/InterfaceSync.Mac.Tests --configuration Release
+          dotnet test tests/InterfaceSync.Desktop.Tests --configuration Release
       - name: Build the .app, .dmg and .zip
         run: |
           packaging/macos/make-app.sh osx-arm64 "${{ needs.build.outputs.version }}" out
