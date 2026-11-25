@@ -248,10 +248,19 @@ internal sealed class SettingsPage : Page
             yield return Row(Ui.Sync, L.T("Check for updates automatically"),
                 Os.IsWindows ? L.T("Checks GitHub once a day; updating takes a few seconds and keeps all your settings.") : L.T("Checks GitHub once a day. Your settings are kept when you update."),
                 auto);
+            var beta = Switch(L.T("Get beta versions"), updater.GetsBetas);
+            beta.IsCheckedChanged += (_, _) =>
+            {
+                var on = beta.IsChecked == true;
+                service.SavePreference(s => s.BetaUpdates = on);
+                _ = updater.CheckAsync();
+            };
+            yield return Row(Ui.Flask, L.T("Get beta versions"),
+                L.T("Try new versions before they're published. Betas are tested but may still have rough edges. Switch this off to get only published versions; you stay on your beta until the next one is published."),
+                beta);
         }
         yield return Row(Ui.Info, L.F("Version {0}", ProductInfo.DisplayVersion),
-            ProductInfo.DisplayVersion.Contains("-dev", StringComparison.OrdinalIgnoreCase)
-                ? L.T("This is a test build: it updates to newer test builds and releases.") : L.T("See what changed in this version."),
+            Updater.IsBetaVersion(ProductInfo.DisplayVersion) ? L.T("This is a beta version.") : L.T("See what changed in this version."),
             Ui.Button(L.T("What's new"), () => Actions.ShowWhatsNew(Shell)), Ui.Button(L.T("All releases"), () => Actions.OpenLink(Shell, Feedback.ReleasesPage), ButtonKind.Ghost));
     }
 
@@ -276,7 +285,7 @@ internal sealed class SettingsPage : Page
                 break;
             case UpdateState.Available when updater.Available is { } r:
                 (icon, tone) = (Ui.Download, "InterfaceSyncAccent");
-                title = r.IsPrerelease ? L.F("Test build {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version);
+                title = r.IsPrerelease ? L.F("Beta {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version);
                 detail = Os.IsWindows ? L.F("You have {0}. Updating takes a few seconds and keeps all your settings.", current)
                                       : L.F("You have {0}. Your settings are kept when you update.", current);
                 buttons.Add(Ui.Button(L.T("What's new"), () => Actions.OpenLink(Shell, r.Page), ButtonKind.Ghost));
@@ -294,7 +303,7 @@ internal sealed class SettingsPage : Page
                 break;
             case UpdateState.UpToDate:
                 (icon, tone) = (Ui.Check, "InterfaceSyncGood");
-                title = updater.IsTestBuild ? L.F("You have the newest test build ({0})", current)
+                title = updater.GetsBetas ? L.F("You have the newest version, betas included ({0})", current)
                     : updater.LatestPublished == null ? L.T("No release has been published yet")
                     : L.F("You have the latest version ({0})", current);
                 detail = checkedAt.Trim();

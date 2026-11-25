@@ -71,6 +71,9 @@ public sealed class UpdaterTests : IDisposable
     [InlineData("2.9.9", "3.0.0-dev.1", false)]
     [InlineData("3.0.0-beta.2", "3.0.0-beta.1", true)]
     [InlineData("3.0.0-beta.10", "3.0.0-beta.9", true)]
+    [InlineData("3.1.0-beta.69", "3.1.0-dev.68", true)]       // betas were called dev builds: the numbering carries on
+    [InlineData("3.1.0-dev.68", "3.1.0-beta.69", false)]
+    [InlineData("3.1.0", "3.1.0-beta.69", true)]
     [InlineData("nonsense", "3.0.0", false)]
     public void Versions_compare_like_releases(string candidate, string current, bool newer) =>
         Assert.Equal(newer, Updater.IsNewer(candidate, current));
@@ -114,7 +117,7 @@ public sealed class UpdaterTests : IDisposable
         var (updater, github, _) = Make("3.0.0-dev.44");
         await updater.CheckAsync();                                  // nothing published at all
         Assert.Equal(UpdateState.UpToDate, updater.State);
-        Assert.Contains("newest test build (3.0.0-dev.44)", updater.Describe());
+        Assert.Contains("betas included (3.0.0-dev.44)", updater.Describe());
 
         static string Rel(string v, bool pre) => ReleaseJson($"v{v}", $"InterfaceSync-Setup-{v}.exe", $"https://github.com/o/r/releases/download/v{v}/InterfaceSync-Setup-{v}.exe", new string('a', 64), pre);
         github.Routes[Releases] = () => new HttpResponseMessage(HttpStatusCode.OK)
@@ -124,7 +127,7 @@ public sealed class UpdaterTests : IDisposable
         Assert.Equal("3.0.0-dev.46", updater.Available!.Version);
         Assert.True(updater.Available.IsPrerelease);
         Assert.NotNull(updater.Available.WindowsInstaller);          // InterfaceSync-Setup-3.0.0-dev.46.exe
-        Assert.Contains("Test build 3.0.0-dev.46 is available", updater.Describe());
+        Assert.Contains("Beta 3.0.0-dev.46 is available", updater.Describe());
 
         // once 3.0.0 is released, it beats every 3.0.0 test build
         github.Routes[Releases] = () => new HttpResponseMessage(HttpStatusCode.OK)
@@ -132,6 +135,40 @@ public sealed class UpdaterTests : IDisposable
         await updater.CheckAsync();
         Assert.Equal("3.0.0", updater.Available!.Version);
         Assert.False(updater.Available.IsPrerelease);
+    }
+
+    [Fact]
+    public async Task Betas_are_offered_only_when_switched_on()
+    {
+        static string Rel(string v, bool pre) => ReleaseJson($"v{v}", $"InterfaceSync-Setup-{v}.exe", $"https://github.com/o/r/releases/download/v{v}/InterfaceSync-Setup-{v}.exe", new string('a', 64), pre);
+
+        // a published version: off by default, on when chosen
+        var (updater, github, service) = Make("3.1.0");
+        Assert.False(updater.GetsBetas);
+        github.Routes[Releases] = () => new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent($"[{Rel("3.1.1-beta.80", true)}, {Rel("3.1.0", false)}]") };
+        github.Routes[Latest] = () => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Rel("3.1.0", false)) };
+        await updater.CheckAsync();
+        Assert.Equal(UpdateState.UpToDate, updater.State);
+        service.SavePreference(s => s.BetaUpdates = true);
+        await updater.CheckAsync();
+        Assert.Equal("3.1.1-beta.80", updater.Available!.Version);
+
+        // a beta: keeps getting betas until switched off, then waits for the next published version
+        (updater, github, service) = Make("3.1.0-beta.70");
+        Assert.True(updater.GetsBetas);
+        github.Routes[Releases] = () => new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent($"[{Rel("3.1.0-beta.71", true)}, {Rel("3.0.0", false)}]") };
+        github.Routes[Latest] = () => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Rel("3.0.0", false)) };
+        await updater.CheckAsync();
+        Assert.Equal("3.1.0-beta.71", updater.Available!.Version);
+        service.SavePreference(s => s.BetaUpdates = false);
+        Assert.False(updater.GetsBetas);
+        await updater.CheckAsync();
+        Assert.Equal(UpdateState.UpToDate, updater.State);
+        github.Routes[Latest] = () => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Rel("3.1.0", false)) };
+        await updater.CheckAsync();
+        Assert.Equal("3.1.0", updater.Available!.Version);
     }
 
     [Fact]

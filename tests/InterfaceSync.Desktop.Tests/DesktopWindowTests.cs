@@ -545,6 +545,11 @@ public sealed class DesktopWindowTests : IDisposable
                     window.Refresh();
                     Save(window, $"main-{tag}-{page}");
                 }
+                window.Height = 1900;                       // the whole Settings page, down to Updates
+                window.Navigate("Settings", "Updates");
+                window.Refresh();
+                Save(window, $"main-{tag}-Settings-all");
+                window.Height = 760;
                 window.Navigate("Home");
                 Actions.ChooseWhatSyncs(window, service.Workers[0]);
                 Save(window, $"main-{tag}-choose-what-syncs");

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Builds "<ProductDisplayName>.app" for one macOS architecture and zips it with the "How to open" guide.
-#   packaging/macos/make-app.sh osx-arm64 3.0.0 out [3.0.0-dev.42]
+#   packaging/macos/make-app.sh osx-arm64 3.0.0 out [3.0.0-beta.42]
 # Names, bundle id and version come from Directory.Build.props; the result is ad-hoc signed
 # (Apple silicon won't run unsigned code) but not notarised.
 set -euo pipefail
-RID="$1"; VERSION="$2"; OUT="$3"; INFO_VERSION="${4:-$2}"   # 4th: shown version, e.g. 3.0.0-dev.42
+RID="$1"; VERSION="$2"; OUT="$3"; INFO_VERSION="${4:-$2}"   # 4th: shown version, e.g. 3.0.0-beta.42
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 prop() { python3 - "$ROOT/Directory.Build.props" "$1" <<'PY'

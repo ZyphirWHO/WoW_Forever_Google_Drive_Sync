@@ -261,6 +261,7 @@ internal static class Ui
     public const string Trash = "M5,7 H19 M10,7 V5 H14 V7 M7,7 L8,20 H16 L17,7";
     public const string Zip = "M6,3 H14 L18,7 V21 H6 Z M14,3 V7 H18 M11,10 H12 M11,13 H12 M11,16 H12";
     public const string Settings = "M12,8.5 A3.5,3.5 0 1 1 11.99,8.5 M12,2.5 V5 M12,19 V21.5 M2.5,12 H5 M19,12 H21.5 M5.3,5.3 L7,7 M17,17 L18.7,18.7 M5.3,18.7 L7,17 M17,7 L18.7,5.3";
+    public const string Flask = "M9.5,3.5 H14.5 M10.5,3.5 V9.5 L5,19 A1,1 0 0 0 5.9,20.5 H18.1 A1,1 0 0 0 19,19 L13.5,9.5 V3.5 M7.3,15 H16.7";
 
     public static Avalonia.Controls.Shapes.Path Icon(string data, double size = 18, string brush = "InterfaceSyncAccent")
     {

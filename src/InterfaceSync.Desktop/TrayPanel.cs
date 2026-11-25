@@ -148,7 +148,7 @@ internal sealed class TrayPanel : Window
         }
         if (_host.Updater is { Available: { } r } u && u.State == UpdateState.Available)
             _notice.Children.Add(Ui.MessageBar("InterfaceSyncAccent", Ui.Download,
-                r.IsPrerelease ? L.F("Test build {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version), null,
+                r.IsPrerelease ? L.F("Beta {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version), null,
                 [Ui.Button(Os.IsWindows ? L.T("Update now") : L.T("Download update"), () => { Hide(); _host.InstallUpdate(); }, ButtonKind.Primary)], stacked: true));
         _notice.Margin = new Thickness(0, 0, 0, _notice.Children.Count > 0 ? 12 : 0);
 

@@ -70,6 +70,12 @@ public sealed class AppSettings
 
     /// <summary>Look for a newer release on GitHub once a day.</summary>
     public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>
+    /// Also offer beta versions (builds made before a release is published). Null: never chosen, which means off,
+    /// except on a beta build, which keeps getting betas until the player switches it off.
+    /// </summary>
+    public bool? BetaUpdates { get; set; }
     public bool SetupComplete { get; set; }
 
     /// <summary>The player's start-at-login choice (null: from before it was remembered).</summary>

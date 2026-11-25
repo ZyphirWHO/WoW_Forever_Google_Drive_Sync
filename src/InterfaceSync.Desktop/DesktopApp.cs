@@ -354,7 +354,7 @@ internal sealed class DesktopApp : Application, IAppHost
             && Service.Settings.Notifications != NotificationLevel.Off)
         {
             _announcedUpdate = r.Version;
-            _notifier.Show(r.IsPrerelease ? L.F("Test build {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version),
+            _notifier.Show(r.IsPrerelease ? L.F("Beta {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version),
                 L.T("Your settings are kept when you update."), NoticeAction.Open,
                 (Os.IsWindows ? L.T("Update now") : L.T("Download update"), NoticeAction.UpdateNow));
         }

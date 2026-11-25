@@ -7,7 +7,7 @@ Interface Sync is an independent, free, open-source tool. It is not affiliated w
 sponsored by Blizzard Entertainment, Inc.
 
 > **Download** the latest version from the [Releases page](https://github.com/ZyphirWHO/WoW_Forever_Google_Drive_Sync/releases/latest):
-> `InterfaceSync-Setup-<version>.exe` for Windows, the `.dmg` for your Mac. Releases marked *Pre-release* are test builds.
+> `InterfaceSync-Setup-<version>.exe` for Windows, the `.dmg` for your Mac. Releases marked *Pre-release* are betas: to get them as updates, switch on Settings → Updates → **Get beta versions** (off by default).
 
 ## How it works
 

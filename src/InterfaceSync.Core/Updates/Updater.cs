@@ -13,7 +13,7 @@ public sealed record ReleaseAsset(string Name, Uri Url, long Size, string? Sha25
 
 public sealed record ReleaseInfo(string Version, string Tag, Uri Page, string Notes, IReadOnlyList<ReleaseAsset> Assets)
 {
-    /// <summary>A test build (GitHub pre-release); only test builds are offered these.</summary>
+    /// <summary>A beta (GitHub pre-release); offered only with "Get beta versions" on.</summary>
     public bool IsPrerelease { get; init; }
 
     /// <summary>The Windows installer ("InterfaceSync-Setup-3.0.1.exe").</summary>
@@ -57,8 +57,17 @@ public sealed class Updater
     /// <summary>The newest published release's version, or null when the project hasn't published one yet.</summary>
     public string? LatestPublished { get; private set; }
 
-    /// <summary>A CI test build ("3.0.0-dev.44"), not a published release.</summary>
-    public bool IsTestBuild => _current.Contains("-dev", StringComparison.OrdinalIgnoreCase);
+    /// <summary>A beta ("3.1.0-beta.69"; "-dev" for betas made before they were called that), not a published release.</summary>
+    public bool IsBeta => IsBetaVersion(_current);
+
+    public static bool IsBetaVersion(string version) =>
+        version.Contains("-beta", StringComparison.OrdinalIgnoreCase) || version.Contains("-dev", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether betas are offered: the player's choice, or, if they never chose, on for someone already running a
+    /// beta and off for everyone else.
+    /// </summary>
+    public bool GetsBetas => _service.Settings.BetaUpdates ?? IsBeta;
     public string CurrentVersion => _current;
 
     /// <summary>Raised (on a background thread) whenever State changes.</summary>
@@ -69,10 +78,10 @@ public sealed class Updater
     {
         UpdateState.Checking => "Checking for updates…",
         UpdateState.Available => Available!.IsPrerelease
-            ? $"Test build {Available.Version} is available (you have {_current})."
+            ? $"Beta {Available.Version} is available (you have {_current})."
             : $"Version {Available.Version} is available (you have {_current}).",
         UpdateState.Downloading => $"Downloading version {Available?.Version}…",
-        UpdateState.UpToDate when IsTestBuild => $"You have the newest test build ({_current}).",
+        UpdateState.UpToDate when GetsBetas => $"You have the newest version, betas included ({_current}).",
         UpdateState.UpToDate when LatestPublished == null => $"No release has been published on GitHub yet (you have {_current}).",
         UpdateState.UpToDate => $"You have the latest version ({_current}).",
         UpdateState.Failed => $"Couldn't check for updates: {Problem}",
@@ -95,9 +104,9 @@ public sealed class Updater
         {
             Set(UpdateState.Checking);
             ReleaseInfo? latest;
-            if (IsTestBuild)
+            if (GetsBetas)
             {
-                // Test builds follow the test channel: the newest of the published releases and test pre-releases.
+                // The beta channel: the newest of the published releases and betas (pre-releases).
                 var all = await ReleasesAsync(cancel).ConfigureAwait(false);
                 LatestPublished = Newest(all.Where(r => !r.IsPrerelease))?.Version;
                 latest = Newest(all);
@@ -137,7 +146,7 @@ public sealed class Updater
         return json == null ? null : Parse(json);
     }
 
-    /// <summary>Recent releases and test builds (pre-releases), newest first as GitHub lists them.</summary>
+    /// <summary>Recent releases and betas (pre-releases), newest first as GitHub lists them.</summary>
     public async Task<IReadOnlyList<ReleaseInfo>> ReleasesAsync(CancellationToken cancel = default)
     {
         var json = await GetAsync("releases?per_page=30", cancel).ConfigureAwait(false);
@@ -202,7 +211,7 @@ public sealed class Updater
         return null;
     }
 
-    /// <summary>"3.0.1" &gt; "3.0.0" &gt; "3.0.0-dev.42" &gt; "2.9.9". Unparseable versions never count as newer.</summary>
+    /// <summary>"3.0.1" &gt; "3.0.0" &gt; "3.0.0-beta.43" &gt; "3.0.0-dev.42" &gt; "2.9.9". Unparseable versions never count as newer.</summary>
     public static bool IsNewer(string candidate, string current)
     {
         static (Version core, string? pre)? Split(string v)
@@ -218,7 +227,7 @@ public sealed class Updater
         if (Split(candidate) is not { } c || Split(current) is not { } k) return false;
         var byCore = c.core.CompareTo(k.core);
         if (byCore != 0) return byCore > 0;
-        if (c.pre == null) return k.pre != null;          // 3.0.0 is newer than 3.0.0-dev.42
+        if (c.pre == null) return k.pre != null;          // 3.0.0 is newer than 3.0.0-beta.42
         if (k.pre == null) return false;
         return ComparePre(c.pre, k.pre) > 0;
     }
@@ -232,11 +241,14 @@ public sealed class Updater
             if (i >= x.Length) return -1;
             if (i >= y.Length) return 1;
             bool nx = int.TryParse(x[i], out var ix), ny = int.TryParse(y[i], out var iy);
-            int cmp = nx && ny ? ix.CompareTo(iy) : string.CompareOrdinal(x[i], y[i]);
+            int cmp = nx && ny ? ix.CompareTo(iy) : string.CompareOrdinal(Label(x[i]), Label(y[i]));
             if (cmp != 0) return cmp;
         }
         return 0;
     }
+
+    /// <summary>Betas were called "dev" builds before 3.1, numbered the same way: dev.68 is followed by beta.69.</summary>
+    private static string Label(string part) => part.Equals("dev", StringComparison.OrdinalIgnoreCase) ? "beta" : part.ToLowerInvariant();
 
     /// <summary>
     /// Downloads an asset of the available release into <paramref name="folder"/> and checks its SHA-256.
