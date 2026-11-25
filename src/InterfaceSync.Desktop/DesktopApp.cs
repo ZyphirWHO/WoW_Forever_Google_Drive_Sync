@@ -367,6 +367,9 @@ internal sealed class DesktopApp : Application, IAppHost
     public void InstallUpdate()
     {
         if (Updater?.Available is not { } release) return;
+        // Wherever it was clicked (panel, notification, a page), show the update's progress in Settings → Updates.
+        ShowMain();
+        _main?.Navigate("Settings", "Updates");
         if (!Os.IsWindows)
         {
             var dmg = release.MacImage(System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64);

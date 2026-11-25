@@ -237,6 +237,7 @@ internal sealed class SettingsPage : Page
         var service = Service;
         if (Host.Updater is { } updater)
         {
+            yield return UpdateCard(updater);
             var auto = Switch(L.T("Check for updates automatically"), service.Settings.CheckForUpdates);
             auto.IsCheckedChanged += (_, _) =>
             {
@@ -244,17 +245,78 @@ internal sealed class SettingsPage : Page
                 service.SavePreference(s => s.CheckForUpdates = on);
                 if (on) _ = updater.CheckAsync();
             };
-            var status = updater.Describe() + (service.Settings.LastUpdateCheckUtc is { } at && updater.State != UpdateState.Checking
-                ? " " + L.F("Last checked {0}.", StatusWords.Ago(at, DateTime.UtcNow)) : "");
-            yield return Row(Ui.Download, L.T("Check for updates"),
-                status + " " + (Os.IsWindows ? L.T("Checks GitHub once a day; updating takes a few seconds and keeps all your settings.") : L.T("Checks GitHub once a day. Your settings are kept when you update.")),
-                Ui.Button(L.T("Check now"), Host.CheckForUpdates), auto);
+            yield return Row(Ui.Sync, L.T("Check for updates automatically"),
+                Os.IsWindows ? L.T("Checks GitHub once a day; updating takes a few seconds and keeps all your settings.") : L.T("Checks GitHub once a day. Your settings are kept when you update."),
+                auto);
         }
         yield return Row(Ui.Info, L.F("Version {0}", ProductInfo.DisplayVersion),
             ProductInfo.DisplayVersion.Contains("-dev", StringComparison.OrdinalIgnoreCase)
                 ? L.T("This is a test build: it updates to newer test builds and releases.") : L.T("See what changed in this version."),
             Ui.Button(L.T("What's new"), () => Actions.ShowWhatsNew(Shell)), Ui.Button(L.T("All releases"), () => Actions.OpenLink(Shell, Feedback.ReleasesPage), ButtonKind.Ghost));
     }
+
+    /// <summary>
+    /// The update, right here: checking, a newer version with What's new and Update now, the download in progress,
+    /// up to date, or a check that failed (with Try again). It changes as the check and download go on.
+    /// </summary>
+    private Border UpdateCard(Updater updater)
+    {
+        var service = Service;
+        var now = DateTime.UtcNow;
+        var checkedAt = service.Settings.LastUpdateCheckUtc is { } at ? " " + L.F("Last checked {0}.", StatusWords.Ago(at, now)) : "";
+        var current = updater.CurrentVersion;
+        string icon, tone, title, detail;
+        var buttons = new List<Control>();
+        bool busy = false;
+        switch (updater.State)
+        {
+            case UpdateState.Checking:
+                (icon, tone, title, detail) = (Ui.Sync, "InterfaceSyncInfo", L.T("Checking for updates…"), L.F("You have {0}.", current));
+                busy = true;
+                break;
+            case UpdateState.Available when updater.Available is { } r:
+                (icon, tone) = (Ui.Download, "InterfaceSyncAccent");
+                title = r.IsPrerelease ? L.F("Test build {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version);
+                detail = Os.IsWindows ? L.F("You have {0}. Updating takes a few seconds and keeps all your settings.", current)
+                                      : L.F("You have {0}. Your settings are kept when you update.", current);
+                buttons.Add(Ui.Button(L.T("What's new"), () => Actions.OpenLink(Shell, r.Page), ButtonKind.Ghost));
+                buttons.Add(Ui.Button(Os.IsWindows ? L.T("Update now") : L.T("Download update"), Host.InstallUpdate, ButtonKind.Primary, Ui.Download));
+                break;
+            case UpdateState.Downloading:
+                (icon, tone, title, detail) = (Ui.Download, "InterfaceSyncAccent",
+                    L.F("Downloading version {0}…", updater.Available?.Version ?? ""),
+                    L.F("{0} closes and reopens by itself when the update is ready. Your settings are kept.", ProductInfo.Name));
+                busy = true;
+                break;
+            case UpdateState.Failed:
+                (icon, tone, title, detail) = (Ui.Warning, "InterfaceSyncWarning", L.T("Couldn't check for updates"), (updater.Problem ?? "") + checkedAt);
+                buttons.Add(Ui.Button(L.T("Try again"), Host.CheckForUpdates));
+                break;
+            case UpdateState.UpToDate:
+                (icon, tone) = (Ui.Check, "InterfaceSyncGood");
+                title = updater.IsTestBuild ? L.F("You have the newest test build ({0})", current)
+                    : updater.LatestPublished == null ? L.T("No release has been published yet")
+                    : L.F("You have the latest version ({0})", current);
+                detail = checkedAt.Trim();
+                buttons.Add(Ui.Button(L.T("Check now"), Host.CheckForUpdates));
+                break;
+            default:
+                (icon, tone, title, detail) = (Ui.Download, "InterfaceSyncMuted", L.F("Version {0}", current),
+                    service.Settings.CheckForUpdates ? L.T("Checks GitHub once a day.") : L.T("Automatic checks are off."));
+                buttons.Add(Ui.Button(L.T("Check now"), Host.CheckForUpdates));
+                break;
+        }
+        _titles.Add(title);
+        var bar = Ui.MessageBar(tone, icon, title, detail.Length > 0 ? detail : null, [.. buttons]);
+        if (busy && bar.Child is Grid g && g.Children[1] is StackPanel text)
+            text.Children.Add(new ProgressBar { IsIndeterminate = true, Height = 3, MinHeight = 3, Margin = new Thickness(0, 6, 0, 0) });
+        bar.Margin = new Thickness(0, 0, 0, 8);
+        UpdateCardTitle = title;
+        return bar;
+    }
+
+    /// <summary>For tests: what the update card says.</summary>
+    internal string UpdateCardTitle { get; private set; } = "";
 
     private IEnumerable<Control> AdvancedSection()
     {

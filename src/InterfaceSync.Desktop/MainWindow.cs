@@ -247,12 +247,12 @@ internal sealed class MainWindow : Window
     }
 
     private void OnUpdaterChanged() => Dispatcher.UIThread.Post(Refresh);
-    private void OnThemeChanged() => Dispatcher.UIThread.Post(() => { _barsKey = ""; Refresh(); });
+    private void OnThemeChanged() => Dispatcher.UIThread.Post(() => { _barsKey = null; Refresh(); });
 
     /// <summary>After an in-app update: a short note at the top (until dismissed).</summary>
     public void ShowUpdated() { _updatedNote = true; Refresh(); }
 
-    private string _barsKey = "";
+    private string? _barsKey;   // null: rebuild the bars on the next refresh
 
     private void RefreshBars()
     {
@@ -267,7 +267,8 @@ internal sealed class MainWindow : Window
                 L.F("{0}: settings changed on two computers", w.Version.FolderName), L.T("Choose which copy to keep. The other is saved as a backup."),
                 [Ui.Button(L.T("Choose which to keep…"), () => Actions.Resolve(this, Host, worker), ButtonKind.Primary)]));
         }
-        if (Host.Updater is { Available: { } r } u && u.State is UpdateState.Available or UpdateState.Downloading)
+        // (Settings shows the update in its own card, with the download's progress.)
+        if (Host.Updater is { Available: { } r } u && u.State is UpdateState.Available or UpdateState.Downloading && CurrentPage != "Settings")
             bars.Add(("update", "InterfaceSyncAccent", Ui.Download,
                 r.IsPrerelease ? L.F("Test build {0} is available", r.Version) : L.F("{0} {1} is available", ProductInfo.Name, r.Version),
                 u.State == UpdateState.Downloading ? L.T("Downloading and checking the installer…")
@@ -299,7 +300,7 @@ internal sealed class MainWindow : Window
         foreach (var b in bars)
         {
             var id = b.Id;
-            Action? dismiss = id == "updated" ? () => { _dismissed.Add(id); _barsKey = ""; RefreshBars(); } : null;
+            Action? dismiss = id == "updated" ? () => { _dismissed.Add(id); _barsKey = null; RefreshBars(); } : null;
             _bars.Children.Add(Ui.MessageBar(b.Tone, b.Icon, b.Title, b.Detail, b.Buttons, dismiss));
         }
         _bars.IsVisible = bars.Count > 0;

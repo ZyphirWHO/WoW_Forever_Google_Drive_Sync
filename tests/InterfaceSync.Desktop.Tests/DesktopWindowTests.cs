@@ -255,7 +255,7 @@ public sealed class DesktopWindowTests : IDisposable
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(window.BarTitles, t => t == "Interface Sync 9.9.9 is available");
         Assert.Contains(window.BarTitles, t => t.Contains("made a copy"));
-        window.Navigate("Settings");
+        window.Navigate("Activity");
         Assert.Contains(window.BarTitles, t => t == "Interface Sync 9.9.9 is available");
         window.ShowUpdated();
         Assert.Contains(window.BarTitles, t => t.StartsWith("Updated to version"));
@@ -350,7 +350,7 @@ public sealed class DesktopWindowTests : IDisposable
 
         window.Navigate("Settings");
         var titles = ((SettingsPage)window.PageFor("Settings")).RowTitles;
-        foreach (var t in new[] { "Appearance", "Language", "Notifications", "Pause syncing", "Check for updates", "Report a problem", "Run setup again" })
+        foreach (var t in new[] { "Appearance", "Language", "Notifications", "Pause syncing", "Check for updates automatically", "Interface Sync 9.9.9 is available", "Report a problem", "Run setup again" })
             Assert.Contains(t, titles);
         Assert.Contains(titles, t => t.StartsWith("_retail_"));
         window.AllowClose();
@@ -380,6 +380,69 @@ public sealed class DesktopWindowTests : IDisposable
         Dialogs.About().Show();
         Dispatcher.UIThread.RunJobs();
     }
+
+    [AvaloniaFact]
+    public void Settings_shows_the_update_with_its_own_update_button()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        service.Poll();
+        var installs = 0;
+        var host = new InstallHost(service, NewerUpdater(service), () => installs++);
+        var window = new MainWindow(host);
+        window.Show();
+        window.Navigate("Settings");
+        Dispatcher.UIThread.RunJobs();
+        var settings = (SettingsPage)window.PageFor("Settings");
+        Assert.Equal("Interface Sync 9.9.9 is available", settings.UpdateCardTitle);
+        Assert.DoesNotContain(window.BarTitles, t => t.Contains("9.9.9"));      // not twice on this page
+        var update = AllButtons(settings).Single(b => ButtonText(b) == "Download update" || ButtonText(b) == "Update now");
+        update.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Assert.Equal(1, installs);
+        window.Navigate("Home");
+        Assert.Contains(window.BarTitles, t => t.Contains("9.9.9"));            // other pages still show it
+        window.AllowClose();
+    }
+
+    [AvaloniaFact]
+    public void The_updated_note_goes_away_when_dismissed_and_stays_away()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        service.Poll();
+        var window = new MainWindow(new Host(service));
+        window.Show();
+        window.ShowUpdated();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.BarTitles, t => t.StartsWith("Updated to version"));
+        var close = AllButtons(window).Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "Dismiss"
+            && Avalonia.VisualTree.VisualExtensions.GetVisualAncestors(b).OfType<Avalonia.Controls.Border>().Any(x => x.Tag is string t && t.StartsWith("Updated to version")));
+        close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(window.BarTitles, t => t.StartsWith("Updated to version"));
+        window.Refresh();
+        window.Navigate("Activity");
+        window.Navigate("Home");
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(window.BarTitles, t => t.StartsWith("Updated to version"));
+        window.AllowClose();
+    }
+
+    private sealed class InstallHost(SyncService service, InterfaceSync.Core.Updates.Updater updater, Action install) : IAppHost
+    {
+        public SyncService Service { get; } = service;
+        public InterfaceSync.Core.Updates.Updater? Updater => updater;
+        public void Run(Action work, Action? afterOnUi = null) { work(); if (afterOnUi != null) Dispatcher.UIThread.Post(afterOnUi); }
+        public void InstallUpdate() => install();
+    }
+
+    private static IEnumerable<Avalonia.Controls.Button> AllButtons(Avalonia.Visual root) =>
+        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(root).OfType<Avalonia.Controls.Button>();
+
+    private static string ButtonText(Avalonia.Controls.Button b) => b.Content switch
+    {
+        string s => s,
+        Avalonia.Controls.StackPanel p => p.Children.OfType<Avalonia.Controls.TextBlock>().FirstOrDefault()?.Text ?? "",
+        _ => "",
+    };
 
     /// <summary>
     /// Pictures of the windows in both themes (and German) for review, when INTERFACESYNC_SCREENSHOTS names a folder
