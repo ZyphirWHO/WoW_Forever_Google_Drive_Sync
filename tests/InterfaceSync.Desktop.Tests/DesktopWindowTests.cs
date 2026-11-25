@@ -404,6 +404,32 @@ public sealed class DesktopWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void Settings_section_links_put_the_section_at_the_top()
+    {
+        var (service, _) = MakeService(setupComplete: true);
+        service.Poll();
+        var window = new MainWindow(new Host(service, NewerUpdater(service))) { Width = 1100, Height = 760 };
+        window.AnimationsOff();
+        window.Show();
+        window.Navigate("Settings");
+        Dispatcher.UIThread.RunJobs();
+        var settings = (SettingsPage)window.PageFor("Settings");
+        foreach (var section in SettingsPage.SectionNames.Reverse().Concat(SettingsPage.SectionNames))
+        {
+            settings.Jump(section);
+            Dispatcher.UIThread.RunJobs();
+            Assert.InRange(settings.SectionDistanceFromTop(section), -1, 12);
+            Assert.Equal(section, settings.CurrentSection);
+        }
+        // arriving from elsewhere ("Update now" opens Settings at Updates) lands the same way
+        window.Navigate("Home");
+        window.Navigate("Settings", "Updates");
+        Dispatcher.UIThread.RunJobs();
+        Assert.InRange(settings.SectionDistanceFromTop("Updates"), -1, 12);
+        window.AllowClose();
+    }
+
+    [AvaloniaFact]
     public void The_updated_note_goes_away_when_dismissed_and_stays_away()
     {
         var (service, _) = MakeService(setupComplete: true);
@@ -545,11 +571,9 @@ public sealed class DesktopWindowTests : IDisposable
                     window.Refresh();
                     Save(window, $"main-{tag}-{page}");
                 }
-                window.Height = 1900;                       // the whole Settings page, down to Updates
-                window.Navigate("Settings", "Updates");
-                window.Refresh();
-                Save(window, $"main-{tag}-Settings-all");
-                window.Height = 760;
+                window.Navigate("Settings", "Cloud");       // a section link: Cloud at the top, its link highlighted
+                Dispatcher.UIThread.RunJobs();
+                Save(window, $"main-{tag}-Settings-Cloud");
                 window.Navigate("Home");
                 Actions.ChooseWhatSyncs(window, service.Workers[0]);
                 Save(window, $"main-{tag}-choose-what-syncs");

@@ -25,7 +25,10 @@ internal sealed class SettingsPage : Page
     private readonly Dictionary<string, Control> _sections = new();
     private readonly List<string> _titles = [];
     private readonly ScrollViewer _scroller;
+    private readonly Dictionary<string, Button> _links = new();
+    private readonly Border _endSpace = new();     // lets the last sections scroll up to the top
     private string _key = "";
+    private string? _jumpedTo;
 
     public SettingsPage(MainWindow shell) : base(shell)
     {
@@ -36,10 +39,23 @@ internal sealed class SettingsPage : Page
             var b = Ui.Button(L.T(section), () => JumpTo(section), ButtonKind.Ghost);
             b.Margin = new Thickness(0, 0, 4, 4);
             jump.Children.Add(b);
+            _links[section] = b;
         }
         AutomationProperties.SetName(jump, L.T("Settings sections"));
-        _scroller = Scroll(new StackPanel { Children = { Heading(L.T("Settings")), jump, _body } });
-        Content = _scroller;
+        // The heading and section links stay put; the sections scroll below them.
+        var top = new Border
+        {
+            Padding = new Thickness(32, 26, 32, 4), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Stretch,
+            Child = new StackPanel { Children = { Heading(L.T("Settings")), jump } },
+        };
+        _scroller = Scroll(new StackPanel { Children = { _body, _endSpace } });
+        ((Border)_scroller.Content!).Padding = new Thickness(32, 4, 32, 32);
+        _scroller.ScrollChanged += (_, _) => MarkCurrent();
+        var dock = new DockPanel();
+        DockPanel.SetDock(top, Dock.Top);
+        dock.Children.Add(top);
+        dock.Children.Add(_scroller);
+        Content = dock;
     }
 
     public override string Key => "Settings";
@@ -47,13 +63,51 @@ internal sealed class SettingsPage : Page
     public override void Arrive(object? argument)
     {
         _key = "";
-        if (argument is string section) Avalonia.Threading.Dispatcher.UIThread.Post(() => JumpTo(section));
+        // after the page is laid out (its size can still be changing), or the scroll position is put back
+        if (argument is string section) Avalonia.Threading.Dispatcher.UIThread.Post(() => JumpTo(section), Avalonia.Threading.DispatcherPriority.Loaded);
     }
 
+    /// <summary>Scrolls so the section's heading is at the top, right under the section links.</summary>
     private void JumpTo(string section)
     {
-        if (_sections.TryGetValue(section, out var c)) c.BringIntoView();
+        if (!_sections.TryGetValue(section, out var header)) return;
+        _scroller.UpdateLayout();
+        if (header.TranslatePoint(new Point(0, 0), _body) is not { } at) { header.BringIntoView(); return; }
+        // Room below the last sections so their heading can reach the top too.
+        var bodyTop = _body.TranslatePoint(new Point(0, 0), (Visual)_scroller.Content!)?.Y ?? 0;
+        var y = Math.Max(0, bodyTop + at.Y - 4);
+        _endSpace.Height = Math.Max(0, y + _scroller.Viewport.Height - (bodyTop + _body.Bounds.Height + 32));
+        _scroller.UpdateLayout();
+        _jumpedTo = section;
+        _scroller.Offset = new Vector(0, y);
+        MarkCurrent();
     }
+
+    /// <summary>Highlights the link of the section being read.</summary>
+    private void MarkCurrent()
+    {
+        string? current = null;
+        var y = _scroller.Offset.Y;
+        foreach (var name in SectionNames)
+            if (_sections.TryGetValue(name, out var h) && h.TranslatePoint(new Point(0, 0), _body) is { } p && p.Y <= y + 24) current = name;
+        // At the very bottom the last short sections can't reach the top: keep the one that was clicked.
+        if (_jumpedTo != null && y >= _scroller.Extent.Height - _scroller.Viewport.Height - 1) current = _jumpedTo;
+        else if (_jumpedTo != null && current != _jumpedTo) _jumpedTo = null;
+        current ??= SectionNames[0];
+        foreach (var (name, b) in _links)
+            if (name == current) Ui.Res(b, Button.BackgroundProperty, "InterfaceSyncSelection");
+            else b.ClearValue(Button.BackgroundProperty);
+        CurrentSection = current;
+    }
+
+    /// <summary>For tests: the section whose link is highlighted.</summary>
+    internal string CurrentSection { get; private set; } = "General";
+
+    /// <summary>For tests: how far the section's heading is from the top of the visible area (0 = at the top).</summary>
+    internal double SectionDistanceFromTop(string section) =>
+        _sections[section].TranslatePoint(new Point(0, 0), _scroller)?.Y ?? double.NaN;
+
+    internal void Jump(string section) => JumpTo(section);
 
     public override void Refresh()
     {
