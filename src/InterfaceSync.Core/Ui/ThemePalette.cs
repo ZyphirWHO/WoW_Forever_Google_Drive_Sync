@@ -25,20 +25,20 @@ public static class ThemePalette
         public const string Warning = "#E3B26A";
     }
 
-    /// <summary>Parchment and bronze: warm paper tones with dark ink text.</summary>
+    /// <summary>Parchment and bronze: soft eggshell paper tones (never bright white) with dark ink text.</summary>
     public static class Light
     {
-        public const string Window = "#F2EBDC";
-        public const string Surface = "#FBF7EF";
-        public const string Raised = "#E8DDC6";
-        public const string Hover = "#DFD1B4";
-        public const string Border = "#C8B48A";
-        public const string Selection = "#EAD9AE";
+        public const string Window = "#E8DFCC";
+        public const string Surface = "#F1EADB";
+        public const string Raised = "#DED1B6";
+        public const string Hover = "#D4C4A3";
+        public const string Border = "#BCA67C";
+        public const string Selection = "#DCCB9E";
         public const string Text = "#2A2217";
-        public const string Muted = "#6B5F4B";
-        public const string Accent = "#7A5418";    // bronze
-        public const string Error = "#A3261B";
-        public const string Warning = "#8A4B00";
+        public const string Muted = "#5F533F";
+        public const string Accent = "#6E4A12";    // bronze
+        public const string Error = "#9A2318";
+        public const string Warning = "#7D4300";
     }
 
     /// <summary>The banner across the top of every window, the same in both themes, and the gold primary button.</summary>
